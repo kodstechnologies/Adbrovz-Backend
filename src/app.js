@@ -114,15 +114,7 @@ app.get('/health', (req, res) => {
 /**
  * API routes
  */
-app.get(`/api/${config.API_VERSION}`, (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Welcome to Adbrovz API',
-    version: config.API_VERSION,
-    timestamp: new Date().toISOString(),
-  });
-});
-
+app.use('/api', routes);
 app.use(`/api/${config.API_VERSION}`, routes);
 
 /**

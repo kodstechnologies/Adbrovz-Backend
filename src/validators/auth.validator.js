@@ -193,14 +193,8 @@ const otpSchema = Joi.object({
       'any.required': 'Phone number is required',
     }),
   otp: Joi.string()
-    .length(6)
-    .pattern(/^\d+$/)
-    .required()
-    .messages({
-      'string.length': 'OTP must be 6 digits',
-      'string.pattern.base': 'OTP must contain only numbers',
-      'any.required': 'OTP is required',
-    }),
+    .optional()
+    .allow('', null),
 });
 
 // Reset PIN schema (Step 1)
@@ -213,10 +207,8 @@ const resetPinSchema = Joi.object({
       'any.required': 'Phone number is required',
     }),
   otp: Joi.string()
-    .required()
-    .messages({
-      'any.required': 'OTP is required',
-    }),
+    .optional()
+    .allow('', null),
   newPin: Joi.string()
     .length(4)
     .pattern(/^\d+$/)
@@ -240,7 +232,7 @@ const verifyResetOTPSchema = Joi.object({
   phoneNumber: Joi.string()
     .pattern(phonePattern)
     .required(),
-  otp: Joi.string().length(6).required(),
+  otp: Joi.string().optional().allow('', null),
 });
 
 // Complete Reset PIN schema (Step 3)

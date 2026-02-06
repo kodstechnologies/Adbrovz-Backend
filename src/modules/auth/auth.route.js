@@ -50,17 +50,18 @@ router.post('/admins/logout', authController.adminLogout);
 
 // ======================== COMMON ROUTES (All roles) ========================
 router.post('/refresh-token', authController.refreshToken);
+router.post('/send-home-sms', authenticate, authController.sendHomeSMS);
 
 // ======================== BACKWARD COMPATIBILITY (deprecated) ========================
 // Old generic endpoints - map to user role for backward compatibility
-// router.post('/verify-otp', authLimiter, validateOTP, authController.userVerifyOTP);
-// router.post('/login', authLimiter, validateLogin, authController.userLogin);
-// router.post('/send-otp', otpLimiter, authController.userSendOTP);
-// router.post('/reset-pin', authLimiter, validateResetPIN, authController.userResetPIN);
-// router.post('/logout', authController.userLogout);
+router.post('/verify-otp', authLimiter, validateOTP, authController.userVerifyOTP);
+router.post('/login', authLimiter, validateLogin, authController.userLogin);
+router.post('/send-otp', otpLimiter, authController.userSendOTP);
+router.post('/reset-pin', authLimiter, validateResetPIN, authController.userResetPIN);
+router.post('/logout', authController.userLogout);
 
 // Old signup endpoint
-// router.post('/signup', authLimiter, validateUserSignup, authController.userSignup);
+router.post('/signup', authLimiter, validateUserSignup, authController.userSignup);
 
 module.exports = router;
 

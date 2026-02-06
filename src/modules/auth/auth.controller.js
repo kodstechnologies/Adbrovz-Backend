@@ -166,6 +166,11 @@ const refreshToken = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, result, 'Token refreshed successfully'));
 });
 
+const sendHomeSMS = asyncHandler(async (req, res) => {
+  const result = await authService.sendPostLoginSMS(req.user.userId, req.user.role);
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
 module.exports = {
   // User
   userSignup,
@@ -194,5 +199,6 @@ module.exports = {
   adminResetPassword,
   // Common
   refreshToken,
+  sendHomeSMS,
 };
 

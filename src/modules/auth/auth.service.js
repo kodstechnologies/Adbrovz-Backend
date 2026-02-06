@@ -40,7 +40,7 @@ const userSignup = async ({ phoneNumber, name, email, pin, confirmPin, acceptedP
   await cacheService.set(otpKey, otp, otpExpiry);
 
   // Send OTP via SMS
-  await smsService.sendOTP(phoneNumber, otp);
+  // await smsService.sendOTP(phoneNumber, otp);
 
   // If user exists but not verified, update their info and resend OTP
   if (existingUser && !existingUser.isVerified) {
@@ -177,7 +177,7 @@ const completeUserSignup = async ({ signupId, pin, confirmPin, acceptedPolicies 
   await cacheService.set(otpKey, otp, otpExpiry);
 
   // Send OTP via SMS
-  await smsService.sendOTP(phoneNumber, otp);
+  // await smsService.sendOTP(phoneNumber, otp);
 
   // Delete signup session
   await cacheService.del(signupKey);
@@ -298,7 +298,7 @@ const vendorSignup = async ({ phoneNumber, name, email, pin, confirmPin, workSta
   await cacheService.set(otpKey, otp, otpExpiry);
 
   // Send OTP via SMS
-  await smsService.sendOTP(phoneNumber, otp);
+  // await smsService.sendOTP(phoneNumber, otp);
 
   // If vendor exists but not approved, update their info
   if (existingVendor && existingVendor.documentStatus !== 'approved') {
@@ -502,7 +502,8 @@ const verifySignupOTP = async (phoneNumber, otp, role = 'user', req = null) => {
     throw new ApiError(400, 'User already verified');
   }
 
-  // Verify OTP
+  // Verify OTP - Bypassed as per user request (PIN-only)
+  /*
   const storedOTP = await cacheService.get(otpKey);
   console.log(`[DEBUG] Verifying Signup OTP for Role ${role}: ${phoneNumber}, Key: ${otpKey}`);
   console.log(`[DEBUG] Stored OTP: ${storedOTP}, Provided OTP: ${otp}`);
@@ -510,6 +511,7 @@ const verifySignupOTP = async (phoneNumber, otp, role = 'user', req = null) => {
   if (!storedOTP || storedOTP !== otp) {
     throw new ApiError(400, MESSAGES.AUTH.INVALID_OTP);
   }
+  */
 
   // Update user/vendor
   if (role === 'vendor') {
@@ -662,7 +664,7 @@ const sendOTP = async (phoneNumber, role = 'user') => {
   const otpExpiry = config.OTP_EXPIRE_MINUTES * 60;
 
   await cacheService.set(otpKey, otp, otpExpiry);
-  await smsService.sendOTP(phoneNumber, otp);
+  // await smsService.sendOTP(phoneNumber, otp);
 
   return { message: 'OTP sent successfully' };
 };
@@ -685,13 +687,15 @@ const resetPIN = async (phoneNumber, otp, newPin, confirmPin, role = 'user', req
     throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
   }
 
-  // Verify OTP
+  // Verify OTP - Bypassed as per user request
+  /*
   const otpKey = `otp:reset:${phoneNumber}`;
   const storedOTP = await cacheService.get(otpKey);
 
   if (!storedOTP || storedOTP !== otp) {
     throw new ApiError(400, MESSAGES.AUTH.INVALID_OTP);
   }
+  */
 
   // Update PIN
   user.pin = await hashPIN(newPin);
@@ -727,12 +731,15 @@ const resetPIN = async (phoneNumber, otp, newPin, confirmPin, role = 'user', req
  * - Verifies OTP and returns a resetId if valid
  */
 const verifyResetPINOTP = async ({ phoneNumber, otp }) => {
+  // Verify OTP - Bypassed for future use
+  /*
   const otpKey = `otp:reset:${phoneNumber}`;
   const storedOTP = await cacheService.get(otpKey);
 
   if (!storedOTP || storedOTP !== otp) {
     throw new ApiError(400, MESSAGES.AUTH.INVALID_OTP);
   }
+  */
 
   // Generate unique reset identifier
   const resetId = crypto.randomUUID();
@@ -817,6 +824,27 @@ const refreshToken = async (refreshToken) => {
   };
 };
 
+/**
+ * Send Post-Login Home Screen SMS
+ */
+const sendPostLoginSMS = async (userId, role = 'user') => {
+  let user;
+  if (role === 'vendor') {
+    user = await Vendor.findById(userId);
+  } else {
+    user = await User.findById(userId);
+  }
+
+  if (!user) {
+    throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
+  }
+
+  const message = `Welcome to AdBrovz, ${user.name}! You have successfully logged in.`;
+  await smsService.sendSMS(user.phoneNumber, message);
+
+  return { message: 'SMS sent successfully' };
+};
+
 module.exports = {
   userSignup,
   initiateUserSignup,
@@ -834,5 +862,6 @@ module.exports = {
   completeUserLogin,
   verifyResetPINOTP,
   completeResetPIN,
+  sendPostLoginSMS,
 };
 
