@@ -82,9 +82,17 @@ const getAllServiceSections = async (query = {}) => {
                 return null;
             }
 
+            // Get total count of active services for this subcategory
+            const count = await Service.countDocuments({
+                category: section.category?._id,
+                subcategory: section.subcategory?._id,
+                isActive: true
+            });
+
             return {
                 ...section.toObject(),
-                services
+                services,
+                totalServices: count
             };
         })
     );
