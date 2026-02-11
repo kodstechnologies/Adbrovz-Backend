@@ -16,13 +16,13 @@ router.use(authenticate);
 router.use(authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN));
 
 // Category Management
-router.post('/categories', serviceController.createCategory);
-router.put('/categories/:categoryId', serviceController.updateCategory);
+router.post('/categories', upload.single('icon'), serviceController.createCategory);
+router.put('/categories/:categoryId', upload.single('icon'), serviceController.updateCategory);
 router.delete('/categories/:categoryId', serviceController.deleteCategory);
 
 // Subcategory Management
-router.post('/subcategories', serviceController.createSubcategory);
-router.put('/subcategories/:subcategoryId', serviceController.updateSubcategory);
+router.post('/subcategories', upload.single('icon'), serviceController.createSubcategory);
+router.put('/subcategories/:subcategoryId', upload.single('icon'), serviceController.updateSubcategory);
 router.delete('/subcategories/:subcategoryId', serviceController.deleteSubcategory);
 
 // Service Management

@@ -46,12 +46,20 @@ const getServiceDetails = asyncHandler(async (req, res) => {
 
 // Admin: Category Management
 const createCategory = asyncHandler(async (req, res) => {
-    const category = await serviceService.createCategory(req.body);
+    const data = { ...req.body };
+    if (req.file) {
+        data.icon = req.file.path.replace(/\\/g, '/');
+    }
+    const category = await serviceService.createCategory(data);
     res.status(201).json(new ApiResponse(201, category, 'Category created successfully'));
 });
 
 const updateCategory = asyncHandler(async (req, res) => {
-    const category = await serviceService.updateCategory(req.params.categoryId, req.body);
+    const data = { ...req.body };
+    if (req.file) {
+        data.icon = req.file.path.replace(/\\/g, '/');
+    }
+    const category = await serviceService.updateCategory(req.params.categoryId, data);
     res.status(200).json(new ApiResponse(200, category, 'Category updated successfully'));
 });
 
@@ -62,12 +70,20 @@ const deleteCategory = asyncHandler(async (req, res) => {
 
 // Admin: Subcategory Management
 const createSubcategory = asyncHandler(async (req, res) => {
-    const subcategory = await serviceService.createSubcategory(req.body);
+    const data = { ...req.body };
+    if (req.file) {
+        data.icon = req.file.path.replace(/\\/g, '/');
+    }
+    const subcategory = await serviceService.createSubcategory(data);
     res.status(201).json(new ApiResponse(201, subcategory, 'Subcategory created successfully'));
 });
 
 const updateSubcategory = asyncHandler(async (req, res) => {
-    const subcategory = await serviceService.updateSubcategory(req.params.subcategoryId, req.body);
+    const data = { ...req.body };
+    if (req.file) {
+        data.icon = req.file.path.replace(/\\/g, '/');
+    }
+    const subcategory = await serviceService.updateSubcategory(req.params.subcategoryId, data);
     res.status(200).json(new ApiResponse(200, subcategory, 'Subcategory updated successfully'));
 });
 
@@ -78,6 +94,8 @@ const deleteSubcategory = asyncHandler(async (req, res) => {
 
 // Admin: Service Management
 const createService = asyncHandler(async (req, res) => {
+    console.log('DEBUG: createService req.body:', req.body);
+    console.log('DEBUG: createService req.file:', req.file);
     const serviceData = { ...req.body };
 
     if (req.file) {

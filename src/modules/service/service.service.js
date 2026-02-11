@@ -134,13 +134,29 @@ const deleteSubcategory = async (subcategoryId) => {
  * Admin: Create Service
  */
 const createService = async (data) => {
-    // Verify category and subcategory exist
-    const categoryExists = await Category.exists({ _id: data.category });
-    if (!categoryExists) throw new ApiError(404, 'Category not found');
+    console.log('DEBUG: createService data received:', JSON.stringify(data));
+
+    // Trim IDs if they are strings
+    if (typeof data.category === 'string') data.category = data.category.trim();
+    if (typeof data.subcategory === 'string') data.subcategory = data.subcategory.trim();
+
+    // Verify category exists
+    console.log('DEBUG: Finding category by ID:', data.category);
+    const category = await Category.findById(data.category);
+    console.log('DEBUG: Category found:', !!category);
+
+    if (!category) {
+        console.log('DEBUG: Category not found. Listing all available categories for comparison...');
+        const allCats = await Category.find({}, '_id name');
+        console.log('DEBUG: Available Category IDs:', allCats.map(c => c._id.toString()));
+        throw new ApiError(404, 'Category not found');
+    }
 
     if (data.subcategory) {
-        const subcategoryExists = await Subcategory.exists({ _id: data.subcategory });
-        if (!subcategoryExists) throw new ApiError(404, 'Subcategory not found');
+        console.log('DEBUG: Finding subcategory by ID:', data.subcategory);
+        const subcategory = await Subcategory.findById(data.subcategory);
+        console.log('DEBUG: Subcategory found:', !!subcategory);
+        if (!subcategory) throw new ApiError(404, 'Subcategory not found');
     }
 
     const service = await Service.create(data);
