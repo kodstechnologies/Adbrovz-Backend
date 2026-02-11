@@ -58,27 +58,38 @@ const getAllServiceSections = async (query = {}) => {
         filter.isActive = query.isActive === 'true';
     }
 
-    let sections = await ServiceSection.find(filter)
+    const sections = await ServiceSection.find(filter)
         .sort({ order: 1 })
         .populate('category', 'name')
         .populate('subcategory', 'name');
 
-    // If ignoreEmpty is true, filter out sections with no services
-    if (query.ignoreEmpty === 'true') {
-        const sectionsWithServices = await Promise.all(
-            sections.map(async (section) => {
-                const count = await Service.countDocuments({
-                    category: section.category._id,
-                    subcategory: section.subcategory._id,
-                    isActive: true
-                });
-                return count > 0 ? section : null;
+    const sectionsWithServices = await Promise.all(
+        sections.map(async (section) => {
+            // Find services for this section
+            const services = await Service.find({
+                category: section.category._id,
+                subcategory: section.subcategory._id,
+                isActive: true
             })
-        );
-        sections = sectionsWithServices.filter(Boolean);
-    }
+                .limit(section.limit) // limit to section's limit
+                .sort({ order: 1 }) // implied service order, or createdAt
+                .select('title description photo approxCompletionTime adminPrice isAdminPriced category subcategory')
+                .populate('category', '_id name')
+                .populate('subcategory', '_id name');
 
-    return sections;
+            // If ignoreEmpty is true and no services, filter this section out
+            if (query.ignoreEmpty === 'true' && services.length === 0) {
+                return null;
+            }
+
+            return {
+                ...section.toObject(),
+                services
+            };
+        })
+    );
+
+    return sectionsWithServices.filter(Boolean);
 };
 
 /**
