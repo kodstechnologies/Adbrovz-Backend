@@ -1,4 +1,4 @@
-  const asyncHandler = require('../../utils/asyncHandler');
+const asyncHandler = require('../../utils/asyncHandler');
 const ApiResponse = require('../../utils/ApiResponse');
 const serviceService = require('./service.service');
 
@@ -78,12 +78,24 @@ const deleteSubcategory = asyncHandler(async (req, res) => {
 
 // Admin: Service Management
 const createService = asyncHandler(async (req, res) => {
-    const service = await serviceService.createService(req.body);
+    const serviceData = { ...req.body };
+
+    if (req.file) {
+        serviceData.photo = req.file.path.replace(/\\/g, '/');
+    }
+
+    const service = await serviceService.createService(serviceData);
     res.status(201).json(new ApiResponse(201, service, 'Service created successfully'));
 });
 
 const updateService = asyncHandler(async (req, res) => {
-    const service = await serviceService.updateService(req.params.serviceId, req.body);
+    const updateData = { ...req.body };
+
+    if (req.file) {
+        updateData.photo = req.file.path.replace(/\\/g, '/');
+    }
+
+    const service = await serviceService.updateService(req.params.serviceId, updateData);
     res.status(200).json(new ApiResponse(200, service, 'Service updated successfully'));
 });
 

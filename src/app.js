@@ -7,11 +7,17 @@ const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss-clean');
 const rateLimit = require('express-rate-limit');
 
+const path = require('path');
 const config = require('./config/env');
 const routes = require('./routes');
 const { errorHandler, notFoundHandler } = require('./middlewares/error.middleware');
 
 const app = express();
+
+/**
+ * Static files
+ */
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 /**
  * Trust proxy (important for rate limiting & real IPs)

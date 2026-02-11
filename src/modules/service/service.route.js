@@ -3,6 +3,7 @@ const router = express.Router();
 const serviceController = require('./service.controller');
 const { authenticate, authorize } = require('../../middlewares/auth.middleware');
 const { ROLES } = require('../../constants/roles');
+const upload = require('../../middlewares/upload.middleware');
 
 // ================= PUBLIC ROUTES =================
 router.get('/categories', serviceController.getCategories);
@@ -25,8 +26,8 @@ router.put('/subcategories/:subcategoryId', serviceController.updateSubcategory)
 router.delete('/subcategories/:subcategoryId', serviceController.deleteSubcategory);
 
 // Service Management
-router.post('/services', serviceController.createService);
-router.put('/services/:serviceId', serviceController.updateService);
+router.post('/services', upload.single('photo'), serviceController.createService);
+router.put('/services/:serviceId', upload.single('photo'), serviceController.updateService);
 router.delete('/services/:serviceId', serviceController.deleteService);
 
 module.exports = router;
