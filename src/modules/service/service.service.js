@@ -90,17 +90,43 @@ const createCategory = async (data) => {
  * Admin: Update Category
  */
 const updateCategory = async (categoryId, data) => {
-    const category = await Category.findByIdAndUpdate(categoryId, data, { new: true });
+    const category = await Category.findById(categoryId);
     if (!category) throw new ApiError(404, 'Category not found');
-    return category;
+    
+    // Delete old image from Cloudinary if new image is being uploaded
+    if (data.icon && category.icon && category.icon.includes('cloudinary.com') && data.icon !== category.icon) {
+        try {
+            const cloudinaryService = require('../services/cloudinary.service');
+            await cloudinaryService.deleteFromCloudinary(category.icon);
+        } catch (error) {
+            console.error('Error deleting old category image from Cloudinary:', error);
+            // Continue with update even if Cloudinary delete fails
+        }
+    }
+    
+    const updatedCategory = await Category.findByIdAndUpdate(categoryId, data, { new: true });
+    return updatedCategory;
 };
 
 /**
  * Admin: Delete Category
  */
 const deleteCategory = async (categoryId) => {
-    const category = await Category.findByIdAndDelete(categoryId);
+    const category = await Category.findById(categoryId);
     if (!category) throw new ApiError(404, 'Category not found');
+    
+    // Delete image from Cloudinary if exists
+    if (category.icon && category.icon.includes('cloudinary.com')) {
+        try {
+            const cloudinaryService = require('../services/cloudinary.service');
+            await cloudinaryService.deleteFromCloudinary(category.icon);
+        } catch (error) {
+            console.error('Error deleting category image from Cloudinary:', error);
+            // Continue with deletion even if Cloudinary delete fails
+        }
+    }
+    
+    await Category.findByIdAndDelete(categoryId);
     return category;
 };
 
@@ -116,17 +142,43 @@ const createSubcategory = async (data) => {
  * Admin: Update Subcategory
  */
 const updateSubcategory = async (subcategoryId, data) => {
-    const subcategory = await Subcategory.findByIdAndUpdate(subcategoryId, data, { new: true });
+    const subcategory = await Subcategory.findById(subcategoryId);
     if (!subcategory) throw new ApiError(404, 'Subcategory not found');
-    return subcategory;
+    
+    // Delete old image from Cloudinary if new image is being uploaded
+    if (data.icon && subcategory.icon && subcategory.icon.includes('cloudinary.com') && data.icon !== subcategory.icon) {
+        try {
+            const cloudinaryService = require('../services/cloudinary.service');
+            await cloudinaryService.deleteFromCloudinary(subcategory.icon);
+        } catch (error) {
+            console.error('Error deleting old subcategory image from Cloudinary:', error);
+            // Continue with update even if Cloudinary delete fails
+        }
+    }
+    
+    const updatedSubcategory = await Subcategory.findByIdAndUpdate(subcategoryId, data, { new: true });
+    return updatedSubcategory;
 };
 
 /**
  * Admin: Delete Subcategory
  */
 const deleteSubcategory = async (subcategoryId) => {
-    const subcategory = await Subcategory.findByIdAndDelete(subcategoryId);
+    const subcategory = await Subcategory.findById(subcategoryId);
     if (!subcategory) throw new ApiError(404, 'Subcategory not found');
+    
+    // Delete image from Cloudinary if exists
+    if (subcategory.icon && subcategory.icon.includes('cloudinary.com')) {
+        try {
+            const cloudinaryService = require('../services/cloudinary.service');
+            await cloudinaryService.deleteFromCloudinary(subcategory.icon);
+        } catch (error) {
+            console.error('Error deleting subcategory image from Cloudinary:', error);
+            // Continue with deletion even if Cloudinary delete fails
+        }
+    }
+    
+    await Subcategory.findByIdAndDelete(subcategoryId);
     return subcategory;
 };
 
@@ -184,17 +236,43 @@ const createService = async (data) => {
  * Admin: Update Service
  */
 const updateService = async (serviceId, data) => {
-    const service = await Service.findByIdAndUpdate(serviceId, data, { new: true });
+    const service = await Service.findById(serviceId);
     if (!service) throw new ApiError(404, 'Service not found');
-    return service;
+    
+    // Delete old image from Cloudinary if new image is being uploaded
+    if (data.photo && service.photo && service.photo.includes('cloudinary.com') && data.photo !== service.photo) {
+        try {
+            const cloudinaryService = require('../services/cloudinary.service');
+            await cloudinaryService.deleteFromCloudinary(service.photo);
+        } catch (error) {
+            console.error('Error deleting old service image from Cloudinary:', error);
+            // Continue with update even if Cloudinary delete fails
+        }
+    }
+    
+    const updatedService = await Service.findByIdAndUpdate(serviceId, data, { new: true });
+    return updatedService;
 };
 
 /**
  * Admin: Delete Service
  */
 const deleteService = async (serviceId) => {
-    const service = await Service.findByIdAndDelete(serviceId);
+    const service = await Service.findById(serviceId);
     if (!service) throw new ApiError(404, 'Service not found');
+    
+    // Delete image from Cloudinary if exists
+    if (service.photo && service.photo.includes('cloudinary.com')) {
+        try {
+            const cloudinaryService = require('../services/cloudinary.service');
+            await cloudinaryService.deleteFromCloudinary(service.photo);
+        } catch (error) {
+            console.error('Error deleting service image from Cloudinary:', error);
+            // Continue with deletion even if Cloudinary delete fails
+        }
+    }
+    
+    await Service.findByIdAndDelete(serviceId);
     return service;
 };
 
@@ -203,8 +281,9 @@ const deleteService = async (serviceId) => {
  * Optimized using aggregation pipeline for better performance
  */
 const getAllCategoriesWithSubcategories = async () => {
-    // Use aggregation pipeline to join Categories -> Subcategories -> Services
-    const result = await Category.aggregate([
+    try {
+        // Use aggregation pipeline to join Categories -> Subcategories -> Services
+        const result = await Category.aggregate([
         { $match: { isActive: true } },
         { $sort: { order: 1, name: 1 } },
         {
@@ -296,13 +375,17 @@ const getAllCategoriesWithSubcategories = async () => {
                 }
             }
         }
-    ]);
+        ]);
 
-    // Convert _id to id for consistency
-    return result.map(cat => ({
-        ...cat,
-        id: cat._id.toString()
-    }));
+        // Convert _id to id for consistency
+        return result.map(cat => ({
+            ...cat,
+            id: cat._id.toString()
+        }));
+    } catch (error) {
+        console.error('Error in getAllCategoriesWithSubcategories:', error);
+        throw error;
+    }
 };
 
 module.exports = {

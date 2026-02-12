@@ -44,7 +44,7 @@ const getAllUsers = async (query = {}) => {
 
   // Build filter - include deleted users if requested (for exports)
   const filter = {};
-  
+
   // Only filter out deleted users if includeDeleted is not true
   // This allows exports to show all users including deleted ones
   if (includeDeleted !== 'true' && includeDeleted !== true) {
@@ -106,8 +106,43 @@ const updateUserStatus = async (userId, status, adminId) => {
   return user;
 };
 
+const CreditPlan = require('../../models/CreditPlan.model');
+
+// ... existing code ...
+
+const createCreditPlan = async (planData) => {
+  return await CreditPlan.create(planData);
+};
+
+const getCreditPlans = async (includeInactive = true) => {
+  const filter = includeInactive ? {} : { isActive: true };
+  return await CreditPlan.find(filter).sort({ price: 1 });
+};
+
+const updateCreditPlan = async (planId, updateData) => {
+  const plan = await CreditPlan.findByIdAndUpdate(planId, updateData, { new: true });
+  if (!plan) {
+    throw new Error('Credit plan not found');
+  }
+  return plan;
+};
+
+const deleteCreditPlan = async (planId) => {
+  // Soft delete or deactivate? User said "set by admin", so let's allow actual deletion or just deactivation.
+  // We'll do a real delete for now or just set isActive to false.
+  const plan = await CreditPlan.findByIdAndDelete(planId);
+  if (!plan) {
+    throw new Error('Credit plan not found');
+  }
+  return plan;
+};
+
 module.exports = {
   getDashboardStats,
   getAllUsers,
   updateUserStatus,
+  createCreditPlan,
+  getCreditPlans,
+  updateCreditPlan,
+  deleteCreditPlan,
 };

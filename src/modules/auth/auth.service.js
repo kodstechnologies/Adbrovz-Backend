@@ -264,7 +264,7 @@ const completeUserLogin = async ({ loginId, pin }, req = null) => {
 };
 
 // ======================== VENDOR SIGNUP ========================
-const vendorSignup = async ({ phoneNumber, name, email, pin, confirmPin, workState, workCity, workPincodes, acceptedTerms, acceptedPrivacyPolicy }) => {
+const vendorSignup = async ({ phoneNumber, name, email, pin, confirmPin, identityNumber, idProof, workState, workCity, workPincodes, acceptedTerms, acceptedPrivacyPolicy }) => {
   // Check if vendor already exists
   const existingVendor = await Vendor.findOne({ phoneNumber });
 
@@ -276,6 +276,11 @@ const vendorSignup = async ({ phoneNumber, name, email, pin, confirmPin, workSta
   // Validate PIN match
   if (pin !== confirmPin) {
     throw new ApiError(400, MESSAGES.AUTH.PIN_MISMATCH);
+  }
+
+  // Validate identity details
+  if (!identityNumber) {
+    throw new ApiError(400, 'Identity number is required');
   }
 
   // Validate work details
@@ -294,17 +299,19 @@ const vendorSignup = async ({ phoneNumber, name, email, pin, confirmPin, workSta
   // Store OTP in cache
   await cacheService.set(otpKey, otp, otpExpiry);
 
-  // Send OTP via SMS
-  // await smsService.sendOTP(phoneNumber, otp);
-
   // If vendor exists but not approved, update their info
   if (existingVendor && existingVendor.documentStatus !== 'approved') {
     existingVendor.name = name;
     existingVendor.email = email;
     existingVendor.pin = hashedPIN;
+    existingVendor.identityNumber = identityNumber;
+    if (idProof) {
+      existingVendor.documents.idProof = idProof;
+    }
     existingVendor.workState = workState;
     existingVendor.workCity = workCity;
     existingVendor.workPincodes = workPincodes;
+    existingVendor.registrationStep = 'SIGNUP';
     await existingVendor.save();
 
     return {
@@ -321,10 +328,15 @@ const vendorSignup = async ({ phoneNumber, name, email, pin, confirmPin, workSta
     email,
     pin: hashedPIN,
     vendorID: `V${Date.now()}`, // Temporary, will be updated after verification
+    identityNumber,
+    documents: {
+      idProof: idProof || '',
+    },
     workState,
     workCity,
     workPincodes: workPincodes || [],
     documentStatus: 'pending',
+    registrationStep: 'SIGNUP',
   });
 
   return {

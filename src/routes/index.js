@@ -7,6 +7,7 @@ const userRoutes = require('../modules/user/user.route');
 const adminRoutes = require('../modules/admin/admin.route');
 const serviceRoutes = require('../modules/service/service.route');
 const dashboardRoutes = require('../modules/Userappdashboard/dashboard.route');
+const vendorRoutes = require('../modules/vendor/vendor.route');
 
 // Health check
 router.get('/health', (req, res) => {
@@ -31,6 +32,7 @@ router.use('/users', userRoutes);
 router.use('/admin', adminRoutes);
 router.use('/services', serviceRoutes);
 router.use('/dashboard', dashboardRoutes);
+router.use('/vendors', vendorRoutes);
 
 module.exports = router;
 

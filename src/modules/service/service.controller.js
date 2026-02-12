@@ -47,8 +47,9 @@ const getServiceDetails = asyncHandler(async (req, res) => {
 // Admin: Category Management
 const createCategory = asyncHandler(async (req, res) => {
     const data = { ...req.body };
-    if (req.file) {
-        data.icon = req.file.path.replace(/\\/g, '/');
+    // Cloudinary URL is already set in req.body.icon by uploadToCloudinary middleware
+    if (req.file && req.file.cloudinary) {
+        data.icon = req.file.cloudinary.url;
     }
     const category = await serviceService.createCategory(data);
     res.status(201).json(new ApiResponse(201, category, 'Category created successfully'));
@@ -56,8 +57,9 @@ const createCategory = asyncHandler(async (req, res) => {
 
 const updateCategory = asyncHandler(async (req, res) => {
     const data = { ...req.body };
-    if (req.file) {
-        data.icon = req.file.path.replace(/\\/g, '/');
+    // Cloudinary URL is already set in req.body.icon by uploadToCloudinary middleware
+    if (req.file && req.file.cloudinary) {
+        data.icon = req.file.cloudinary.url;
     }
     const category = await serviceService.updateCategory(req.params.categoryId, data);
     res.status(200).json(new ApiResponse(200, category, 'Category updated successfully'));
@@ -71,8 +73,9 @@ const deleteCategory = asyncHandler(async (req, res) => {
 // Admin: Subcategory Management
 const createSubcategory = asyncHandler(async (req, res) => {
     const data = { ...req.body };
-    if (req.file) {
-        data.icon = req.file.path.replace(/\\/g, '/');
+    // Cloudinary URL is already set in req.body.icon by uploadToCloudinary middleware
+    if (req.file && req.file.cloudinary) {
+        data.icon = req.file.cloudinary.url;
     }
     const subcategory = await serviceService.createSubcategory(data);
     res.status(201).json(new ApiResponse(201, subcategory, 'Subcategory created successfully'));
@@ -80,8 +83,9 @@ const createSubcategory = asyncHandler(async (req, res) => {
 
 const updateSubcategory = asyncHandler(async (req, res) => {
     const data = { ...req.body };
-    if (req.file) {
-        data.icon = req.file.path.replace(/\\/g, '/');
+    // Cloudinary URL is already set in req.body.icon by uploadToCloudinary middleware
+    if (req.file && req.file.cloudinary) {
+        data.icon = req.file.cloudinary.url;
     }
     const subcategory = await serviceService.updateSubcategory(req.params.subcategoryId, data);
     res.status(200).json(new ApiResponse(200, subcategory, 'Subcategory updated successfully'));
@@ -98,8 +102,9 @@ const createService = asyncHandler(async (req, res) => {
     console.log('DEBUG: createService req.file:', req.file);
     const serviceData = { ...req.body };
 
-    if (req.file) {
-        serviceData.photo = req.file.path.replace(/\\/g, '/');
+    // Cloudinary URL is already set in req.body.photo by uploadToCloudinary middleware
+    if (req.file && req.file.cloudinary) {
+        serviceData.photo = req.file.cloudinary.url;
     }
 
     const service = await serviceService.createService(serviceData);
@@ -109,8 +114,9 @@ const createService = asyncHandler(async (req, res) => {
 const updateService = asyncHandler(async (req, res) => {
     const updateData = { ...req.body };
 
-    if (req.file) {
-        updateData.photo = req.file.path.replace(/\\/g, '/');
+    // Cloudinary URL is already set in req.body.photo by uploadToCloudinary middleware
+    if (req.file && req.file.cloudinary) {
+        updateData.photo = req.file.cloudinary.url;
     }
 
     const service = await serviceService.updateService(req.params.serviceId, updateData);
@@ -124,10 +130,15 @@ const deleteService = asyncHandler(async (req, res) => {
 
 // Admin: Get all categories with subcategories
 const getCategoriesWithSubcategories = asyncHandler(async (req, res) => {
-    const categories = await serviceService.getAllCategoriesWithSubcategories();
-    res.status(200).json(
-        new ApiResponse(200, categories, 'Categories with subcategories retrieved successfully')
-    );
+    try {
+        const categories = await serviceService.getAllCategoriesWithSubcategories();
+        res.status(200).json(
+            new ApiResponse(200, categories, 'Categories with subcategories retrieved successfully')
+        );
+    } catch (error) {
+        console.error('Error in getCategoriesWithSubcategories controller:', error);
+        throw error;
+    }
 });
 
 module.exports = {

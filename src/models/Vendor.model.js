@@ -45,6 +45,19 @@ const vendorSchema = new mongoose.Schema(
     workPincodes: [{
       type: String,
     }],
+    identityNumber: {
+      type: String,
+      trim: true,
+    },
+    selectedSubcategories: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Subcategory',
+    }],
+    registrationStep: {
+      type: String,
+      enum: ['SIGNUP', 'SERVICES_SELECTED', 'MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED', 'PENDING'],
+      default: 'PENDING',
+    },
     documents: {
       photo: { type: String },
       idProof: { type: String },
@@ -61,6 +74,7 @@ const vendorSchema = new mongoose.Schema(
     membership: {
       category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
       fee: { type: Number },
+      durationMonths: { type: Number, default: 3 },
       startDate: { type: Date },
       expiryDate: { type: Date },
       isActive: { type: Boolean, default: false },

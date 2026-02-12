@@ -42,6 +42,11 @@ MONGODB_URI: process.env.MONGODB_URI || "mongodb+srv://adityaprasadtripathy20_db
   GCP_PROJECT_ID: process.env.GCP_PROJECT_ID,
   GCP_API_KEY: process.env.GCP_API_KEY,
 
+  // Cloudinary
+  CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME,
+  CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY,
+  CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,
+
   // Redis
   REDIS_HOST: process.env.REDIS_HOST || 'localhost',
   REDIS_PORT: parseInt(process.env.REDIS_PORT, 10) || 6379,

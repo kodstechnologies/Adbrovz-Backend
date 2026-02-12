@@ -70,10 +70,53 @@ const updateUserStatus = asyncHandler(async (req, res) => {
   );
 });
 
+const adminService = require('./admin.service');
+
+// ... existing code ...
+
+// Create credit plan
+const createCreditPlan = asyncHandler(async (req, res) => {
+  const plan = await adminService.createCreditPlan(req.body);
+  res.status(201).json(
+    new ApiResponse(201, plan, 'Credit plan created successfully')
+  );
+});
+
+// Get all credit plans
+const getCreditPlans = asyncHandler(async (req, res) => {
+  const { includeInactive = 'true' } = req.query;
+  const plans = await adminService.getCreditPlans(includeInactive === 'true');
+  res.status(200).json(
+    new ApiResponse(200, plans, 'Credit plans retrieved successfully')
+  );
+});
+
+// Update credit plan
+const updateCreditPlan = asyncHandler(async (req, res) => {
+  const { planId } = req.params;
+  const plan = await adminService.updateCreditPlan(planId, req.body);
+  res.status(200).json(
+    new ApiResponse(200, plan, 'Credit plan updated successfully')
+  );
+});
+
+// Delete credit plan
+const deleteCreditPlan = asyncHandler(async (req, res) => {
+  const { planId } = req.params;
+  await adminService.deleteCreditPlan(planId);
+  res.status(200).json(
+    new ApiResponse(200, null, 'Credit plan deleted successfully')
+  );
+});
+
 module.exports = {
   getDashboard,
   getUsers,
   updateUserStatus,
   getUserAuditLogs,
   getAuditLogsByAction,
+  createCreditPlan,
+  getCreditPlans,
+  updateCreditPlan,
+  deleteCreditPlan,
 };

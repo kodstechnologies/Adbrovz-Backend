@@ -16,5 +16,11 @@ router.patch('/users/:userId/status', adminController.updateUserStatus);
 router.get('/audit-logs/user/:userId', adminController.getUserAuditLogs);
 router.get('/audit-logs/action/:action', adminController.getAuditLogsByAction);
 
+// Credit Plan management routes
+router.post('/credit-plans', adminController.createCreditPlan);
+router.get('/credit-plans', adminController.getCreditPlans);
+router.patch('/credit-plans/:planId', adminController.updateCreditPlan);
+router.delete('/credit-plans/:planId', adminController.deleteCreditPlan);
+
 module.exports = router;
 
