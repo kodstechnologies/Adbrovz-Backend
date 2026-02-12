@@ -92,7 +92,7 @@ const createCategory = async (data) => {
 const updateCategory = async (categoryId, data) => {
     const category = await Category.findById(categoryId);
     if (!category) throw new ApiError(404, 'Category not found');
-    
+
     // Delete old image from Cloudinary if new image is being uploaded
     if (data.icon && category.icon && category.icon.includes('cloudinary.com') && data.icon !== category.icon) {
         try {
@@ -103,7 +103,7 @@ const updateCategory = async (categoryId, data) => {
             // Continue with update even if Cloudinary delete fails
         }
     }
-    
+
     const updatedCategory = await Category.findByIdAndUpdate(categoryId, data, { new: true });
     return updatedCategory;
 };
@@ -114,7 +114,7 @@ const updateCategory = async (categoryId, data) => {
 const deleteCategory = async (categoryId) => {
     const category = await Category.findById(categoryId);
     if (!category) throw new ApiError(404, 'Category not found');
-    
+
     // Delete image from Cloudinary if exists
     if (category.icon && category.icon.includes('cloudinary.com')) {
         try {
@@ -125,7 +125,7 @@ const deleteCategory = async (categoryId) => {
             // Continue with deletion even if Cloudinary delete fails
         }
     }
-    
+
     await Category.findByIdAndDelete(categoryId);
     return category;
 };
@@ -144,7 +144,7 @@ const createSubcategory = async (data) => {
 const updateSubcategory = async (subcategoryId, data) => {
     const subcategory = await Subcategory.findById(subcategoryId);
     if (!subcategory) throw new ApiError(404, 'Subcategory not found');
-    
+
     // Delete old image from Cloudinary if new image is being uploaded
     if (data.icon && subcategory.icon && subcategory.icon.includes('cloudinary.com') && data.icon !== subcategory.icon) {
         try {
@@ -155,7 +155,7 @@ const updateSubcategory = async (subcategoryId, data) => {
             // Continue with update even if Cloudinary delete fails
         }
     }
-    
+
     const updatedSubcategory = await Subcategory.findByIdAndUpdate(subcategoryId, data, { new: true });
     return updatedSubcategory;
 };
@@ -166,7 +166,7 @@ const updateSubcategory = async (subcategoryId, data) => {
 const deleteSubcategory = async (subcategoryId) => {
     const subcategory = await Subcategory.findById(subcategoryId);
     if (!subcategory) throw new ApiError(404, 'Subcategory not found');
-    
+
     // Delete image from Cloudinary if exists
     if (subcategory.icon && subcategory.icon.includes('cloudinary.com')) {
         try {
@@ -177,7 +177,7 @@ const deleteSubcategory = async (subcategoryId) => {
             // Continue with deletion even if Cloudinary delete fails
         }
     }
-    
+
     await Subcategory.findByIdAndDelete(subcategoryId);
     return subcategory;
 };
@@ -238,7 +238,7 @@ const createService = async (data) => {
 const updateService = async (serviceId, data) => {
     const service = await Service.findById(serviceId);
     if (!service) throw new ApiError(404, 'Service not found');
-    
+
     // Delete old image from Cloudinary if new image is being uploaded
     if (data.photo && service.photo && service.photo.includes('cloudinary.com') && data.photo !== service.photo) {
         try {
@@ -249,7 +249,7 @@ const updateService = async (serviceId, data) => {
             // Continue with update even if Cloudinary delete fails
         }
     }
-    
+
     const updatedService = await Service.findByIdAndUpdate(serviceId, data, { new: true });
     return updatedService;
 };
@@ -260,7 +260,7 @@ const updateService = async (serviceId, data) => {
 const deleteService = async (serviceId) => {
     const service = await Service.findById(serviceId);
     if (!service) throw new ApiError(404, 'Service not found');
-    
+
     // Delete image from Cloudinary if exists
     if (service.photo && service.photo.includes('cloudinary.com')) {
         try {
@@ -271,7 +271,7 @@ const deleteService = async (serviceId) => {
             // Continue with deletion even if Cloudinary delete fails
         }
     }
-    
+
     await Service.findByIdAndDelete(serviceId);
     return service;
 };
@@ -284,97 +284,97 @@ const getAllCategoriesWithSubcategories = async () => {
     try {
         // Use aggregation pipeline to join Categories -> Subcategories -> Services
         const result = await Category.aggregate([
-        { $match: { isActive: true } },
-        { $sort: { order: 1, name: 1 } },
-        {
-            $lookup: {
-                from: 'subcategories',
-                let: { categoryId: '$_id' },
-                pipeline: [
-                    {
-                        $match: {
-                            $expr: {
-                                $and: [
-                                    { $eq: ['$category', '$$categoryId'] },
-                                    { $eq: ['$isActive', true] }
-                                ]
+            { $match: { isActive: true } },
+            { $sort: { order: 1, name: 1 } },
+            {
+                $lookup: {
+                    from: 'subcategories',
+                    let: { categoryId: '$_id' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: ['$category', '$$categoryId'] },
+                                        { $eq: ['$isActive', true] }
+                                    ]
+                                }
                             }
-                        }
-                    },
-                    { $sort: { order: 1, name: 1 } },
-                    {
-                        $lookup: {
-                            from: 'services',
-                            let: { subcatId: '$_id' },
-                            pipeline: [
-                                {
-                                    $match: {
-                                        $expr: {
-                                            $and: [
-                                                { $eq: ['$subcategory', '$$subcatId'] },
-                                                { $eq: ['$isActive', true] }
-                                            ]
+                        },
+                        { $sort: { order: 1, name: 1 } },
+                        {
+                            $lookup: {
+                                from: 'services',
+                                let: { subcatId: '$_id' },
+                                pipeline: [
+                                    {
+                                        $match: {
+                                            $expr: {
+                                                $and: [
+                                                    { $eq: ['$subcategory', '$$subcatId'] },
+                                                    { $eq: ['$isActive', true] }
+                                                ]
+                                            }
+                                        }
+                                    },
+                                    { $sort: { title: 1 } },
+                                    {
+                                        $project: {
+                                            _id: 1,
+                                            title: 1,
+                                            photo: 1,
+                                            adminPrice: 1,
+                                            price: 1,
+                                            approxCompletionTime: 1,
+                                            isActive: 1,
+                                            description: 1
                                         }
                                     }
-                                },
-                                { $sort: { title: 1 } },
-                                {
-                                    $project: {
-                                        _id: 1,
-                                        title: 1,
-                                        photo: 1,
-                                        adminPrice: 1,
-                                        price: 1,
-                                        approxCompletionTime: 1,
-                                        isActive: 1,
-                                        description: 1
-                                    }
-                                }
-                            ],
-                            as: 'services'
+                                ],
+                                as: 'services'
+                            }
+                        },
+                        {
+                            $project: {
+                                _id: 1,
+                                name: 1,
+                                description: 1,
+                                icon: 1,
+                                order: 1,
+                                price: { $ifNull: ['$price', 0] },
+                                services: 1
+                            }
                         }
-                    },
-                    {
-                        $project: {
-                            _id: 1,
-                            name: 1,
-                            description: 1,
-                            icon: 1,
-                            order: 1,
-                            price: { $ifNull: ['$price', 0] },
-                            services: 1
-                        }
-                    }
-                ],
-                as: 'subcategories'
-            }
-        },
-        {
-            $project: {
-                _id: 1,
-                name: 1,
-                description: 1,
-                icon: 1,
-                membershipFee: 1,
-                defaultFreeCredits: 1,
-                subcategories: {
-                    $map: {
-                        input: '$subcategories',
-                        as: 'sub',
-                        in: {
-                            id: { $toString: '$$sub._id' },
-                            _id: '$$sub._id',
-                            name: '$$sub.name',
-                            description: '$$sub.description',
-                            icon: '$$sub.icon',
-                            order: '$$sub.order',
-                            price: '$$sub.price',
-                            services: '$$sub.services'
+                    ],
+                    as: 'subcategories'
+                }
+            },
+            {
+                $project: {
+                    _id: 1,
+                    name: 1,
+                    description: 1,
+                    icon: 1,
+                    membershipFee: 1,
+                    defaultFreeCredits: 1,
+                    subcategories: {
+                        $map: {
+                            input: '$subcategories',
+                            as: 'sub',
+                            in: {
+                                id: { $toString: '$$sub._id' },
+                                _id: '$$sub._id',
+                                name: '$$sub.name',
+                                description: '$$sub.description',
+                                icon: '$$sub.icon',
+                                order: '$$sub.order',
+                                price: '$$sub.price',
+                                services: '$$sub.services'
+                            }
                         }
                     }
                 }
             }
-        }
         ]);
 
         // Convert _id to id for consistency
@@ -388,11 +388,42 @@ const getAllCategoriesWithSubcategories = async () => {
     }
 };
 
+/**
+ * Global search across Categories, Subcategories, and Services
+ */
+const globalSearch = async (query) => {
+    if (!query) return { categories: [], subcategories: [], services: [] };
+
+    const searchRegex = { $regex: query, $options: 'i' };
+
+    const [categories, subcategories, services] = await Promise.all([
+        Category.find({ name: searchRegex, isActive: true })
+            .select('name icon description')
+            .limit(10),
+        Subcategory.find({ name: searchRegex, isActive: true })
+            .populate('category', 'name')
+            .select('name icon description category')
+            .limit(10),
+        Service.find({ title: searchRegex, isActive: true })
+            .populate('category', 'name')
+            .populate('subcategory', 'name')
+            .select('title description photo adminPrice approxCompletionTime category subcategory')
+            .limit(20)
+    ]);
+
+    return {
+        categories,
+        subcategories,
+        services
+    };
+};
+
 module.exports = {
     getAllCategories,
     getSubcategoriesByCategoryId,
     getServicesBySubcategoryId,
     getServiceById,
+    globalSearch,
     // Admin exports
     createCategory,
     updateCategory,
