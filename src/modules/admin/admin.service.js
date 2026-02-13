@@ -137,6 +137,40 @@ const deleteCreditPlan = async (planId) => {
   return plan;
 };
 
+const verifyVendor = async (vendorId, statusData) => {
+  const vendorService = require('../vendor/vendor.service');
+  return await vendorService.verifyVendor(vendorId, statusData);
+};
+
+const verifyVendorDocument = async (vendorId, docData) => {
+  const vendorService = require('../vendor/vendor.service');
+  return await vendorService.verifyDocument(vendorId, docData);
+};
+
+const verifyAllVendorDocuments = async (vendorId) => {
+  const vendorService = require('../vendor/vendor.service');
+  return await vendorService.verifyAllDocuments(vendorId);
+};
+
+const toggleVendorSuspension = async (vendorId, statusData) => {
+  const vendorService = require('../vendor/vendor.service');
+  return await vendorService.toggleVendorSuspension(vendorId, statusData);
+};
+
+const rejectVendorAccount = async (vendorId, reasonData) => {
+  const vendorService = require('../vendor/vendor.service');
+  return await vendorService.rejectVendorAccount(vendorId, reasonData);
+};
+
+const getEligibleVendors = async () => {
+  return await Vendor.find({
+    isVerified: true,
+    isSuspended: false,
+    registrationStep: 'COMPLETED',
+    'creditPlan.expiryDate': { $gt: new Date() }
+  });
+};
+
 module.exports = {
   getDashboardStats,
   getAllUsers,
@@ -145,4 +179,10 @@ module.exports = {
   getCreditPlans,
   updateCreditPlan,
   deleteCreditPlan,
+  verifyVendor,
+  verifyVendorDocument,
+  verifyAllVendorDocuments,
+  toggleVendorSuspension,
+  rejectVendorAccount,
+  getEligibleVendors,
 };

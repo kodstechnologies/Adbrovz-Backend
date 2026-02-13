@@ -264,7 +264,7 @@ const completeUserLogin = async ({ loginId, pin }, req = null) => {
 };
 
 // ======================== VENDOR SIGNUP ========================
-const vendorSignup = async ({ phoneNumber, name, email, pin, confirmPin, identityNumber, idProof, workState, workCity, workPincodes, acceptedTerms, acceptedPrivacyPolicy }) => {
+const vendorSignup = async ({ phoneNumber, name, email, pin, confirmPin, identityNumber, photo, idProof, addressProof, workState, workCity, workPincodes, acceptedTerms, acceptedPrivacyPolicy }) => {
   // Check if vendor already exists
   const existingVendor = await Vendor.findOne({ phoneNumber });
 
@@ -304,10 +304,9 @@ const vendorSignup = async ({ phoneNumber, name, email, pin, confirmPin, identit
     existingVendor.name = name;
     existingVendor.email = email;
     existingVendor.pin = hashedPIN;
-    existingVendor.identityNumber = identityNumber;
-    if (idProof) {
-      existingVendor.documents.idProof = idProof;
-    }
+    if (photo) existingVendor.documents.photo.url = photo;
+    if (idProof) existingVendor.documents.idProof.url = idProof;
+    if (addressProof) existingVendor.documents.addressProof.url = addressProof;
     existingVendor.workState = workState;
     existingVendor.workCity = workCity;
     existingVendor.workPincodes = workPincodes;
@@ -330,7 +329,9 @@ const vendorSignup = async ({ phoneNumber, name, email, pin, confirmPin, identit
     vendorID: `V${Date.now()}`, // Temporary, will be updated after verification
     identityNumber,
     documents: {
-      idProof: idProof || '',
+      photo: { url: photo || '' },
+      idProof: { url: idProof || '' },
+      addressProof: { url: addressProof || '' },
     },
     workState,
     workCity,

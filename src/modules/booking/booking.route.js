@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
-// const bookingController = require('./booking.controller');
-// const { authenticate } = require('../../middlewares/auth.middleware');
+const bookingController = require('./booking.controller');
 
-// TODO: Implement booking routes
-// router.use(authenticate);
+// User routes
+router.post('/request', bookingController.requestLead);
+
+// Vendor routes
+router.post('/accept/:bookingId', bookingController.acceptLead);
 
 module.exports = router;
-

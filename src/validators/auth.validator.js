@@ -128,7 +128,9 @@ const vendorSignupSchema = Joi.object({
     .valid(Joi.ref('pin'))
     .required(),
   identityNumber: Joi.string().required(),
+  photo: Joi.string().optional().allow('', null),
   idProof: Joi.string().optional().allow('', null),
+  addressProof: Joi.string().optional().allow('', null),
   workState: Joi.string().required(),
   workCity: Joi.string().required(),
   workPincodes: Joi.array().items(Joi.string()).optional(),

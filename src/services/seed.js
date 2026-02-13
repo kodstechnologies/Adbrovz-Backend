@@ -18,7 +18,6 @@ const seedData = async () => {
                 description: `Description for Test Category ${i} - detailed text here.`,
                 icon: `uploads/services/icon-cat-${i}.jpg`, // Dummy path
                 membershipFee: 100 * i,
-                defaultFreeCredits: 10 * i,
                 order: i,
                 isActive: true
             });

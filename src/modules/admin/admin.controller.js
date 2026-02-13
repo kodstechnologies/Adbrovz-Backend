@@ -109,6 +109,59 @@ const deleteCreditPlan = asyncHandler(async (req, res) => {
   );
 });
 
+// Verify vendor (account level)
+const verifyVendor = asyncHandler(async (req, res) => {
+  const { vendorId } = req.params;
+  const vendor = await adminService.verifyVendor(vendorId, req.body);
+  res.status(200).json(
+    new ApiResponse(200, vendor, 'Vendor verification status updated successfully')
+  );
+});
+
+// Verify specific document
+const verifyVendorDocument = asyncHandler(async (req, res) => {
+  const { vendorId } = req.params;
+  const vendor = await adminService.verifyVendorDocument(vendorId, req.body);
+  res.status(200).json(
+    new ApiResponse(200, vendor, 'Document verification status updated successfully')
+  );
+});
+
+// Verify all documents
+const verifyAllVendorDocuments = asyncHandler(async (req, res) => {
+  const { vendorId } = req.params;
+  const vendor = await adminService.verifyAllVendorDocuments(vendorId);
+  res.status(200).json(
+    new ApiResponse(200, vendor, 'All documents verified successfully')
+  );
+});
+
+// Toggle vendor suspension
+const toggleVendorSuspension = asyncHandler(async (req, res) => {
+  const { vendorId } = req.params;
+  const vendor = await adminService.toggleVendorSuspension(vendorId, req.body);
+  res.status(200).json(
+    new ApiResponse(200, vendor, `Vendor ${req.body.isSuspended ? 'suspended' : 'activated'} successfully`)
+  );
+});
+
+// Get eligible vendors
+const getEligibleVendors = asyncHandler(async (req, res) => {
+  const vendors = await adminService.getEligibleVendors();
+  res.status(200).json(
+    new ApiResponse(200, vendors, 'Eligible vendors fetched successfully')
+  );
+});
+
+// Reject vendor account
+const rejectVendorAccount = asyncHandler(async (req, res) => {
+  const { vendorId } = req.params;
+  const vendor = await adminService.rejectVendorAccount(vendorId, req.body);
+  res.status(200).json(
+    new ApiResponse(200, vendor, 'Vendor account rejected successfully')
+  );
+});
+
 module.exports = {
   getDashboard,
   getUsers,
@@ -119,4 +172,10 @@ module.exports = {
   getCreditPlans,
   updateCreditPlan,
   deleteCreditPlan,
+  verifyVendor,
+  verifyVendorDocument,
+  verifyAllVendorDocuments,
+  toggleVendorSuspension,
+  rejectVendorAccount,
+  getEligibleVendors,
 };

@@ -59,12 +59,36 @@ const vendorSchema = new mongoose.Schema(
       default: 'PENDING',
     },
     documents: {
-      photo: { type: String },
-      idProof: { type: String },
-      addressProof: { type: String },
-      workProof: { type: String },
-      bankProof: { type: String },
-      policeVerification: { type: String },
+      photo: {
+        url: { type: String, default: '' },
+        status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
+        reason: { type: String }
+      },
+      idProof: {
+        url: { type: String, default: '' },
+        status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
+        reason: { type: String }
+      },
+      addressProof: {
+        url: { type: String, default: '' },
+        status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
+        reason: { type: String }
+      },
+      workProof: {
+        url: { type: String, default: '' },
+        status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
+        reason: { type: String }
+      },
+      bankProof: {
+        url: { type: String, default: '' },
+        status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
+        reason: { type: String }
+      },
+      policeVerification: {
+        url: { type: String, default: '' },
+        status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
+        reason: { type: String }
+      },
     },
     documentStatus: {
       type: String,
@@ -79,22 +103,12 @@ const vendorSchema = new mongoose.Schema(
       expiryDate: { type: Date },
       isActive: { type: Boolean, default: false },
     },
-    credits: {
-      free: { type: Number, default: 0 },
-      purchased: { type: Number, default: 0 },
-      total: { type: Number, default: 0 },
-    },
     creditPlan: {
       planId: { type: mongoose.Schema.Types.ObjectId, ref: 'CreditPlan' },
       expiryDate: { type: Date },
-    },
-    dutyStatus: {
-      isOn: { type: Boolean, default: false },
-      location: {
-        latitude: { type: Number },
-        longitude: { type: Number },
-      },
-      lastUpdated: { type: Date },
+      dailyLimit: { type: Number, default: 0 },
+      dailyLeadsCount: { type: Number, default: 0 },
+      lastLeadResetDate: { type: Date },
     },
     performance: {
       totalBookings: { type: Number, default: 0 },
@@ -153,9 +167,19 @@ const vendorSchema = new mongoose.Schema(
   }
 );
 
+// Consolidated status virtual
+vendorSchema.virtual('status').get(function () {
+  if (this.isSuspended) return 'SUSPENDED';
+  if (this.isBlocked) return 'BLOCKED';
+  if (this.isVerified) return 'ACTIVE';
+  if (this.documentStatus === 'rejected') return 'REJECTED';
+  if (this.registrationStep === 'COMPLETED' && !this.isVerified) return 'PENDING_VERIFICATION';
+  return 'PENDING_DOCS';
+});
+
 // Indexes
 // Note: vendorID and phoneNumber already have indexes from unique: true
-vendorSchema.index({ 'dutyStatus.isOn': 1, workCity: 1 });
+vendorSchema.index({ workCity: 1 });
 vendorSchema.index({ 'membership.expiryDate': 1 });
 vendorSchema.index({ createdAt: -1 });
 

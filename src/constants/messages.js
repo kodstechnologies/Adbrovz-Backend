@@ -35,7 +35,7 @@ const MESSAGES = {
     SUSPENDED: 'Vendor suspended',
     BLOCKED: 'Vendor blocked',
     MEMBERSHIP_EXPIRED: 'Vendor membership expired',
-    INSUFFICIENT_CREDITS: 'Insufficient credits to accept booking',
+    DAILY_LIMIT_EXCEEDED: 'Daily lead limit reached for your current plan',
     DUTY_OFF: 'Cannot accept booking. Please turn ON duty.',
     GPS_REQUIRED: 'GPS permission required to toggle duty',
   },

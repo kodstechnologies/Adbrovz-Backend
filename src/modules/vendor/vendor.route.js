@@ -24,4 +24,3 @@ router.use(authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN));
 router.get('/', vendorController.getAllVendors);
 
 module.exports = router;
-

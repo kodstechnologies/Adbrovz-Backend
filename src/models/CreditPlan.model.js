@@ -11,9 +11,15 @@ const creditPlanSchema = new mongoose.Schema(
             type: Number,
             required: true,
         },
-        credits: {
+        validityDays: {
             type: Number,
             required: true,
+            default: 30,
+        },
+        dailyLimit: {
+            type: Number,
+            required: true,
+            default: 5,
         },
         description: {
             type: String,

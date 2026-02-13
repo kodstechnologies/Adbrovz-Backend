@@ -22,5 +22,13 @@ router.get('/credit-plans', adminController.getCreditPlans);
 router.patch('/credit-plans/:planId', adminController.updateCreditPlan);
 router.delete('/credit-plans/:planId', adminController.deleteCreditPlan);
 
+// Vendor management
+router.patch('/vendors/:vendorId/verify', adminController.verifyVendor);
+router.patch('/vendors/:vendorId/verify-document', adminController.verifyVendorDocument);
+router.patch('/vendors/:vendorId/verify-all', adminController.verifyAllVendorDocuments);
+router.patch('/vendors/:vendorId/toggle-suspension', adminController.toggleVendorSuspension);
+router.patch('/vendors/:vendorId/reject', adminController.rejectVendorAccount);
+router.get('/vendors/eligible', adminController.getEligibleVendors);
+
 module.exports = router;
 

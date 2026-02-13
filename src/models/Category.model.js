@@ -23,10 +23,6 @@ const categorySchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
-    defaultFreeCredits: {
-      type: Number,
-      default: 0,
-    },
     order: {
       type: Number,
       default: 0,
