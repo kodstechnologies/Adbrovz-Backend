@@ -42,7 +42,7 @@ const rescheduleBooking = asyncHandler(async (req, res) => {
     console.log(`[DEBUG] New schedule - Date: ${date}, Time: ${time}`);
 
     if (!date || !time) {
-        throw new ApiError(400, 'Both date and time are required for rescheduling');
+        throw new ApiErrotr(400, 'Both date and time are required for rescheduling');
     }
 
     const booking = await bookingService.rescheduleBooking(userId, id, { date, time });

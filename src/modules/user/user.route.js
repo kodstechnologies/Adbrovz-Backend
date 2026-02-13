@@ -8,8 +8,10 @@ const { validateUpdateProfile } = require('../../validators/user.validator');
 router.use(authenticate);
 
 router.get('/profile', userController.getProfile);
+// Admin routes
+router.get('/', userController.getUsers);
+router.get('/:userId/coins', userController.getUserCoins);
 router.patch('/profile', validateUpdateProfile, userController.updateProfile);
 router.delete('/account', userController.deleteAccount);
 
 module.exports = router;
-

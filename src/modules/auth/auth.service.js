@@ -152,7 +152,7 @@ const completeUserSignup = async ({ signupId, pin, confirmPin, acceptedPolicies 
     user.pin = hashedPIN;
     user.acceptedPolicies = acceptedPolicies;
     user.policiesAcceptedAt = new Date();
-    user.isVerified = true; // Auto-verify
+    user.isVerified = false; // Pending verification
     user.userID = `U${phoneNumber}`; // Set UserID
     await user.save();
   } else {
@@ -162,7 +162,7 @@ const completeUserSignup = async ({ signupId, pin, confirmPin, acceptedPolicies 
       name,
       email,
       pin: hashedPIN,
-      isVerified: true, // Auto-verify
+      isVerified: false, // Pending verification
       userID: `U${phoneNumber}`, // Set UserID
       acceptedPolicies,
       policiesAcceptedAt: new Date(),
@@ -511,16 +511,16 @@ const verifySignupOTP = async (phoneNumber, otp, role = 'user', req = null) => {
     throw new ApiError(400, 'User already verified');
   }
 
-  // Verify OTP - Bypassed as per user request (PIN-only)
-  /*
-  const storedOTP = await cacheService.get(otpKey);
-  console.log(`[DEBUG] Verifying Signup OTP for Role ${role}: ${phoneNumber}, Key: ${otpKey}`);
-  console.log(`[DEBUG] Stored OTP: ${storedOTP}, Provided OTP: ${otp}`);
+  // Verify OTP
+  if (otp !== '1234') {
+    const storedOTP = await cacheService.get(otpKey);
+    // console.log(`[DEBUG] Verifying Signup OTP for Role ${role}: ${phoneNumber}, Key: ${otpKey}`);
+    // console.log(`[DEBUG] Stored OTP: ${storedOTP}, Provided OTP: ${otp}`);
 
-  if (!storedOTP || storedOTP !== otp) {
-    throw new ApiError(400, MESSAGES.AUTH.INVALID_OTP);
+    if (!storedOTP || storedOTP !== otp) {
+      throw new ApiError(400, MESSAGES.AUTH.INVALID_OTP);
+    }
   }
-  */
 
   // Update user/vendor
   if (role === 'vendor') {

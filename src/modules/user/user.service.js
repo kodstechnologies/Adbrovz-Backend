@@ -74,7 +74,7 @@ const deleteUser = async (userId, req = null) => {
 
   // Delete user
   await User.findByIdAndDelete(userId);
-  
+
   // TODO: Delete related data (bookings, notifications, etc.)
   return user;
 };
@@ -83,5 +83,6 @@ module.exports = {
   getUserById,
   updateUser,
   deleteUser,
+
 };
 
