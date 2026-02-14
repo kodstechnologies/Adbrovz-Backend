@@ -69,6 +69,10 @@ const userSchema = new mongoose.Schema(
     deletedAt: {
       type: Date,
     },
+    coins: {
+      type: Number,
+      default: 1000,
+    },
   },
   {
     timestamps: true,

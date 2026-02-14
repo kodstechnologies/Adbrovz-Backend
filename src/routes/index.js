@@ -9,6 +9,8 @@ const serviceRoutes = require('../modules/service/service.route');
 const dashboardRoutes = require('../modules/Userappdashboard/dashboard.route');
 const vendorRoutes = require('../modules/vendor/vendor.route');
 const mediaRoutes = require('../modules/media/media.route');
+const bookingRoutes = require('../modules/booking/booking.route');
+const disputeRoutes = require('../modules/dispute/dispute.route');
 
 // Health check
 router.get('/health', (req, res) => {
@@ -35,6 +37,8 @@ router.use('/services', serviceRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/vendors', vendorRoutes);
 router.use('/media', mediaRoutes);
+router.use('/bookings', bookingRoutes);
+router.use('/disputes', disputeRoutes);
 
 module.exports = router;
 

@@ -29,6 +29,8 @@ const bookingSchema = new mongoose.Schema(
       enum: [
         'pending_acceptance',
         'pending',
+        'on_the_way',
+        'arrived',
         'ongoing',
         'completed',
         'cancelled',

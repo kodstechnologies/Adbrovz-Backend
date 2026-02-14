@@ -231,18 +231,15 @@ const purchaseCreditPlan = async (vendorId, { planId }) => {
     return { message: 'Credit plan purchased successfully. You can now receive lead calls.' };
 };
 
-/**
- * Toggle Duty Status (Online/Offline)
- */
 module.exports = {
     getAllVendors,
     selectServices,
     purchaseMembership,
     purchaseCreditPlan,
-    verifyVendor: async () => { }, // Placeholder as searching for usage
-    verifyDocument: async () => { },
-    verifyAllDocuments: async () => { },
-    toggleVendorSuspension: async () => { },
-    rejectVendorAccount: async () => { },
+    verifyVendor,
+    verifyDocument,
+    verifyAllDocuments,
+    toggleVendorSuspension,
+    rejectVendorAccount,
 };
 

@@ -141,11 +141,21 @@ const getCategoriesWithSubcategories = asyncHandler(async (req, res) => {
     }
 });
 
+// Global Search
+const globalSearch = asyncHandler(async (req, res) => {
+    const { query } = req.query;
+    const results = await serviceService.globalSearch(query);
+    res.status(200).json(
+        new ApiResponse(200, results, 'Search results retrieved successfully')
+    );
+});
+
 module.exports = {
     getCategories,
     getSubcategories,
     getServices,
     getServiceDetails,
+    globalSearch,
     // Admin exports
     createCategory,
     updateCategory,
