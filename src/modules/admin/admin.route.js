@@ -30,5 +30,9 @@ router.patch('/vendors/:vendorId/toggle-suspension', adminController.toggleVendo
 router.patch('/vendors/:vendorId/reject', adminController.rejectVendorAccount);
 router.get('/vendors/eligible', adminController.getEligibleVendors);
 
+// Global Settings management
+router.get('/settings', adminController.getGlobalSettings);
+router.patch('/settings', adminController.updateGlobalSettings);
+
 module.exports = router;
 

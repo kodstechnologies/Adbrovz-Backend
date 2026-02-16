@@ -2,6 +2,10 @@ const User = require('../../models/User.model');
 const ApiError = require('../../utils/ApiError');
 const MESSAGES = require('../../constants/messages');
 const auditService = require('../../services/audit.service');
+const Booking = require('../../models/Booking.model');
+const Notification = require('../../models/Notification.model');
+const Dispute = require('../../models/Dispute.model');
+const AuditLog = require('../../models/AuditLog.model');
 
 const getUserById = async (userId) => {
   const user = await User.findById(userId).select('-pin -failedAttempts -lockUntil');
@@ -12,7 +16,7 @@ const getUserById = async (userId) => {
 };
 
 const updateUser = async (userId, updateData, req = null) => {
-  const allowedUpdates = ['name', 'email'];
+  const allowedUpdates = ['name', 'email', 'photo'];
   const updates = Object.keys(updateData);
   const isValidOperation = updates.every((update) => allowedUpdates.includes(update));
 
@@ -72,10 +76,17 @@ const deleteUser = async (userId, req = null) => {
     });
   }
 
-  // Delete user
+  // Delete related data (personal data cleanup)
+  await Promise.all([
+    Booking.deleteMany({ user: userId }),
+    Notification.deleteMany({ user: userId }),
+    Dispute.deleteMany({ user: userId }),
+    AuditLog.deleteMany({ user: userId, userModel: 'User' })
+  ]);
+
+  // Finally delete the user
   await User.findByIdAndDelete(userId);
 
-  // TODO: Delete related data (bookings, notifications, etc.)
   return user;
 };
 

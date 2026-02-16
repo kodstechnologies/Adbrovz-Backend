@@ -2,6 +2,8 @@ const AuditLog = require('../../models/AuditLog.model');
 const User = require('../../models/User.model');
 const Vendor = require('../../models/Vendor.model');
 const Booking = require('../../models/Booking.model');
+const GlobalConfig = require('../../models/GlobalConfig.model');
+const { DEFAULT_SETTINGS } = require('../../constants/settings');
 
 // Placeholder admin service
 const getDashboardStats = async () => {
@@ -171,6 +173,56 @@ const getEligibleVendors = async () => {
   });
 };
 
+const getGlobalSettings = async () => {
+  const dbSettings = await GlobalConfig.find({});
+  const settingsMap = {};
+
+  // Initialize with defaults
+  Object.keys(DEFAULT_SETTINGS).forEach(key => {
+    settingsMap[key] = {
+      ...DEFAULT_SETTINGS[key],
+      isDefault: true
+    };
+  });
+
+  // Override with DB values
+  dbSettings.forEach(s => {
+    settingsMap[s.key] = {
+      value: s.value,
+      description: s.description,
+      isDefault: false,
+      updatedAt: s.updatedAt
+    };
+  });
+
+  return settingsMap;
+};
+
+const updateGlobalSettings = async (settings, adminId) => {
+  const updatedSettings = [];
+
+  for (const [key, value] of Object.entries(settings)) {
+    const setting = await GlobalConfig.findOneAndUpdate(
+      { key },
+      {
+        value,
+        lastUpdatedBy: adminId,
+        description: DEFAULT_SETTINGS[key]?.description || ''
+      },
+      { upsert: true, new: true }
+    );
+    updatedSettings.push(setting);
+  }
+
+  return updatedSettings;
+};
+
+const getSetting = async (key) => {
+  const setting = await GlobalConfig.findOne({ key });
+  if (setting) return setting.value;
+  return DEFAULT_SETTINGS[key]?.value;
+};
+
 module.exports = {
   getDashboardStats,
   getAllUsers,
@@ -185,4 +237,7 @@ module.exports = {
   toggleVendorSuspension,
   rejectVendorAccount,
   getEligibleVendors,
+  getGlobalSettings,
+  updateGlobalSettings,
+  getSetting,
 };

@@ -11,7 +11,7 @@ const getUsers = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, result, 'Users retrieved successfully'));
 });
 
-// Get user profilcreate die
+// Get user profile
 const getProfile = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const user = await userService.getUserById(userId);

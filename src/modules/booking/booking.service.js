@@ -5,6 +5,7 @@ const User = require('../../models/User.model');
 
 const ApiError = require('../../utils/ApiError');
 const cacheService = require('../../services/cache.service');
+const adminService = require('../admin/admin.service');
 
 const crypto = require('crypto');
 const mongoose = require('mongoose');
@@ -28,6 +29,8 @@ const requestLead = async (
         'creditPlan.expiryDate': { $gt: new Date() }
     });
 
+    const dailyLeadsLimit = (await adminService.getSetting('bookings.daily_leads_limit')) || 5;
+
     const matchingVendors = potentialVendors.filter(vendor => {
         const lastReset = vendor.creditPlan.lastLeadResetDate;
         const currentCount =
@@ -35,7 +38,7 @@ const requestLead = async (
                 ? vendor.creditPlan.dailyLeadsCount
                 : 0;
 
-        const limit = vendor.creditPlan.dailyLimit || 5;
+        const limit = vendor.creditPlan.dailyLimit || dailyLeadsLimit;
         return currentCount < limit;
     });
 
@@ -87,6 +90,16 @@ const acceptLead = async (vendorId, bookingId) => {
 
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const concurrencyLimit = (await adminService.getSetting('vendors.concurrency_limit')) || 3;
+    const activeJobs = await Booking.countDocuments({
+        vendor: vendorId,
+        status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] }
+    });
+
+    if (activeJobs >= concurrencyLimit) {
+        throw new ApiError(400, `Vendor has reached the concurrency limit of ${concurrencyLimit} active jobs`);
+    }
 
     booking.vendor = vendorId;
     booking.status = 'pending'; // enters standard booking lifecycle
@@ -209,17 +222,19 @@ const createBooking = async (userId, bookingData) => {
  * Vendor search (simplified)
  */
 const searchVendors = async (booking) => {
+    const radius = (await adminService.getSetting('bookings.vendor_search_radius_km')) || 5;
     const vendors = await Vendor.find({
         'dutyStatus.isOn': true,
         isActive: true,
         isVerified: true,
         isSuspended: false,
         isBlocked: false
+        // In a real app, you would add geo-spatial query here using radius
     });
 
     return vendors.map(v => ({
         vendorId: v._id,
-        distance: 0
+        distance: 0 // Placeholder for real distance calculation
     }));
 };
 
@@ -230,15 +245,24 @@ const cancelBooking = async (userId, bookingId, reason) => {
     const booking = await findBookingByUser(bookingId, userId);
     if (!booking) throw new ApiError(404, 'Booking not found');
 
-    if (['completed', 'cancelled'].includes(booking.status)) {
-        throw new ApiError(400, `Booking already ${booking.status}`);
+    const lockMins = (await adminService.getSetting('bookings.cancellation_lock_mins')) || 60;
+    const scheduledTime = new Date(booking.scheduledDate);
+    // Parse scheduledTime string (HH:MM) if necessary, but here we assume scheduledDate is the base
+    // This part depends on how date/time are stored. Assuming scheduledDate has the correct date.
+
+    const now = new Date();
+    const diffMs = scheduledTime - now;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+
+    if (diffMins < lockMins && diffMins > 0) {
+        throw new ApiError(400, `Booking cannot be cancelled within ${lockMins} minutes of the scheduled time`);
     }
 
     booking.status = 'cancelled';
     booking.cancellation = {
         cancelledBy: 'user',
         reason,
-        cancelledAt: new Date()
+        cancelledAt: now
     };
 
     await booking.save();
@@ -252,8 +276,9 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
     const booking = await findBookingByUser(bookingId, userId);
     if (!booking) throw new ApiError(404, 'Booking not found');
 
-    if (booking.rescheduleCount >= 2) {
-        throw new ApiError(400, 'Max reschedule limit reached');
+    const rescheduleLimit = (await adminService.getSetting('bookings.reschedule_limit')) || 2;
+    if (booking.rescheduleCount >= rescheduleLimit) {
+        throw new ApiError(400, `Max reschedule limit of ${rescheduleLimit} reached`);
     }
 
     if (['completed', 'cancelled'].includes(booking.status)) {

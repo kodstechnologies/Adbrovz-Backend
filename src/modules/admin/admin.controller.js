@@ -153,12 +153,27 @@ const getEligibleVendors = asyncHandler(async (req, res) => {
   );
 });
 
-// Reject vendor account
 const rejectVendorAccount = asyncHandler(async (req, res) => {
   const { vendorId } = req.params;
   const vendor = await adminService.rejectVendorAccount(vendorId, req.body);
   res.status(200).json(
     new ApiResponse(200, vendor, 'Vendor account rejected successfully')
+  );
+});
+
+// Global Settings management
+const getGlobalSettings = asyncHandler(async (req, res) => {
+  const settings = await adminService.getGlobalSettings();
+  res.status(200).json(
+    new ApiResponse(200, settings, 'Global settings retrieved successfully')
+  );
+});
+
+const updateGlobalSettings = asyncHandler(async (req, res) => {
+  const adminId = req.user.id;
+  const settings = await adminService.updateGlobalSettings(req.body, adminId);
+  res.status(200).json(
+    new ApiResponse(200, settings, 'Global settings updated successfully')
   );
 });
 
@@ -178,4 +193,6 @@ module.exports = {
   toggleVendorSuspension,
   rejectVendorAccount,
   getEligibleVendors,
+  getGlobalSettings,
+  updateGlobalSettings,
 };

@@ -18,6 +18,9 @@ const updateProfileSchema = Joi.object({
     .messages({
       'string.email': 'Invalid email format',
     }),
+  photo: Joi.string()
+    .uri()
+    .optional(),
 });
 
 module.exports = {
