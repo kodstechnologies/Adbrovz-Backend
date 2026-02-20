@@ -69,8 +69,10 @@ const uploadToCloudinary = (folder) => {
 
             next();
         } catch (error) {
-            console.error('Cloudinary upload middleware error:', error);
-            next(new ApiError(500, 'Failed to upload image to Cloudinary'));
+            console.error('Cloudinary upload middleware error DETAILS:', error);
+            // Provide more descriptive error to help debug
+            const errorMessage = error.message || 'Failed to upload image to Cloudinary';
+            next(new ApiError(500, `Cloudinary Upload Error: ${errorMessage}`));
         }
     };
 };

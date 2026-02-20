@@ -1,11 +1,16 @@
 const cloudinary = require('cloudinary').v2;
 const { Readable } = require('stream');
+const config = require('../config/env');
 
 // Configure Cloudinary
+if (!config.CLOUDINARY_CLOUD_NAME || !config.CLOUDINARY_API_KEY || !config.CLOUDINARY_API_SECRET) {
+    console.error('❌ Cloudinary configuration missing! Check your environment variables.');
+}
+
 cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
+    cloud_name: config.CLOUDINARY_CLOUD_NAME,
+    api_key: config.CLOUDINARY_API_KEY,
+    api_secret: config.CLOUDINARY_API_SECRET,
 });
 
 /**
@@ -34,7 +39,7 @@ const uploadToCloudinary = async (fileBuffer, folder, publicId = null) => {
             uploadOptions,
             (error, result) => {
                 if (error) {
-                    console.error('Cloudinary upload error:', error);
+                    console.error('Cloudinary upload error details:', JSON.stringify(error, null, 2));
                     reject(error);
                 } else {
                     resolve(result);
@@ -42,11 +47,8 @@ const uploadToCloudinary = async (fileBuffer, folder, publicId = null) => {
             }
         );
 
-        // Convert buffer to stream
-        const bufferStream = new Readable();
-        bufferStream.push(fileBuffer);
-        bufferStream.push(null);
-        bufferStream.pipe(uploadStream);
+        // Convert buffer to stream and pipe to Cloudinary
+        Readable.from(fileBuffer).pipe(uploadStream);
     });
 };
 
