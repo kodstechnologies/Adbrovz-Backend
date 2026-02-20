@@ -2,18 +2,43 @@ const cloudinary = require('cloudinary').v2;
 const { Readable } = require('stream');
 const config = require('../config/env');
 
-// Configure Cloudinary
-if (!config.CLOUDINARY_CLOUD_NAME || !config.CLOUDINARY_API_KEY || !config.CLOUDINARY_API_SECRET) {
-    console.error('❌ Cloudinary configuration missing! Check your environment variables.');
+// Log Cloudinary initialization status at startup
+const _initCloudName = process.env.CLOUDINARY_CLOUD_NAME || config.CLOUDINARY_CLOUD_NAME;
+const _initApiKey = process.env.CLOUDINARY_API_KEY || config.CLOUDINARY_API_KEY;
+const _initApiSecret = process.env.CLOUDINARY_API_SECRET || config.CLOUDINARY_API_SECRET;
+
+if (!_initCloudName || !_initApiKey || !_initApiSecret) {
+    console.error('❌ Cloudinary ENV MISSING at startup! cloud_name:', !!_initCloudName, 'api_key:', !!_initApiKey, 'api_secret:', !!_initApiSecret);
 } else {
-    console.log('✅ Cloudinary initialized with cloud_name:', config.CLOUDINARY_CLOUD_NAME);
+    console.log('✅ Cloudinary ENV OK at startup with cloud_name:', _initCloudName);
 }
 
 cloudinary.config({
-    cloud_name: config.CLOUDINARY_CLOUD_NAME,
-    api_key: config.CLOUDINARY_API_KEY,
-    api_secret: config.CLOUDINARY_API_SECRET,
+    cloud_name: _initCloudName,
+    api_key: _initApiKey,
+    api_secret: _initApiSecret,
 });
+
+/**
+ * Helper to get fresh Cloudinary credentials at runtime.
+ * This is critical for Render, where env vars may not be loaded at module-init time.
+ */
+const getCloudinaryCredentials = () => {
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME || config.CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY || config.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET || config.CLOUDINARY_API_SECRET;
+
+    if (!cloudName || !apiKey || !apiSecret) {
+        throw new Error(
+            `Cloudinary credentials missing at runtime: cloud_name=${!!cloudName}, api_key=${!!apiKey}, api_secret=${!!apiSecret}. Check your Render Environment Variables.`
+        );
+    }
+
+    // Force re-configure every time to guarantee fresh credentials
+    cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret });
+
+    return { cloudName, apiKey, apiSecret };
+};
 
 /**
  * Upload file buffer to Cloudinary
@@ -24,12 +49,16 @@ cloudinary.config({
  */
 const uploadToCloudinary = async (fileBuffer, folder, publicId = null) => {
     return new Promise((resolve, reject) => {
+        try {
+            // Reinitialize credentials at runtime (Render fix)
+            getCloudinaryCredentials();
+        } catch (err) {
+            return reject(err);
+        }
+
         const uploadOptions = {
             folder: `adbrovz/${folder}`,
             resource_type: 'auto',
-            cloud_name: config.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME,
-            api_key: config.CLOUDINARY_API_KEY || process.env.CLOUDINARY_API_KEY,
-            api_secret: config.CLOUDINARY_API_SECRET || process.env.CLOUDINARY_API_SECRET,
             transformation: [
                 { quality: 'auto' },
                 { fetch_format: 'auto' }
@@ -44,7 +73,7 @@ const uploadToCloudinary = async (fileBuffer, folder, publicId = null) => {
             uploadOptions,
             (error, result) => {
                 if (error) {
-                    console.error('Cloudinary upload stream callback error:', error);
+                    console.error('Cloudinary upload stream callback error:', JSON.stringify(error));
                     reject(error);
                 } else {
                     console.log('Cloudinary upload stream success!');
@@ -72,12 +101,12 @@ const uploadToCloudinary = async (fileBuffer, folder, publicId = null) => {
  * @returns {Promise<Object>} Cloudinary upload result
  */
 const uploadFromPath = async (filePath, folder, publicId = null) => {
+    // Reinitialize credentials at runtime (Render fix)
+    getCloudinaryCredentials();
+
     const uploadOptions = {
         folder: `adbrovz/${folder}`,
         resource_type: 'auto',
-        cloud_name: config.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME,
-        api_key: config.CLOUDINARY_API_KEY || process.env.CLOUDINARY_API_KEY,
-        api_secret: config.CLOUDINARY_API_SECRET || process.env.CLOUDINARY_API_SECRET,
         transformation: [
             { quality: 'auto' },
             { fetch_format: 'auto' }
@@ -92,7 +121,7 @@ const uploadFromPath = async (filePath, folder, publicId = null) => {
         const result = await cloudinary.uploader.upload(filePath, uploadOptions);
         return result;
     } catch (error) {
-        console.error('Cloudinary upload error:', error);
+        console.error('Cloudinary upload error:', JSON.stringify(error));
         throw error;
     }
 };
@@ -104,14 +133,11 @@ const uploadFromPath = async (filePath, folder, publicId = null) => {
  */
 const deleteFromCloudinary = async (publicId) => {
     try {
-        // Extract public_id from URL if full URL is provided
         let extractedPublicId = publicId;
         if (publicId.includes('cloudinary.com')) {
-            // Extract public_id from URL
             const urlParts = publicId.split('/');
             const filename = urlParts[urlParts.length - 1];
             extractedPublicId = filename.split('.')[0];
-            // Get folder path
             const folderIndex = urlParts.indexOf('adbrovz');
             if (folderIndex !== -1) {
                 const folderParts = urlParts.slice(folderIndex + 1, -1);
@@ -139,11 +165,6 @@ const getOptimizedUrl = (publicId, options = {}) => {
         fetch_format: 'auto',
         ...options
     };
-
-    if (publicId.includes('cloudinary.com')) {
-        // Already a URL, return as is (or apply transformations)
-        return cloudinary.url(publicId, defaultOptions);
-    }
 
     return cloudinary.url(publicId, defaultOptions);
 };
