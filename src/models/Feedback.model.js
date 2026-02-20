@@ -15,7 +15,6 @@ const feedbackSchema = new mongoose.Schema(
         vendor: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Vendor',
-            required: true,
         },
         rating: {
             type: Number,

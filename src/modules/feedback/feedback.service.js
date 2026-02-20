@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Feedback = require('../../models/Feedback.model');
 const Booking = require('../../models/Booking.model');
 const ApiError = require('../../utils/ApiError');
@@ -5,11 +6,24 @@ const ApiError = require('../../utils/ApiError');
 /**
  * Submit feedback for a completed booking
  */
-const submitFeedback = async (userId, bookingId, { rating, review }) => {
+const submitFeedback = async (userId, bookingId, { rating, review, vendorId }) => {
     // Verify booking exists and belongs to user
-    const booking = await Booking.findOne({ _id: bookingId, user: userId }).populate('vendor');
+    const booking = await Booking.findOne({
+        $or: [
+            { _id: mongoose.isValidObjectId(bookingId) ? bookingId : null },
+            { bookingID: bookingId }
+        ].filter(q => q._id !== null || q.bookingID)
+    });
+
     if (!booking) {
         throw new ApiError(404, 'Booking not found');
+    }
+
+    const resolvedBookingId = booking._id;
+
+    // Verify user owns the booking
+    if (String(booking.user) !== String(userId)) {
+        throw new ApiError(403, 'Not authorized to submit feedback for this booking');
     }
 
     // Only allow feedback on completed bookings
@@ -18,15 +32,18 @@ const submitFeedback = async (userId, bookingId, { rating, review }) => {
     }
 
     // Check if feedback already submitted
-    const existing = await Feedback.findOne({ booking: bookingId, user: userId });
+    const existing = await Feedback.findOne({ booking: resolvedBookingId, user: userId });
     if (existing) {
         throw new ApiError(400, 'Feedback already submitted for this booking');
     }
 
+    // Use vendorId from body, or fall back to booking.vendor
+    const resolvedVendorId = vendorId || booking.vendor;
+
     const feedback = await Feedback.create({
-        booking: bookingId,
+        booking: resolvedBookingId,
         user: userId,
-        vendor: booking.vendor,
+        ...(resolvedVendorId && { vendor: resolvedVendorId }),
         rating,
         review: review || '',
     });
@@ -88,7 +105,18 @@ const getUserFeedback = async (userId) => {
  * Check if user has already submitted feedback for a booking
  */
 const hasFeedback = async (userId, bookingId) => {
-    const existing = await Feedback.findOne({ booking: bookingId, user: userId });
+    const booking = await Booking.findOne({
+        $or: [
+            { _id: mongoose.isValidObjectId(bookingId) ? bookingId : null },
+            { bookingID: bookingId }
+        ].filter(q => q._id !== null || q.bookingID)
+    });
+
+    if (!booking) {
+        return { hasFeedback: false };
+    }
+
+    const existing = await Feedback.findOne({ booking: booking._id, user: userId });
     return { hasFeedback: !!existing };
 };
 

@@ -8,9 +8,9 @@ const feedbackService = require('./feedback.service');
  */
 const submitFeedback = asyncHandler(async (req, res) => {
     const userId = req.body.userId || req.user.userId || req.user._id;
-    const { bookingId, rating, review } = req.body;
+    const { bookingId, rating, review, vendorId } = req.body;
 
-    const result = await feedbackService.submitFeedback(userId, bookingId, { rating, review });
+    const result = await feedbackService.submitFeedback(userId, bookingId, { rating, review, vendorId });
 
     res.status(201).json(new ApiResponse(201, result, 'Feedback submitted successfully'));
 });
