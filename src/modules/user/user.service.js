@@ -28,19 +28,17 @@ const updateUser = async (userId, updateData, req = null) => {
     throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
   }
 
-  const allowedUpdates = ['name', 'email', 'photo', 'image'];
-  const updates = Object.keys(updateData);
-  const isValidOperation = updates.every((update) => allowedUpdates.includes(update));
-
-  if (!isValidOperation) {
-    throw new ApiError(400, 'Invalid updates. Only name, email, and image can be updated.');
-  }
-
-  // Explicitly update fields
+  // Map input fields to model fields if necessary (mirroring vendor service pattern)
   if (updateData.name) user.name = updateData.name;
-  if (updateData.email) user.email = updateData.email;
+  if (updateData.email || updateData.mail) user.email = updateData.email || updateData.mail;
+  if (updateData.mobileNumber) user.phoneNumber = updateData.mobileNumber;
+  if (updateData.address) user.address = updateData.address;
+  if (updateData.city) user.city = updateData.city;
+  if (updateData.state) user.state = updateData.state;
+  if (updateData.zipcode) user.zipcode = updateData.zipcode;
+  if (updateData.country) user.country = updateData.country;
 
-  // Map image/photo
+  // Handle image separately (matching vendor pattern: vendor.set('documents.photo.url', ...))
   if (updateData.image || updateData.photo) {
     user.photo = updateData.image || updateData.photo;
   }
@@ -49,9 +47,7 @@ const updateUser = async (userId, updateData, req = null) => {
 
   await user.save();
 
-  const result = await getUserById(userId);
-  console.log('DEBUG: updateUser Service Result:', result);
-  return result;
+  return getUserById(userId);
 };
 
 const deleteUser = async (userId, req = null) => {
