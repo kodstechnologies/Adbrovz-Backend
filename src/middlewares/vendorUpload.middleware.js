@@ -86,7 +86,8 @@ const processVendorDocs = async (req, res, next) => {
         next();
     } catch (error) {
         console.error('Vendor document upload error:', error);
-        next(new ApiError(500, 'Failed to upload vendor documents'));
+        const errorMessage = error.message || (typeof error === 'string' ? error : JSON.stringify(error));
+        next(new ApiError(500, `Failed to upload vendor documents: ${errorMessage}`));
     }
 };
 

@@ -27,6 +27,9 @@ const uploadToCloudinary = async (fileBuffer, folder, publicId = null) => {
         const uploadOptions = {
             folder: `adbrovz/${folder}`,
             resource_type: 'auto',
+            cloud_name: config.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME,
+            api_key: config.CLOUDINARY_API_KEY || process.env.CLOUDINARY_API_KEY,
+            api_secret: config.CLOUDINARY_API_SECRET || process.env.CLOUDINARY_API_SECRET,
             transformation: [
                 { quality: 'auto' },
                 { fetch_format: 'auto' }
@@ -72,6 +75,9 @@ const uploadFromPath = async (filePath, folder, publicId = null) => {
     const uploadOptions = {
         folder: `adbrovz/${folder}`,
         resource_type: 'auto',
+        cloud_name: config.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: config.CLOUDINARY_API_KEY || process.env.CLOUDINARY_API_KEY,
+        api_secret: config.CLOUDINARY_API_SECRET || process.env.CLOUDINARY_API_SECRET,
         transformation: [
             { quality: 'auto' },
             { fetch_format: 'auto' }
