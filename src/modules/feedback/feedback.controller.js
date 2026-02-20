@@ -7,7 +7,7 @@ const feedbackService = require('./feedback.service');
  * User submits feedback for a completed booking
  */
 const submitFeedback = asyncHandler(async (req, res) => {
-    const userId = req.user.userId || req.user._id;
+    const userId = req.body.userId || req.user.userId || req.user._id;
     const { bookingId, rating, review } = req.body;
 
     const result = await feedbackService.submitFeedback(userId, bookingId, { rating, review });
