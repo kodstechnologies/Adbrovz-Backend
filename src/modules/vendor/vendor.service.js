@@ -67,11 +67,7 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     const adminService = require('../admin/admin.service');
     const concurrencyFee = await adminService.getSetting('pricing.vendor_concurrency_fee') || 0;
 
-    console.log(`DEBUG: Calculating total fee for ${serviceList.length} services (Overrides: ${!!overrides.serviceIds}). Base: ${concurrencyFee}`);
-    serviceList.forEach(s => console.log(`DEBUG: Service ID: ${s._id} | Title: ${s.title} | MembershipFee: ${s.membershipFee}`));
-
     const totalFee = serviceList.reduce((sum, srv) => sum + (srv.membershipFee || 0), 0) + concurrencyFee;
-    console.log(`DEBUG: Final Total Fee: ${totalFee}`);
 
     return {
         vendorId: vendor._id,

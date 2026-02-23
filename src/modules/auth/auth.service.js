@@ -233,10 +233,16 @@ const completeVendorSignup = async ({ signupId, pin, confirmPin, acceptedTerms, 
   // Delete signup session
   await cacheService.del(signupKey);
 
+  // Generate tokens for auto-login
+  const token = generateToken({ userId: vendor._id, role: vendor.role });
+  const refreshToken = generateRefreshToken({ userId: vendor._id });
+
   return {
     vendorId: vendor._id,
     vendorID: vendor.vendorID,
     phoneNumber: vendor.phoneNumber,
+    token,
+    refreshToken,
     message: 'Vendor registration completed successfully. Please wait for document approval.',
   };
 };
