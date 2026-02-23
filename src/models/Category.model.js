@@ -19,10 +19,7 @@ const categorySchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
-    membershipFee: {
-      type: Number,
-      required: true,
-    },
+
     order: {
       type: Number,
       default: 0,

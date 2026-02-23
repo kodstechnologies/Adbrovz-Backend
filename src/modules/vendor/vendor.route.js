@@ -5,7 +5,16 @@ const { authenticate, authorize } = require('../../middlewares/auth.middleware')
 const { ROLES } = require('../../constants/roles');
 const { upload, uploadToCloudinary } = require('../../middlewares/cloudinary.middleware');
 
+// Debugging middleware
+router.use((req, res, next) => {
+    console.log(`DEBUG: Vendor Route - ${req.method} ${req.originalUrl}`);
+    next();
+});
+
 // Registration utility routes (Can be called during registration flow)
+router.post('/get-membership', vendorController.getMembership);
+router.get('/:vendorId/membership-detail', vendorController.getVendorMembership);
+router.get('/:vendorId/membership-details', vendorController.getVendorMembership);
 router.post('/register/:vendorId/select-services', vendorController.selectServices);
 router.post('/register/:vendorId/purchase-membership', vendorController.purchaseMembership);
 router.post('/register/:vendorId/purchase-plan', vendorController.purchaseCreditPlan);

@@ -15,6 +15,37 @@ const getAllVendors = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Get membership info and total fee
+ */
+const getMembership = asyncHandler(async (req, res) => {
+    const result = await vendorService.getMembershipInfo(req.body);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Membership details retrieved successfully')
+    );
+});
+
+/**
+ * Get membership info for a specific vendor
+ */
+const getVendorMembership = asyncHandler(async (req, res) => {
+    const { vendorId } = req.params;
+    console.log('DEBUG: getVendorMembership called for vendorId:', vendorId);
+
+    // Support passing serviceIds in body or query for dynamic calculation
+    const overrides = { ...req.body };
+    if (req.query.serviceIds) {
+        overrides.serviceIds = Array.isArray(req.query.serviceIds)
+            ? req.query.serviceIds
+            : req.query.serviceIds.split(',');
+    }
+
+    const result = await vendorService.getVendorMembershipDetails(vendorId, overrides);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Vendor membership details retrieved successfully')
+    );
+});
+
+/**
  * Select services and calculate fee
  */
 const selectServices = asyncHandler(async (req, res) => {
@@ -90,6 +121,8 @@ const updateProfile = asyncHandler(async (req, res) => {
 
 module.exports = {
     getAllVendors,
+    getMembership,
+    getVendorMembership,
     selectServices,
     purchaseMembership,
     purchaseCreditPlan,

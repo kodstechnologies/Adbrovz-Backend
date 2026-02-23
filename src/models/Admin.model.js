@@ -48,7 +48,7 @@ const adminSchema = new mongoose.Schema(
   {
     timestamps: true,
   }
-);
+); 
 
 // Indexes
 // Note: username already has index from unique: true

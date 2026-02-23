@@ -1,0 +1,1 @@
+{"statusCode":200,"data":{"vendorId":"699c301a891046d6a23a6f6a","totalFee":0,"duration":"3 months","services":[{"id":"698d6161062acc2aae63baeb","title":"Test Service 1","membershipFee":0,"vendorConcurrency":0}]},"message":"Vendor membership details retrieved successfully","success":true,"timestamp":"2026-02-23T11:24:32.426Z"}

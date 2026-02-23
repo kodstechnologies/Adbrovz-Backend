@@ -48,6 +48,14 @@ const serviceSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    membershipFee: {
+      type: Number,
+      default: 0,
+    },
+    vendorConcurrency: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true,

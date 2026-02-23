@@ -16,7 +16,7 @@ const MESSAGES = require('../../constants/messages');
 const getAllCategories = async () => {
     const categories = await Category.find({ isActive: true })
         .sort({ order: 1, name: 1 })
-        .select('name description icon membershipFee defaultFreeCredits');
+        .select('name description icon defaultFreeCredits');
     return categories;
 };
 
@@ -360,7 +360,6 @@ const getAllCategoriesWithSubcategories = async () => {
                 name: 1,
                 description: 1,
                 icon: 1,
-                membershipFee: 1,
                 defaultFreeCredits: 1,
                 subcategories: 1
             }

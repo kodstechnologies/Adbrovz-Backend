@@ -2,6 +2,7 @@ const Vendor = require('../../models/Vendor.model');
 const Subcategory = require('../../models/Subcategory.model');
 const Category = require('../../models/Category.model');
 const CreditPlan = require('../../models/CreditPlan.model');
+const Service = require('../../models/Service.model');
 const ApiError = require('../../utils/ApiError');
 
 /**
@@ -13,6 +14,75 @@ const getAllVendors = async () => {
         .populate('membership.category', 'name')
         .populate('creditPlan.planId', 'name')
         .sort({ createdAt: -1 });
+};
+
+/**
+ * Get membership info for registration
+ */
+const getMembershipInfo = async ({ serviceIds }) => {
+    const services = await Service.find({ _id: { $in: serviceIds } });
+    if (services.length === 0) {
+        throw new ApiError(400, 'No valid services selected');
+    }
+
+    // Fetch global concurrency fee
+    const adminService = require('../admin/admin.service');
+    const concurrencyFee = await adminService.getSetting('pricing.vendor_concurrency_fee') || 0;
+
+    const totalFee = services.reduce((sum, srv) => sum + (srv.membershipFee || 0), 0) + concurrencyFee;
+
+    return {
+        totalFee,
+        vendorBaseMembershipFee: concurrencyFee,
+        duration: "3 months",
+        services: services.map(srv => ({
+            id: srv._id,
+            title: srv.title
+        }))
+    };
+};
+
+/**
+ * Get membership details for a specific vendor based on their saved selectedServices
+ */
+const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
+    const vendor = await Vendor.findById(vendorId).populate('selectedServices');
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    let serviceList = [];
+
+    // If serviceIds are provided in overrides, use them. Otherwise use vendor's saved services.
+    if (overrides.serviceIds && Array.isArray(overrides.serviceIds)) {
+        serviceList = await Service.find({ _id: { $in: overrides.serviceIds } });
+    } else {
+        const services = vendor.selectedServices || [];
+        // Fallback if services aren't populated or were saved as IDs but populate failed
+        serviceList = services;
+        if (services.length > 0 && typeof services[0] === 'string') {
+            serviceList = await Service.find({ _id: { $in: services } });
+        }
+    }
+
+    // Fetch global concurrency fee
+    const adminService = require('../admin/admin.service');
+    const concurrencyFee = await adminService.getSetting('pricing.vendor_concurrency_fee') || 0;
+
+    console.log(`DEBUG: Calculating total fee for ${serviceList.length} services (Overrides: ${!!overrides.serviceIds}). Base: ${concurrencyFee}`);
+    serviceList.forEach(s => console.log(`DEBUG: Service ID: ${s._id} | Title: ${s.title} | MembershipFee: ${s.membershipFee}`));
+
+    const totalFee = serviceList.reduce((sum, srv) => sum + (srv.membershipFee || 0), 0) + concurrencyFee;
+    console.log(`DEBUG: Final Total Fee: ${totalFee}`);
+
+    return {
+        vendorId: vendor._id,
+        totalFee,
+        vendorBaseMembershipFee: concurrencyFee,
+        duration: "3 months",
+        services: serviceList.map(srv => ({
+            id: srv._id,
+            title: srv.title
+        }))
+    };
 };
 
 /**
@@ -305,6 +375,8 @@ const updateVendorProfile = async (vendorId, profileData) => {
 
 module.exports = {
     getAllVendors,
+    getMembershipInfo,
+    getVendorMembershipDetails,
     selectServices,
     purchaseMembership,
     purchaseCreditPlan,
