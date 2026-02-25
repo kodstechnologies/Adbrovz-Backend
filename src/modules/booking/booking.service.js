@@ -324,6 +324,7 @@ const getVendorBookingHistory = async (vendorId) => {
         vendor: vendorIdObj,
         status: { $in: ['pending', 'ongoing', 'completed', 'on_the_way', 'arrived'] }
     })
+        .select('-rejectedVendors -laterVendors')
         .populate('services.service', 'title adminPrice photo')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
@@ -348,6 +349,7 @@ const getVendorLaterBookings = async (vendorId) => {
         laterVendors: vendorIdObj,
         status: 'pending_acceptance'
     })
+        .select('-rejectedVendors -laterVendors')
         .populate('services.service', 'title adminPrice photo')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
