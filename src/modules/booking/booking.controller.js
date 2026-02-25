@@ -126,7 +126,7 @@ const getBookingById = asyncHandler(async (req, res) => {
     const booking = await bookingService.getBookingDetails(id, userId, role);
 
     res.status(200).json(
-        new ApiResponse(200, { booking, otp: "1234" }, 'Booking details retrieved successfully')
+        new ApiResponse(200, booking, 'Booking details retrieved successfully')
     );
 });
 
@@ -211,6 +211,68 @@ const getVendorLaterBookings = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * Vendor marks booking as On the Way
+ */
+const markOnTheWay = asyncHandler(async (req, res) => {
+    const vendorId = req.user?._id || req.user?.userId || req.body.vendorId;
+    const { id } = req.params;
+
+    const result = await bookingService.markOnTheWay(vendorId, id);
+
+    res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
+/**
+ * Vendor marks booking as Arrived
+ */
+const markArrived = asyncHandler(async (req, res) => {
+    const vendorId = req.user?._id || req.user?.userId || req.body.vendorId;
+    const { id } = req.params;
+
+    const result = await bookingService.markArrived(vendorId, id);
+
+    res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
+/**
+ * Vendor starts work (requires OTP)
+ */
+const startWork = asyncHandler(async (req, res) => {
+    const vendorId = req.user?._id || req.user?.userId || req.body.vendorId;
+    const { id } = req.params;
+    const { otp } = req.body;
+
+    const result = await bookingService.startWork(vendorId, id, otp);
+
+    res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
+/**
+ * Request Completion OTP
+ */
+const requestCompletionOTP = asyncHandler(async (req, res) => {
+    const vendorId = req.user?._id || req.user?.userId || req.body.vendorId;
+    const { id } = req.params;
+
+    const result = await bookingService.requestCompletionOTP(vendorId, id);
+
+    res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
+/**
+ * Vendor completes work
+ */
+const completeWork = asyncHandler(async (req, res) => {
+    const vendorId = req.user?._id || req.user?.userId || req.body.vendorId;
+    const { id } = req.params;
+    const { otp, paymentMethod } = req.body;
+
+    const result = await bookingService.completeWork(vendorId, id, otp, paymentMethod);
+
+    res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
 module.exports = {
     // Lead flow
     requestLead,
@@ -227,5 +289,12 @@ module.exports = {
     getCompletedHistory,
     getVendorHistory,
     getVendorLaterBookings,
-    retrySearch
+    retrySearch,
+
+    // Post-acceptance execution flow
+    markOnTheWay,
+    markArrived,
+    startWork,
+    requestCompletionOTP,
+    completeWork
 };

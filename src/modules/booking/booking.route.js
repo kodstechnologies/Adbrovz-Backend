@@ -16,6 +16,15 @@ router.post('/reject/:id', authenticate, bookingController.rejectLead);
 router.post('/later/:id', authenticate, bookingController.markLeadLater);
 router.get('/vendor/history', authenticate, bookingController.getVendorHistory);
 router.get('/vendor/later', authenticate, bookingController.getVendorLaterBookings);
+
+/**
+ * VENDOR – EXECUTION FLOW
+ */
+router.post('/vendor/:id/on-the-way', authenticate, bookingController.markOnTheWay);
+router.post('/vendor/:id/arrived', authenticate, bookingController.markArrived);
+router.post('/vendor/:id/start-work', authenticate, bookingController.startWork);
+router.post('/vendor/:id/request-completion-otp', authenticate, bookingController.requestCompletionOTP);
+router.post('/vendor/:id/complete-work', authenticate, bookingController.completeWork);
 /**
  * USER – BOOKING FLOW
  */

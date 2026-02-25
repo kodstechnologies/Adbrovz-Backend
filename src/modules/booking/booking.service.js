@@ -101,14 +101,132 @@ const acceptLead = async (vendorId, bookingId) => {
         throw new ApiError(400, `Vendor has reached the concurrency limit of ${concurrencyLimit} active jobs`);
     }
 
+    // Generate Start OTP and assign the vendor
+    const startOTP = '1234';
+    const completionOTP = '4321';
+
     booking.vendor = vendorId;
     booking.status = 'pending'; // enters standard booking lifecycle
+    booking.otp = { startOTP, completionOTP };
+
     await booking.save();
 
     return {
         booking,
         message: 'Lead accepted successfully'
     };
+};
+
+/**
+ * Vendor marks themselves as On the Way
+ */
+const markOnTheWay = async (vendorId, bookingId) => {
+    const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (booking.status !== 'pending') {
+        throw new ApiError(400, 'Booking must be in pending status to mark as on the way');
+    }
+
+    booking.status = 'on_the_way';
+    await booking.save();
+
+    return { booking, message: 'Status updated to On The Way' };
+};
+
+/**
+ * Vendor marks themselves as Arrived
+ */
+const markArrived = async (vendorId, bookingId) => {
+    const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (booking.status !== 'on_the_way') {
+        throw new ApiError(400, 'Booking must be on the way first');
+    }
+
+    booking.status = 'arrived';
+    booking.vendorArrivedAt = new Date();
+    await booking.save();
+
+    return { booking, message: 'Status updated to Arrived' };
+};
+
+/**
+ * Vendor starts work using the Start OTP
+ */
+const startWork = async (vendorId, bookingId, enteredOTP) => {
+    const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (booking.status !== 'arrived') {
+        throw new ApiError(400, 'Vendor must arrive before starting work');
+    }
+
+    const validStartOTP = booking.otp?.startOTP || '1234';
+    if (!enteredOTP || enteredOTP.toString() !== validStartOTP) {
+        throw new ApiError(400, 'Invalid Start OTP');
+    }
+
+    booking.status = 'ongoing';
+    booking.workStartedAt = new Date();
+    await booking.save();
+
+    return { booking, message: 'Work started successfully' };
+};
+
+/**
+ * Request Completion OTP
+ */
+const requestCompletionOTP = async (vendorId, bookingId) => {
+    const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (booking.status !== 'ongoing') {
+        throw new ApiError(400, 'Booking must be ongoing to request completion');
+    }
+
+    const completionOTP = '4321';
+    booking.otp = { ...booking.otp, completionOTP };
+    await booking.save();
+
+    return { message: 'Completion OTP generated successfully' };
+};
+
+/**
+ * Complete Work
+ */
+const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
+    const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (booking.status !== 'ongoing') {
+        throw new ApiError(400, 'Booking must be ongoing to complete');
+    }
+
+    if (!booking.otp?.completionOTP) {
+        throw new ApiError(400, 'Completion OTP was never requested');
+    }
+
+    const validCompletionOTP = booking.otp?.completionOTP || '4321';
+    if (!enteredOTP || enteredOTP.toString() !== validCompletionOTP) {
+        throw new ApiError(400, 'Invalid Completion OTP');
+    }
+
+    if (!paymentMethod || !['cash', 'upi', 'other'].includes(paymentMethod)) {
+        throw new ApiError(400, 'Valid payment method is required to complete booking');
+    }
+
+    booking.status = 'completed';
+    booking.payment = {
+        ...booking.payment,
+        method: paymentMethod,
+        status: 'completed'
+    };
+    booking.workCompletedAt = new Date();
+    await booking.save();
+
+    return { booking, message: 'Booking completed successfully' };
 };
 
 const findBookingByUser = async (bookingId, userId) => {
@@ -477,5 +595,12 @@ module.exports = {
     getCompletedBookingsByUser,
     getVendorBookingHistory,
     getVendorLaterBookings,
-    retrySearchVendors
+    retrySearchVendors,
+
+    // Post-acceptance execution flow
+    markOnTheWay,
+    markArrived,
+    startWork,
+    requestCompletionOTP,
+    completeWork
 };
