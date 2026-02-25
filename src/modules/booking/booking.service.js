@@ -251,19 +251,15 @@ const searchVendors = async (booking, broadcast = false) => {
             const io = getIo();
             let broadcastCount = 0;
 
+            const populatedBooking = await Booking.findById(booking._id)
+                .populate('services.service', 'title photo adminPrice')
+                .populate('user', 'name phoneNumber photo');
+
             vendors.forEach(v => {
                 const socketIds = getVendorSockets(v._id);
                 if (socketIds && socketIds.length > 0) {
                     socketIds.forEach(socketId => {
-                        io.to(socketId).emit('new_booking_request', {
-                            bookingId: booking._id,
-                            bookingID: booking.bookingID,
-                            services: booking.services,
-                            scheduledDate: booking.scheduledDate,
-                            scheduledTime: booking.scheduledTime,
-                            location: booking.location,
-                            pricing: booking.pricing
-                        });
+                        io.to(socketId).emit('new_booking_request', populatedBooking);
                     });
                     broadcastCount++;
                 }
