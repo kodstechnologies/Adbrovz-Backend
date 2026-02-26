@@ -416,17 +416,21 @@ const searchVendors = async (booking, broadcast = false) => {
     }));
 };
 
-/**
- * Reject a lead (Vendor rejects)
- */
 const rejectLead = async (vendorId, bookingId) => {
     const booking = await Booking.findById(bookingId);
     if (!booking) throw new ApiError(404, 'Booking not found');
 
-    if (!booking.rejectedVendors.includes(vendorId)) {
+    const vendorIdStr = vendorId.toString();
+
+    // Add to rejected if not already there
+    if (!booking.rejectedVendors.some(id => id.toString() === vendorIdStr)) {
         booking.rejectedVendors.push(vendorId);
-        await booking.save();
     }
+
+    // Always remove from laterVendors when rejecting
+    booking.laterVendors = booking.laterVendors.filter(id => id.toString() !== vendorIdStr);
+
+    await booking.save();
 
     return {
         booking,
@@ -434,9 +438,6 @@ const rejectLead = async (vendorId, bookingId) => {
     };
 };
 
-/**
- * Mark a lead as later (Vendor later)
- */
 const markLeadLater = async (vendorId, bookingId) => {
     const booking = await Booking.findById(bookingId);
     if (!booking) throw new ApiError(404, 'Booking not found');
@@ -446,10 +447,17 @@ const markLeadLater = async (vendorId, bookingId) => {
         throw new ApiError(400, 'Booking is no longer available');
     }
 
-    if (!booking.laterVendors.includes(vendorId)) {
+    const vendorIdStr = vendorId.toString();
+
+    // Add to later if not already there
+    if (!booking.laterVendors.some(id => id.toString() === vendorIdStr)) {
         booking.laterVendors.push(vendorId);
-        await booking.save();
     }
+
+    // Remove from rejected if it was there
+    booking.rejectedVendors = booking.rejectedVendors.filter(id => id.toString() !== vendorIdStr);
+
+    await booking.save();
 
     return {
         booking,
