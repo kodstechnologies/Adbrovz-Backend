@@ -81,7 +81,11 @@ const requestLead = async (
  * Accept a lead (Vendor accepts)
  */
 const acceptLead = async (vendorId, bookingId) => {
-    const booking = await Booking.findById(bookingId);
+    const query = mongoose.isValidObjectId(bookingId)
+        ? { $or: [{ _id: bookingId }, { bookingID: bookingId }] }
+        : { bookingID: bookingId };
+
+    const booking = await Booking.findOne(query);
     if (!booking) throw new ApiError(404, 'Booking not found');
 
     if (booking.status !== 'pending_acceptance') {
@@ -91,15 +95,7 @@ const acceptLead = async (vendorId, bookingId) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    const concurrencyLimit = (await adminService.getSetting('vendors.concurrency_limit')) || 3;
-    const activeJobs = await Booking.countDocuments({
-        vendor: vendorId,
-        status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] }
-    });
-
-    if (activeJobs >= concurrencyLimit) {
-        throw new ApiError(400, `Vendor has reached the concurrency limit of ${concurrencyLimit} active jobs`);
-    }
+    // Generate Start OTP and assign the vendor
 
     // Generate Start OTP and assign the vendor
     const startOTP = '1234';

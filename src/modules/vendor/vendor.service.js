@@ -4,6 +4,21 @@ const Category = require('../../models/Category.model');
 const CreditPlan = require('../../models/CreditPlan.model');
 const Service = require('../../models/Service.model');
 const ApiError = require('../../utils/ApiError');
+const Razorpay = require('razorpay');
+const crypto = require('crypto');
+const config = require('../../config/env');
+
+// Lazy init — avoids crash on startup when RAZORPAY keys are not set
+const getRazorpay = () => {
+    if (!config.RAZORPAY_KEY_ID || !config.RAZORPAY_KEY_SECRET) {
+        const ApiError = require('../../utils/ApiError');
+        throw new ApiError(500, 'Razorpay credentials are not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in .env');
+    }
+    return new Razorpay({
+        key_id: config.RAZORPAY_KEY_ID,
+        key_secret: config.RAZORPAY_KEY_SECRET,
+    });
+};
 
 /**
  * Get all vendors
@@ -74,10 +89,75 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         totalFee,
         vendorBaseMembershipFee: concurrencyFee,
         duration: "3 months",
+        razorpayKeyId: config.RAZORPAY_KEY_ID,
         services: serviceList.map(srv => ({
             id: srv._id,
             title: srv.title
         }))
+    };
+};
+
+/**
+ * Create Razorpay order for membership payment
+ * vendorId is extracted from token (req.user), NOT from URL
+ */
+const createMembershipOrder = async (vendorId) => {
+    const vendor = await Vendor.findById(vendorId).populate('selectedServices');
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    let serviceList = vendor.selectedServices || [];
+    if (serviceList.length > 0 && typeof serviceList[0] === 'string') {
+        serviceList = await Service.find({ _id: { $in: serviceList } });
+    }
+
+    const adminService = require('../admin/admin.service');
+    const concurrencyFee = await adminService.getSetting('pricing.vendor_concurrency_fee') || 0;
+    const totalFee = serviceList.reduce((sum, srv) => sum + (srv.membershipFee || 0), 0) + concurrencyFee;
+
+    if (totalFee <= 0) {
+        throw new ApiError(400, 'Membership fee must be greater than 0');
+    }
+
+    // Razorpay amount is in paise (multiply by 100)
+    let razorpayOrder;
+    try {
+        razorpayOrder = await getRazorpay().orders.create({
+            amount: Math.round(totalFee * 100),
+            currency: 'INR',
+            receipt: `m_${vendor._id.toString().slice(-10)}_${Date.now()}`,
+            notes: {
+                vendorId: vendor._id.toString(),
+                vendorName: vendor.name,
+                purpose: 'membership',
+            },
+        });
+    } catch (error) {
+        console.error('Razorpay Order Creation Error:', error);
+        const errorMsg = error.error?.description || error.message || 'Failed to create payment order with Razorpay';
+        throw new ApiError(400, `Payment Error: ${errorMsg}`);
+    }
+
+    return {
+        vendorId: vendor._id,
+        vendorName: vendor.name,
+        totalFee,
+        vendorBaseMembershipFee: concurrencyFee,
+        duration: '3 months',
+        status: razorpayOrder.status,  // 'created'
+        razorpayKeyId: config.RAZORPAY_KEY_ID,
+        razorpayOrder: {
+            id: razorpayOrder.id,
+            amount: razorpayOrder.amount,
+            amountInRupees: razorpayOrder.amount / 100,
+            currency: razorpayOrder.currency,
+            receipt: razorpayOrder.receipt,
+            status: razorpayOrder.status,
+        },
+        services: serviceList.map(srv => ({
+            id: srv._id,
+            title: srv.title,
+            membershipFee: srv.membershipFee || 0,
+        })),
     };
 };
 
@@ -369,10 +449,62 @@ const updateVendorProfile = async (vendorId, profileData) => {
     return getVendorProfile(vendorId);
 };
 
+/**
+ * Verify Razorpay membership payment signature
+ * On success — activates vendor membership
+ */
+const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature }) => {
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+        throw new ApiError(400, 'razorpay_order_id, razorpay_payment_id and razorpay_signature are required');
+    }
+
+    // Verify signature: HMAC SHA256 of "order_id|payment_id" using key_secret
+    const body = `${razorpay_order_id}|${razorpay_payment_id}`;
+    const expectedSignature = crypto
+        .createHmac('sha256', config.RAZORPAY_KEY_SECRET)
+        .update(body)
+        .digest('hex');
+
+    if (expectedSignature !== razorpay_signature) {
+        throw new ApiError(400, 'Invalid payment signature. Payment verification failed.');
+    }
+
+    // Signature valid — activate vendor membership
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    vendor.membership.isActive = true;
+    vendor.membership.startDate = new Date();
+    const expiryDate = new Date();
+    expiryDate.setMonth(expiryDate.getMonth() + (vendor.membership.durationMonths || 3));
+    vendor.membership.expiryDate = expiryDate;
+    vendor.registrationStep = 'COMPLETED';
+
+    await vendor.save();
+
+    return {
+        success: true,
+        message: 'Payment verified. Membership activated successfully.',
+        membership: {
+            isActive: vendor.membership.isActive,
+            startDate: vendor.membership.startDate,
+            expiryDate: vendor.membership.expiryDate,
+            durationMonths: vendor.membership.durationMonths || 3,
+        },
+        payment: {
+            razorpay_order_id,
+            razorpay_payment_id,
+            status: 'paid',
+        },
+    };
+};
+
 module.exports = {
     getAllVendors,
     getMembershipInfo,
     getVendorMembershipDetails,
+    createMembershipOrder,
+    verifyMembershipPayment,
     selectServices,
     purchaseMembership,
     purchaseCreditPlan,

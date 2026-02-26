@@ -28,7 +28,8 @@ const getMembership = asyncHandler(async (req, res) => {
  * Get membership info for a specific vendor
  */
 const getVendorMembership = asyncHandler(async (req, res) => {
-    const { vendorId } = req.params;
+    // Extract vendorId from token if not in params
+    const vendorId = req.params.vendorId || req.user.userId || req.user._id;
     console.log('DEBUG: getVendorMembership called for vendorId:', vendorId);
 
     // Support passing serviceIds in body or query for dynamic calculation
@@ -49,7 +50,7 @@ const getVendorMembership = asyncHandler(async (req, res) => {
  * Select services and calculate fee
  */
 const selectServices = asyncHandler(async (req, res) => {
-    const { vendorId } = req.params;
+    const vendorId = req.params.vendorId || req.user.userId || req.user._id;
     const result = await vendorService.selectServices(vendorId, req.body);
     res.status(200).json(
         new ApiResponse(200, result, 'Services selected and price calculated')
@@ -57,10 +58,43 @@ const selectServices = asyncHandler(async (req, res) => {
 });
 
 /**
- * Purchase membership (Demo)
+ * Create Razorpay order for membership payment
+ * vendorId is taken from token — NOT from URL
  */
+const createMembershipOrder = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.createMembershipOrder(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Membership order created successfully')
+    );
+});
+
+/**
+ * Verify Razorpay payment for membership
+ * vendorId from token; razorpay_* from body
+ */
+const verifyMembershipPayment = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    const result = await vendorService.verifyMembershipPayment(vendorId, {
+        razorpay_order_id,
+        razorpay_payment_id,
+        razorpay_signature,
+    });
+    res.status(200).json(
+        new ApiResponse(200, result, result.message)
+    );
+});
+
+/**
+ * Membership aliases - create and verify
+ */
+const createMembership = createMembershipOrder;
+const verifyMembership = verifyMembershipPayment;
+
+
 const purchaseMembership = asyncHandler(async (req, res) => {
-    const { vendorId } = req.params;
+    const vendorId = req.params.vendorId || req.user.userId || req.user._id;
     const result = await vendorService.purchaseMembership(vendorId);
     res.status(200).json(
         new ApiResponse(200, result, result.message)
@@ -82,7 +116,7 @@ const purchaseCreditPlan = asyncHandler(async (req, res) => {
  * Toggle online/offline status
  */
 const toggleOnlineStatus = asyncHandler(async (req, res) => {
-    const { vendorId } = req.params;
+    const vendorId = req.params.vendorId || req.user.userId || req.user._id;
     const { isOnline } = req.body;
     const result = await vendorService.toggleOnlineStatus(vendorId, isOnline);
     res.status(200).json(
@@ -123,6 +157,10 @@ module.exports = {
     getAllVendors,
     getMembership,
     getVendorMembership,
+    createMembershipOrder,
+    verifyMembershipPayment,
+    createMembership,
+    verifyMembership,
     selectServices,
     purchaseMembership,
     purchaseCreditPlan,
