@@ -258,7 +258,15 @@ const getBookingDetails = async (bookingId, userId, role) => {
         throw new ApiError(404, 'Booking not found');
     }
 
-    return booking;
+    const bookingObj = booking.toObject();
+
+    // Security: Do not expose OTPs to the vendor
+    // The vendor must physically ask the user for the OTP
+    if (role === 'vendor' && bookingObj.otp) {
+        delete bookingObj.otp;
+    }
+
+    return bookingObj;
 };
 
 /**
