@@ -107,8 +107,11 @@ const acceptLead = async (vendorId, bookingId) => {
 
     await booking.save();
 
+    // Fetch fully populated booking object for the frontend
+    const populatedBooking = await getBookingDetails(booking._id, vendorId, 'vendor');
+
     return {
-        booking,
+        booking: populatedBooking,
         message: 'Lead accepted successfully'
     };
 };
@@ -128,7 +131,7 @@ const markOnTheWay = async (vendorId, bookingId) => {
     await booking.save();
 
     // Fetch fully populated booking object for the frontend
-    const populatedBooking = await module.exports.getBookingDetails(bookingId, vendorId, 'vendor');
+    const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
 
     return { booking: populatedBooking, message: 'Status updated to On The Way' };
 };
@@ -149,7 +152,7 @@ const markArrived = async (vendorId, bookingId) => {
     await booking.save();
 
     // Fetch fully populated booking object for the frontend
-    const populatedBooking = await module.exports.getBookingDetails(bookingId, vendorId, 'vendor');
+    const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
 
     return { booking: populatedBooking, message: 'Status updated to Arrived' };
 };
@@ -175,7 +178,7 @@ const startWork = async (vendorId, bookingId, enteredOTP) => {
     await booking.save();
 
     // Fetch fully populated booking object for the frontend
-    const populatedBooking = await module.exports.getBookingDetails(bookingId, vendorId, 'vendor');
+    const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
 
     return { booking: populatedBooking, message: 'Work started successfully' };
 };
@@ -196,7 +199,7 @@ const requestCompletionOTP = async (vendorId, bookingId) => {
     await booking.save();
 
     // Fetch fully populated booking object for the frontend
-    const populatedBooking = await module.exports.getBookingDetails(bookingId, vendorId, 'vendor');
+    const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
 
     return { booking: populatedBooking, message: 'Completion OTP generated successfully' };
 };
@@ -235,7 +238,7 @@ const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
     await booking.save();
 
     // Fetch fully populated booking object for the frontend
-    const populatedBooking = await module.exports.getBookingDetails(bookingId, vendorId, 'vendor');
+    const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
 
     return { booking: populatedBooking, message: 'Booking completed successfully' };
 };
@@ -425,7 +428,10 @@ const rejectLead = async (vendorId, bookingId) => {
         await booking.save();
     }
 
-    return { message: 'Booking rejected and removed from your list' };
+    return {
+        booking,
+        message: 'Booking rejected and removed from your list'
+    };
 };
 
 /**
@@ -445,7 +451,10 @@ const markLeadLater = async (vendorId, bookingId) => {
         await booking.save();
     }
 
-    return { message: 'Booking saved for later' };
+    return {
+        booking,
+        message: 'Booking marked for later successfully'
+    };
 };
 
 /**
@@ -552,7 +561,11 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
     booking.rescheduleCount += 1;
 
     await booking.save();
-    return booking;
+
+    // Fetch fully populated booking object for the frontend
+    const populatedBooking = await getBookingDetails(booking._id, userId, 'user');
+
+    return populatedBooking;
 };
 
 const getBookingsByUser = async (userId) =>

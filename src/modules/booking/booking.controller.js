@@ -25,7 +25,7 @@ const acceptLead = asyncHandler(async (req, res) => {
     const result = await bookingService.acceptLead(vendorId, bookingId);
 
     res.status(200).json(
-        new ApiResponse(200, result, 'Lead accepted successfully')
+        new ApiResponse(200, result.booking, result.message)
     );
 });
 
@@ -167,7 +167,7 @@ const rejectLead = asyncHandler(async (req, res) => {
     const result = await bookingService.rejectLead(vendorId, id);
 
     res.status(200).json(
-        new ApiResponse(200, result, 'Lead rejected successfully')
+        new ApiResponse(200, result.booking, result.message)
     );
 });
 
@@ -181,7 +181,7 @@ const markLeadLater = asyncHandler(async (req, res) => {
     const result = await bookingService.markLeadLater(vendorId, id);
 
     res.status(200).json(
-        new ApiResponse(200, result, 'Lead marked for later successfully')
+        new ApiResponse(200, result.booking, result.message)
     );
 });
 
