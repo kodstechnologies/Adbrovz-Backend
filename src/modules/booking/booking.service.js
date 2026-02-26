@@ -127,7 +127,10 @@ const markOnTheWay = async (vendorId, bookingId) => {
     booking.status = 'on_the_way';
     await booking.save();
 
-    return { booking, message: 'Status updated to On The Way' };
+    // Fetch fully populated booking object for the frontend
+    const populatedBooking = await module.exports.getBookingDetails(bookingId, vendorId, 'vendor');
+
+    return { booking: populatedBooking, message: 'Status updated to On The Way' };
 };
 
 /**
@@ -145,7 +148,10 @@ const markArrived = async (vendorId, bookingId) => {
     booking.vendorArrivedAt = new Date();
     await booking.save();
 
-    return { booking, message: 'Status updated to Arrived' };
+    // Fetch fully populated booking object for the frontend
+    const populatedBooking = await module.exports.getBookingDetails(bookingId, vendorId, 'vendor');
+
+    return { booking: populatedBooking, message: 'Status updated to Arrived' };
 };
 
 /**
@@ -168,7 +174,10 @@ const startWork = async (vendorId, bookingId, enteredOTP) => {
     booking.workStartedAt = new Date();
     await booking.save();
 
-    return { booking, message: 'Work started successfully' };
+    // Fetch fully populated booking object for the frontend
+    const populatedBooking = await module.exports.getBookingDetails(bookingId, vendorId, 'vendor');
+
+    return { booking: populatedBooking, message: 'Work started successfully' };
 };
 
 /**
@@ -186,7 +195,10 @@ const requestCompletionOTP = async (vendorId, bookingId) => {
     booking.otp = { ...booking.otp, completionOTP };
     await booking.save();
 
-    return { booking, message: 'Completion OTP generated successfully' };
+    // Fetch fully populated booking object for the frontend
+    const populatedBooking = await module.exports.getBookingDetails(bookingId, vendorId, 'vendor');
+
+    return { booking: populatedBooking, message: 'Completion OTP generated successfully' };
 };
 
 /**
@@ -222,7 +234,10 @@ const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
     booking.workCompletedAt = new Date();
     await booking.save();
 
-    return { booking, message: 'Booking completed successfully' };
+    // Fetch fully populated booking object for the frontend
+    const populatedBooking = await module.exports.getBookingDetails(bookingId, vendorId, 'vendor');
+
+    return { booking: populatedBooking, message: 'Booking completed successfully' };
 };
 
 const findBookingByUser = async (bookingId, userId) => {
