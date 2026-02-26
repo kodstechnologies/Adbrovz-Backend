@@ -13,7 +13,7 @@ const getUserAuditLogs = asyncHandler(async (req, res) => {
     action,
   });
 
-  res.(200).json(
+  res.status(200).json(
     new ApiResponse(200, logs, 'Audit logs retrieved successfully')
   );
 });
