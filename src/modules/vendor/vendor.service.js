@@ -8,6 +8,35 @@ const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const config = require('../../config/env');
 
+/**
+ * Helper to parse array inputs that might be sent as malformed strings
+ */
+const parseArrayInput = (input) => {
+    if (!input) return [];
+    if (Array.isArray(input)) {
+        // Check if the first element is a string that looks like an array (Double stringification)
+        if (input.length === 1 && typeof input[0] === 'string' && (input[0].includes('[') || input[0].includes(','))) {
+            return parseArrayInput(input[0]);
+        }
+        return input;
+    }
+    if (typeof input === 'string') {
+        try {
+            let cleaned = input.trim();
+            // Handle "['id1', 'id2']" by replacing ' with "
+            if (cleaned.startsWith('[') && cleaned.endsWith(']')) {
+                const jsonFriendly = cleaned.replace(/'/g, '"');
+                const parsed = JSON.parse(jsonFriendly);
+                return Array.isArray(parsed) ? parsed : [parsed];
+            }
+            return cleaned.split(',').map(s => s.trim().replace(/^['"]|['"]$/g, ''));
+        } catch (e) {
+            return input.split(',').map(s => s.trim().replace(/^['"]|['"]$/g, ''));
+        }
+    }
+    return [input];
+};
+
 // Lazy init — avoids crash on startup when RAZORPAY keys are not set
 const getRazorpay = () => {
     if (!config.RAZORPAY_KEY_ID || !config.RAZORPAY_KEY_SECRET) {
@@ -38,12 +67,15 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, vendorId }) => {
     let itemList = [];
     let isSubcategory = false;
 
+    const parsedServiceIds = parseArrayInput(serviceIds);
+    const parsedSubcategoryIds = parseArrayInput(subcategoryIds);
+
     // 1. Priorities: Explicit subcategoryIds > Explicit serviceIds > Vendor's saved data
-    if (subcategoryIds && Array.isArray(subcategoryIds) && subcategoryIds.length > 0) {
-        itemList = await Subcategory.find({ _id: { $in: subcategoryIds } });
+    if (parsedSubcategoryIds.length > 0) {
+        itemList = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } });
         isSubcategory = true;
-    } else if (serviceIds && Array.isArray(serviceIds) && serviceIds.length > 0) {
-        itemList = await Service.find({ _id: { $in: serviceIds } });
+    } else if (parsedServiceIds.length > 0) {
+        itemList = await Service.find({ _id: { $in: parsedServiceIds } });
     } else if (vendorId) {
         const vendor = await Vendor.findById(vendorId).populate('selectedServices').populate('selectedSubcategories');
         if (vendor) {
@@ -98,12 +130,15 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     let itemList = [];
     let isSubcategory = false;
 
+    const parsedServiceIds = parseArrayInput(overrides.serviceIds);
+    const parsedSubcategoryIds = parseArrayInput(overrides.subcategoryIds);
+
     // Priority: Query overrides > Saved subcategories > Saved services
-    if (overrides.subcategoryIds && Array.isArray(overrides.subcategoryIds)) {
-        itemList = await Subcategory.find({ _id: { $in: overrides.subcategoryIds } });
+    if (parsedSubcategoryIds.length > 0) {
+        itemList = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } });
         isSubcategory = true;
-    } else if (overrides.serviceIds && Array.isArray(overrides.serviceIds)) {
-        itemList = await Service.find({ _id: { $in: overrides.serviceIds } });
+    } else if (parsedServiceIds.length > 0) {
+        itemList = await Service.find({ _id: { $in: parsedServiceIds } });
     } else {
         if (vendor.selectedSubcategories && vendor.selectedSubcategories.length > 0) {
             itemList = vendor.selectedSubcategories;
@@ -234,8 +269,10 @@ const selectServices = async (vendorId, { subcategoryIds, durationMonths }) => {
         throw new ApiError(400, 'Duration must be in multiples of 3 months');
     }
 
+    const parsedSubcategoryIds = parseArrayInput(subcategoryIds);
+
     // Fetch subcategories to get prices and categories
-    const subcategories = await Subcategory.find({ _id: { $in: subcategoryIds } }).populate('category', 'name');
+    const subcategories = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).populate('category', 'name');
     if (subcategories.length === 0) {
         throw new ApiError(400, 'No valid subcategories selected');
     }
@@ -245,7 +282,7 @@ const selectServices = async (vendorId, { subcategoryIds, durationMonths }) => {
     const totalPrice = basePrice * (durationMonths / 3);
 
     // Update vendor
-    vendor.selectedSubcategories = subcategoryIds;
+    vendor.selectedSubcategories = parsedSubcategoryIds;
     vendor.membership.category = subcategories[0].category; // Set primary category for dashboard
     vendor.membership.fee = totalPrice;
     vendor.membership.durationMonths = durationMonths;

@@ -376,6 +376,35 @@ const completeUserLogin = async ({ loginId, pin }, req = null) => {
   return result;
 };
 
+/**
+ * Helper to parse array inputs that might be sent as malformed strings
+ */
+const parseArrayInput = (input) => {
+  if (!input) return [];
+  if (Array.isArray(input)) {
+    // Check if the first element is a string that looks like an array (Double stringification)
+    if (input.length === 1 && typeof input[0] === 'string' && (input[0].includes('[') || input[0].includes(','))) {
+      return parseArrayInput(input[0]);
+    }
+    return input;
+  }
+  if (typeof input === 'string') {
+    try {
+      let cleaned = input.trim();
+      // Handle "['id1', 'id2']" by replacing ' with "
+      if (cleaned.startsWith('[') && cleaned.endsWith(']')) {
+        const jsonFriendly = cleaned.replace(/'/g, '"');
+        const parsed = JSON.parse(jsonFriendly);
+        return Array.isArray(parsed) ? parsed : [parsed];
+      }
+      return cleaned.split(',').map(s => s.trim().replace(/^['"]|['"]$/g, ''));
+    } catch (e) {
+      return input.split(',').map(s => s.trim().replace(/^['"]|['"]$/g, ''));
+    }
+  }
+  return [input];
+};
+
 // ======================== VENDOR SIGNUP (Step 1: Data) ========================
 const vendorSignup = async ({
   phoneNumber, name, email,
@@ -383,6 +412,12 @@ const vendorSignup = async ({
   workState, workCity, workPincodes,
   selectedCategories, selectedSubcategories, selectedServices
 }) => {
+  // Parse array inputs
+  const parsedWorkPincodes = parseArrayInput(workPincodes);
+  const parsedCategories = parseArrayInput(selectedCategories);
+  const parsedSubcategories = parseArrayInput(selectedSubcategories);
+  const parsedServices = parseArrayInput(selectedServices);
+
   // Check if vendor already exists
   const existingVendor = await Vendor.findOne({ phoneNumber });
 
@@ -415,10 +450,10 @@ const vendorSignup = async ({
     existingVendor.documents = docObj;
     existingVendor.workState = workState;
     existingVendor.workCity = workCity;
-    existingVendor.workPincodes = workPincodes;
-    existingVendor.selectedCategories = selectedCategories;
-    existingVendor.selectedSubcategories = selectedSubcategories;
-    existingVendor.selectedServices = selectedServices;
+    existingVendor.workPincodes = parsedWorkPincodes;
+    existingVendor.selectedCategories = parsedCategories;
+    existingVendor.selectedSubcategories = parsedSubcategories;
+    existingVendor.selectedServices = parsedServices;
     existingVendor.registrationStep = 'PIN_PENDING';
     await existingVendor.save();
     vendor = existingVendor;
@@ -431,10 +466,10 @@ const vendorSignup = async ({
       documents: docObj,
       workState,
       workCity,
-      workPincodes: workPincodes || [],
-      selectedCategories: selectedCategories || [],
-      selectedSubcategories: selectedSubcategories || [],
-      selectedServices: selectedServices || [],
+      workPincodes: parsedWorkPincodes,
+      selectedCategories: parsedCategories,
+      selectedSubcategories: parsedSubcategories,
+      selectedServices: parsedServices,
       documentStatus: 'pending',
       registrationStep: 'PIN_PENDING',
     });
