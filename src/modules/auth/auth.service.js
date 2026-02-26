@@ -381,28 +381,23 @@ const completeUserLogin = async ({ loginId, pin }, req = null) => {
  */
 const parseArrayInput = (input) => {
   if (!input) return [];
-  if (Array.isArray(input)) {
-    // Check if the first element is a string that looks like an array (Double stringification)
-    if (input.length === 1 && typeof input[0] === 'string' && (input[0].includes('[') || input[0].includes(','))) {
-      return parseArrayInput(input[0]);
-    }
-    return input;
+
+  // Convert to string to handle concatenated or multiline junk
+  const str = String(input);
+
+  // 1. If it contains MongoDB-style ObjectIDs, extract them all directly
+  // This is the most robust way to handle malformed stringified arrays
+  const idMatches = str.match(/[a-fA-F0-9]{24}/g);
+  if (idMatches && idMatches.length > 0) {
+    return [...new Set(idMatches)];
   }
-  if (typeof input === 'string') {
-    try {
-      let cleaned = input.trim();
-      // Handle "['id1', 'id2']" by replacing ' with "
-      if (cleaned.startsWith('[') && cleaned.endsWith(']')) {
-        const jsonFriendly = cleaned.replace(/'/g, '"');
-        const parsed = JSON.parse(jsonFriendly);
-        return Array.isArray(parsed) ? parsed : [parsed];
-      }
-      return cleaned.split(',').map(s => s.trim().replace(/^['"]|['"]$/g, ''));
-    } catch (e) {
-      return input.split(',').map(s => s.trim().replace(/^['"]|['"]$/g, ''));
-    }
-  }
-  return [input];
+
+  // 2. Fallback for non-ID fields (like pincodes)
+  // Remove brackets, newlines, quotes, plus signs and spaces
+  const cleaned = str.replace(/[\[\]\n\r'"+\s]/g, '');
+  if (!cleaned) return [];
+
+  return cleaned.split(',').filter(s => s.length > 0);
 };
 
 // ======================== VENDOR SIGNUP (Step 1: Data) ========================
