@@ -34,25 +34,56 @@ const getAllVendors = async () => {
 /**
  * Get membership info for registration
  */
-const getMembershipInfo = async ({ serviceIds }) => {
-    const services = await Service.find({ _id: { $in: serviceIds } });
-    if (services.length === 0) {
-        throw new ApiError(400, 'No valid services selected');
+const getMembershipInfo = async ({ serviceIds, subcategoryIds, vendorId }) => {
+    let itemList = [];
+    let isSubcategory = false;
+
+    // 1. Priorities: Explicit subcategoryIds > Explicit serviceIds > Vendor's saved data
+    if (subcategoryIds && Array.isArray(subcategoryIds) && subcategoryIds.length > 0) {
+        itemList = await Subcategory.find({ _id: { $in: subcategoryIds } });
+        isSubcategory = true;
+    } else if (serviceIds && Array.isArray(serviceIds) && serviceIds.length > 0) {
+        itemList = await Service.find({ _id: { $in: serviceIds } });
+    } else if (vendorId) {
+        const vendor = await Vendor.findById(vendorId).populate('selectedServices').populate('selectedSubcategories');
+        if (vendor) {
+            if (vendor.selectedSubcategories && vendor.selectedSubcategories.length > 0) {
+                itemList = vendor.selectedSubcategories;
+                isSubcategory = true;
+            } else if (vendor.selectedServices && vendor.selectedServices.length > 0) {
+                itemList = vendor.selectedServices;
+            }
+
+            // Fallback for string IDs if populate failed or wasn't used correctly
+            if (itemList.length > 0 && typeof itemList[0] === 'string') {
+                if (isSubcategory) {
+                    itemList = await Subcategory.find({ _id: { $in: itemList } });
+                } else {
+                    itemList = await Service.find({ _id: { $in: itemList } });
+                }
+            }
+        }
+    }
+
+    if (itemList.length === 0) {
+        throw new ApiError(400, 'No valid services/subcategories selected or found for vendor');
     }
 
     // Fetch global base membership fee
     const adminService = require('../admin/admin.service');
     const baseFee = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
 
-    const totalFee = services.reduce((sum, srv) => sum + (srv.membershipFee || 0), 0) + baseFee;
+    const itemsFee = itemList.reduce((sum, item) => sum + (isSubcategory ? (item.price || 0) : (item.membershipFee || 0)), 0);
+    const totalFee = itemsFee + baseFee;
 
     return {
         totalFee,
         vendorBaseMembershipFee: baseFee,
         duration: "3 months",
-        services: services.map(srv => ({
-            id: srv._id,
-            title: srv.title
+        services: itemList.map(item => ({
+            id: item._id,
+            title: isSubcategory ? item.name : item.title,
+            type: isSubcategory ? 'subcategory' : 'service'
         }))
     };
 };
@@ -61,20 +92,33 @@ const getMembershipInfo = async ({ serviceIds }) => {
  * Get membership details for a specific vendor based on their saved selectedServices
  */
 const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
-    const vendor = await Vendor.findById(vendorId).populate('selectedServices');
+    const vendor = await Vendor.findById(vendorId).populate('selectedServices').populate('selectedSubcategories');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    let serviceList = [];
+    let itemList = [];
+    let isSubcategory = false;
 
-    // If serviceIds are provided in overrides, use them. Otherwise use vendor's saved services.
-    if (overrides.serviceIds && Array.isArray(overrides.serviceIds)) {
-        serviceList = await Service.find({ _id: { $in: overrides.serviceIds } });
+    // Priority: Query overrides > Saved subcategories > Saved services
+    if (overrides.subcategoryIds && Array.isArray(overrides.subcategoryIds)) {
+        itemList = await Subcategory.find({ _id: { $in: overrides.subcategoryIds } });
+        isSubcategory = true;
+    } else if (overrides.serviceIds && Array.isArray(overrides.serviceIds)) {
+        itemList = await Service.find({ _id: { $in: overrides.serviceIds } });
     } else {
-        const services = vendor.selectedServices || [];
-        // Fallback if services aren't populated or were saved as IDs but populate failed
-        serviceList = services;
-        if (services.length > 0 && typeof services[0] === 'string') {
-            serviceList = await Service.find({ _id: { $in: services } });
+        if (vendor.selectedSubcategories && vendor.selectedSubcategories.length > 0) {
+            itemList = vendor.selectedSubcategories;
+            isSubcategory = true;
+        } else if (vendor.selectedServices && vendor.selectedServices.length > 0) {
+            itemList = vendor.selectedServices;
+        }
+
+        // Fallback for string IDs if populate failed
+        if (itemList.length > 0 && typeof itemList[0] === 'string') {
+            if (isSubcategory) {
+                itemList = await Subcategory.find({ _id: { $in: itemList } });
+            } else {
+                itemList = await Service.find({ _id: { $in: itemList } });
+            }
         }
     }
 
@@ -82,7 +126,8 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     const adminService = require('../admin/admin.service');
     const baseFee = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
 
-    const totalFee = serviceList.reduce((sum, srv) => sum + (srv.membershipFee || 0), 0) + baseFee;
+    const itemsFee = itemList.reduce((sum, item) => sum + (isSubcategory ? (item.price || 0) : (item.membershipFee || 0)), 0);
+    const totalFee = itemsFee + baseFee;
 
     return {
         vendorId: vendor._id,
@@ -90,9 +135,10 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         vendorBaseMembershipFee: baseFee,
         duration: "3 months",
         razorpayKeyId: config.RAZORPAY_KEY_ID,
-        services: serviceList.map(srv => ({
-            id: srv._id,
-            title: srv.title
+        services: itemList.map(item => ({
+            id: item._id,
+            title: isSubcategory ? item.name : item.title,
+            type: isSubcategory ? 'subcategory' : 'service'
         }))
     };
 };
@@ -102,17 +148,32 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
  * vendorId is extracted from token (req.user), NOT from URL
  */
 const createMembershipOrder = async (vendorId) => {
-    const vendor = await Vendor.findById(vendorId).populate('selectedServices');
+    const vendor = await Vendor.findById(vendorId).populate('selectedServices').populate('selectedSubcategories');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    let serviceList = vendor.selectedServices || [];
-    if (serviceList.length > 0 && typeof serviceList[0] === 'string') {
-        serviceList = await Service.find({ _id: { $in: serviceList } });
+    let itemList = [];
+    let isSubcategory = false;
+
+    if (vendor.selectedSubcategories && vendor.selectedSubcategories.length > 0) {
+        itemList = vendor.selectedSubcategories;
+        isSubcategory = true;
+    } else if (vendor.selectedServices && vendor.selectedServices.length > 0) {
+        itemList = vendor.selectedServices;
+    }
+
+    // Fallback for string IDs if populate failed
+    if (itemList.length > 0 && typeof itemList[0] === 'string') {
+        if (isSubcategory) {
+            itemList = await Subcategory.find({ _id: { $in: itemList } });
+        } else {
+            itemList = await Service.find({ _id: { $in: itemList } });
+        }
     }
 
     const adminService = require('../admin/admin.service');
     const baseFee = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
-    const totalFee = serviceList.reduce((sum, srv) => sum + (srv.membershipFee || 0), 0) + baseFee;
+    const itemsFee = itemList.reduce((sum, item) => sum + (isSubcategory ? (item.price || 0) : (item.membershipFee || 0)), 0);
+    const totalFee = itemsFee + baseFee;
 
     if (totalFee <= 0) {
         throw new ApiError(400, 'Membership fee must be greater than 0');
@@ -153,10 +214,11 @@ const createMembershipOrder = async (vendorId) => {
             receipt: razorpayOrder.receipt,
             status: razorpayOrder.status,
         },
-        services: serviceList.map(srv => ({
-            id: srv._id,
-            title: srv.title,
-            membershipFee: srv.membershipFee || 0,
+        services: itemList.map(item => ({
+            id: item._id,
+            title: isSubcategory ? item.name : item.title,
+            membershipFee: isSubcategory ? (item.price || 0) : (item.membershipFee || 0),
+            type: isSubcategory ? 'subcategory' : 'service'
         })),
     };
 };

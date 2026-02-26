@@ -18,7 +18,13 @@ const getAllVendors = asyncHandler(async (req, res) => {
  * Get membership info and total fee
  */
 const getMembership = asyncHandler(async (req, res) => {
-    const result = await vendorService.getMembershipInfo(req.body);
+    const data = { ...req.body };
+    // If not in body, try to get from authenticated user
+    if (!data.vendorId && req.user) {
+        data.vendorId = req.user.userId || req.user.id || req.user._id;
+    }
+
+    const result = await vendorService.getMembershipInfo(data);
     res.status(200).json(
         new ApiResponse(200, result, 'Membership details retrieved successfully')
     );
@@ -32,12 +38,17 @@ const getVendorMembership = asyncHandler(async (req, res) => {
     const vendorId = req.params.vendorId || req.user.userId || req.user._id;
     console.log('DEBUG: getVendorMembership called for vendorId:', vendorId);
 
-    // Support passing serviceIds in body or query for dynamic calculation
+    // Support passing serviceIds or subcategoryIds in body or query for dynamic calculation
     const overrides = { ...req.body };
     if (req.query.serviceIds) {
         overrides.serviceIds = Array.isArray(req.query.serviceIds)
             ? req.query.serviceIds
             : req.query.serviceIds.split(',');
+    }
+    if (req.query.subcategoryIds) {
+        overrides.subcategoryIds = Array.isArray(req.query.subcategoryIds)
+            ? req.query.subcategoryIds
+            : req.query.subcategoryIds.split(',');
     }
 
     const result = await vendorService.getVendorMembershipDetails(vendorId, overrides);

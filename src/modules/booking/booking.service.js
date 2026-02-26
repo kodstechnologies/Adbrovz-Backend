@@ -186,7 +186,7 @@ const requestCompletionOTP = async (vendorId, bookingId) => {
     booking.otp = { ...booking.otp, completionOTP };
     await booking.save();
 
-    return { message: 'Completion OTP generated successfully' };
+    return { booking, message: 'Completion OTP generated successfully' };
 };
 
 /**

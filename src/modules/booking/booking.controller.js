@@ -220,7 +220,7 @@ const markOnTheWay = asyncHandler(async (req, res) => {
 
     const result = await bookingService.markOnTheWay(vendorId, id);
 
-    res.status(200).json(new ApiResponse(200, result, result.message));
+    res.status(200).json(new ApiResponse(200, result.booking, result.message));
 });
 
 /**
@@ -232,7 +232,7 @@ const markArrived = asyncHandler(async (req, res) => {
 
     const result = await bookingService.markArrived(vendorId, id);
 
-    res.status(200).json(new ApiResponse(200, result, result.message));
+    res.status(200).json(new ApiResponse(200, result.booking, result.message));
 });
 
 /**
@@ -245,7 +245,7 @@ const startWork = asyncHandler(async (req, res) => {
 
     const result = await bookingService.startWork(vendorId, id, otp);
 
-    res.status(200).json(new ApiResponse(200, result, result.message));
+    res.status(200).json(new ApiResponse(200, result.booking, result.message));
 });
 
 /**
@@ -257,7 +257,7 @@ const requestCompletionOTP = asyncHandler(async (req, res) => {
 
     const result = await bookingService.requestCompletionOTP(vendorId, id);
 
-    res.status(200).json(new ApiResponse(200, result, result.message));
+    res.status(200).json(new ApiResponse(200, result.booking, result.message));
 });
 
 /**
@@ -270,7 +270,7 @@ const completeWork = asyncHandler(async (req, res) => {
 
     const result = await bookingService.completeWork(vendorId, id, otp, paymentMethod);
 
-    res.status(200).json(new ApiResponse(200, result, result.message));
+    res.status(200).json(new ApiResponse(200, result.booking, result.message));
 });
 
 module.exports = {
