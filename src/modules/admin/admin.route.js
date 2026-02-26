@@ -34,5 +34,9 @@ router.get('/vendors/eligible', adminController.getEligibleVendors);
 router.get('/settings', adminController.getGlobalSettings);
 router.patch('/settings', adminController.updateGlobalSettings);
 
+// Coin management
+const coinRoutes = require('./coin.route');
+router.use('/coins', coinRoutes);
+
 module.exports = router;
 

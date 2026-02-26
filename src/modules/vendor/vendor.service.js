@@ -269,6 +269,18 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
     if (allVerified) {
         vendor.isVerified = true;
         vendor.documentStatus = 'approved';
+
+        // Start membership if not already started
+        if (!vendor.membership.startDate) {
+            const startDate = new Date();
+            const durationMonths = vendor.membership.durationMonths || 3;
+            const expiryDate = new Date();
+            expiryDate.setMonth(expiryDate.getMonth() + durationMonths);
+
+            vendor.membership.startDate = startDate;
+            vendor.membership.expiryDate = expiryDate;
+            vendor.membership.isActive = true;
+        }
     } else if (status === 'rejected') {
         vendor.isVerified = false;
         vendor.documentStatus = 'rejected';
@@ -301,6 +313,19 @@ const verifyAllDocuments = async (vendorId) => {
 
     vendor.isVerified = true;
     vendor.documentStatus = 'approved';
+
+    // Start membership if not already started
+    if (!vendor.membership.startDate) {
+        const startDate = new Date();
+        const durationMonths = vendor.membership.durationMonths || 3;
+        const expiryDate = new Date();
+        expiryDate.setMonth(expiryDate.getMonth() + durationMonths);
+
+        vendor.membership.startDate = startDate;
+        vendor.membership.expiryDate = expiryDate;
+        vendor.membership.isActive = true;
+    }
+
     await vendor.save();
     return vendor;
 };

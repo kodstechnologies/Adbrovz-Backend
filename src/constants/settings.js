@@ -35,9 +35,17 @@ const DEFAULT_SETTINGS = {
         value: 50,
         description: 'Coins given to a new user upon registration.',
     },
+    'pricing.vendor_signup_welcome_coins': {
+        value: 500,
+        description: 'Coins given to a new vendor upon registration.',
+    },
     'pricing.vendor_concurrency_fee': {
         value: 500,
         description: 'Global fee added to membership for multi-task capability.',
+    },
+    'pricing.vendor_base_membership_fee': {
+        value: 1000,
+        description: 'Base global membership fee for vendors.',
     },
     'pricing.travel_charge': {
         value: 50,

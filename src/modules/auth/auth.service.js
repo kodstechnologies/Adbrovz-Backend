@@ -11,6 +11,8 @@ const Vendor = require('../../models/Vendor.model');
 const Admin = require('../../models/Admin.model');
 const MESSAGES = require('../../constants/messages');
 const config = require('../../config/env');
+const adminService = require('../admin/admin.service');
+const CoinTransaction = require('../../models/CoinTransaction.model');
 
 const userSignup = async ({ phoneNumber, name, email, pin, confirmPin, acceptedPolicies }) => {
   // Check if user already exists
@@ -40,6 +42,26 @@ const userSignup = async ({ phoneNumber, name, email, pin, confirmPin, acceptedP
     acceptedPolicies,
     policiesAcceptedAt: new Date(),
   });
+
+  // Award initial coins
+  try {
+    const welcomeCoins = await adminService.getSetting('pricing.signup_welcome_coins');
+    if (welcomeCoins > 0) {
+      user.coins = welcomeCoins;
+      await user.save();
+
+      await CoinTransaction.create({
+        targetId: user._id,
+        targetModel: 'User',
+        amount: welcomeCoins,
+        type: 'credit',
+        purpose: 'signup_bonus',
+        description: 'Welcome bonus for signing up'
+      });
+    }
+  } catch (error) {
+    console.error('Failed to award welcome coins:', error.message);
+  }
 
   // Generate tokens for auto-login
   const token = generateToken({ userId: user._id, role: user.role });
@@ -151,6 +173,26 @@ const completeUserSignup = async ({ signupId, pin, confirmPin, acceptedPolicies 
       acceptedPolicies,
       policiesAcceptedAt: new Date(),
     });
+
+    // Award initial coins
+    try {
+      const welcomeCoins = await adminService.getSetting('pricing.signup_welcome_coins');
+      if (welcomeCoins > 0) {
+        user.coins = welcomeCoins;
+        await user.save();
+
+        await CoinTransaction.create({
+          targetId: user._id,
+          targetModel: 'User',
+          amount: welcomeCoins,
+          type: 'credit',
+          purpose: 'signup_bonus',
+          description: 'Welcome bonus for signing up'
+        });
+      }
+    } catch (error) {
+      console.error('Failed to award welcome coins:', error.message);
+    }
   }
 
   // OTP Generation and Sending REMOVED
@@ -229,6 +271,26 @@ const completeVendorSignup = async ({ signupId, pin, confirmPin, acceptedTerms, 
   vendor.documentStatus = 'pending';
 
   await vendor.save();
+
+  // Award initial coins
+  try {
+    const welcomeCoins = await adminService.getSetting('pricing.vendor_signup_welcome_coins');
+    if (welcomeCoins > 0) {
+      vendor.coins = (vendor.coins || 0) + welcomeCoins;
+      await vendor.save();
+
+      await CoinTransaction.create({
+        targetId: vendor._id,
+        targetModel: 'Vendor',
+        amount: welcomeCoins,
+        type: 'credit',
+        purpose: 'signup_bonus',
+        description: 'Welcome bonus for vendor registration'
+      });
+    }
+  } catch (error) {
+    console.error('Failed to award vendor welcome coins:', error.message);
+  }
 
   // Delete signup session
   await cacheService.del(signupKey);

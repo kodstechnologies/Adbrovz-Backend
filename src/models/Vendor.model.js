@@ -8,6 +8,10 @@ const vendorSchema = new mongoose.Schema(
       unique: true,
       required: true,
     },
+    coins: {
+      type: Number,
+      default: 0,
+    },
     phoneNumber: {
       type: String,
       required: true,
