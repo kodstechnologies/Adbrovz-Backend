@@ -17,7 +17,12 @@ const verifyToken = (token) => {
   try {
     return jwt.verify(token, config.JWT_SECRET);
   } catch (error) {
-    throw new Error('Invalid or expired token');
+    console.error('DEBUG: JWT Verification Failed:', {
+      error: error.message,
+      tokenPreview: token.substring(0, 10) + '...',
+      secretExists: !!config.JWT_SECRET
+    });
+    throw error; // Re-throw original error
   }
 };
 

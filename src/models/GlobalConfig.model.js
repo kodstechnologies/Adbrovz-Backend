@@ -26,9 +26,6 @@ const globalConfigSchema = new mongoose.Schema(
     }
 );
 
-// Indexes
-globalConfigSchema.index({ key: 1 });
-
 const GlobalConfig = mongoose.model('GlobalConfig', globalConfigSchema);
 
 module.exports = GlobalConfig;

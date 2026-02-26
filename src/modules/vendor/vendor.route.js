@@ -38,6 +38,7 @@ router.patch('/:vendorId/status', authenticate, authorize(ROLES.ADMIN), vendorCo
 
 // Profile routes
 router.get('/profile', authenticate, authorize(ROLES.VENDOR), vendorController.getProfile);
+router.get('/coins', authenticate, authorize(ROLES.VENDOR), vendorController.getCoins);
 router.put('/profile', authenticate, authorize(ROLES.VENDOR), upload.single('image'), uploadToCloudinary('vendors'), vendorController.updateProfile);
 
 // Admin can also get profile by ID

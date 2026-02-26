@@ -137,6 +137,21 @@ const getProfile = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Get vendor coins balance
+ */
+const getCoins = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId;
+    const vendor = await require('../../models/Vendor.model').findById(vendorId);
+    if (!vendor) {
+        const ApiError = require('../../utils/ApiError');
+        throw new ApiError(404, 'Vendor not found');
+    }
+    res.status(200).json(
+        new ApiResponse(200, { coins: vendor.coins || 0 }, 'Vendor coins retrieved successfully')
+    );
+});
+
+/**
  * Update logged-in vendor profile
  */
 const updateProfile = asyncHandler(async (req, res) => {
@@ -166,6 +181,7 @@ module.exports = {
     purchaseCreditPlan,
     toggleOnlineStatus,
     getProfile,
+    getCoins,
     updateProfile,
 };
 

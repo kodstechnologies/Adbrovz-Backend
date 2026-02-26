@@ -41,10 +41,24 @@ const getEntitiesWithCoins = asyncHandler(async (req, res) => {
     res.send({ success: true, data: result });
 });
 
+const creditIndividual = asyncHandler(async (req, res) => {
+    const { targetId, targetModel, amount, purpose, description } = req.body;
+    const result = await coinService.creditIndividual({
+        targetId,
+        targetModel,
+        amount,
+        purpose,
+        description,
+        adminId: req.user.userId
+    });
+    res.send(result);
+});
+
 module.exports = {
     getCoinStats,
     updateCoinSettings,
     massCredit,
+    creditIndividual,
     getTransactionHistory,
     getEntitiesWithCoins
 };

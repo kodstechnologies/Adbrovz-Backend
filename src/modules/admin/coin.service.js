@@ -121,9 +121,46 @@ const getEntitiesWithCoins = async (targetModel, query = {}) => {
     return { entities, total };
 };
 
+/**
+ * Credit coins to a specific user or vendor
+ */
+const creditIndividual = async ({ targetId, targetModel, amount, purpose, description, adminId }) => {
+    if (amount <= 0) throw new ApiError(400, 'Amount must be greater than zero');
+
+    const Model = targetModel === 'User' ? User : Vendor;
+    const entity = await Model.findById(targetId);
+
+    if (!entity) {
+        throw new ApiError(404, `${targetModel} not found`);
+    }
+
+    // Update coins
+    entity.coins = (entity.coins || 0) + amount;
+    await entity.save();
+
+    // Create transaction record
+    const transaction = await CoinTransaction.create({
+        targetId,
+        targetModel,
+        amount,
+        type: 'credit',
+        purpose: purpose || 'admin_credit',
+        description: description || `Individual credit by admin`,
+        performedBy: adminId,
+        balanceAfter: entity.coins
+    });
+
+    return {
+        success: true,
+        message: `Successfully credited ${amount} coins to ${entity.name}`,
+        transaction
+    };
+};
+
 module.exports = {
     getCoinStats,
     massCredit,
+    creditIndividual,
     getTransactionHistory,
     getEntitiesWithCoins
 };

@@ -40,15 +40,15 @@ const getMembershipInfo = async ({ serviceIds }) => {
         throw new ApiError(400, 'No valid services selected');
     }
 
-    // Fetch global concurrency fee
+    // Fetch global base membership fee
     const adminService = require('../admin/admin.service');
-    const concurrencyFee = await adminService.getSetting('pricing.vendor_concurrency_fee') || 0;
+    const baseFee = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
 
-    const totalFee = services.reduce((sum, srv) => sum + (srv.membershipFee || 0), 0) + concurrencyFee;
+    const totalFee = services.reduce((sum, srv) => sum + (srv.membershipFee || 0), 0) + baseFee;
 
     return {
         totalFee,
-        vendorBaseMembershipFee: concurrencyFee,
+        vendorBaseMembershipFee: baseFee,
         duration: "3 months",
         services: services.map(srv => ({
             id: srv._id,
@@ -78,16 +78,16 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         }
     }
 
-    // Fetch global concurrency fee
+    // Fetch global base membership fee
     const adminService = require('../admin/admin.service');
-    const concurrencyFee = await adminService.getSetting('pricing.vendor_concurrency_fee') || 0;
+    const baseFee = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
 
-    const totalFee = serviceList.reduce((sum, srv) => sum + (srv.membershipFee || 0), 0) + concurrencyFee;
+    const totalFee = serviceList.reduce((sum, srv) => sum + (srv.membershipFee || 0), 0) + baseFee;
 
     return {
         vendorId: vendor._id,
         totalFee,
-        vendorBaseMembershipFee: concurrencyFee,
+        vendorBaseMembershipFee: baseFee,
         duration: "3 months",
         razorpayKeyId: config.RAZORPAY_KEY_ID,
         services: serviceList.map(srv => ({
@@ -111,8 +111,8 @@ const createMembershipOrder = async (vendorId) => {
     }
 
     const adminService = require('../admin/admin.service');
-    const concurrencyFee = await adminService.getSetting('pricing.vendor_concurrency_fee') || 0;
-    const totalFee = serviceList.reduce((sum, srv) => sum + (srv.membershipFee || 0), 0) + concurrencyFee;
+    const baseFee = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
+    const totalFee = serviceList.reduce((sum, srv) => sum + (srv.membershipFee || 0), 0) + baseFee;
 
     if (totalFee <= 0) {
         throw new ApiError(400, 'Membership fee must be greater than 0');
@@ -141,7 +141,7 @@ const createMembershipOrder = async (vendorId) => {
         vendorId: vendor._id,
         vendorName: vendor.name,
         totalFee,
-        vendorBaseMembershipFee: concurrencyFee,
+        vendorBaseMembershipFee: baseFee,
         duration: '3 months',
         status: razorpayOrder.status,  // 'created'
         razorpayKeyId: config.RAZORPAY_KEY_ID,
@@ -444,6 +444,7 @@ const getVendorProfile = async (vendorId) => {
         state: vendor.workState,
         zipcode: vendor.zipcode || (vendor.workPincodes && vendor.workPincodes[0]) || '',
         country: vendor.country || 'India',
+        coins: vendor.coins || 0,
     };
 };
 
