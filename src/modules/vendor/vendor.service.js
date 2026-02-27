@@ -342,26 +342,35 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
 
     // Apply the specific verification update
     const currentDoc = vendor.documents[docType]; // Now guaranteed to be object or migrated
-    const url = typeof currentDoc === 'string' ? currentDoc : (currentDoc?.url || '');
-    // Use null (not undefined) to properly clear reason in MongoDB
-    const newReason = status === 'verified' ? null : (reason || (currentDoc && typeof currentDoc === 'object' ? currentDoc.reason : null) || null);
+    // Map 'approved' to 'verified' for internal consistency if needed
+    const isApprovedOrVerified = status === 'verified' || status === 'approved';
+    const newReason = isApprovedOrVerified ? null : (reason || (vendor.documents[docType]?.reason) || null);
 
+    const url = (currentDoc && typeof currentDoc === 'object' ? currentDoc.url : (typeof currentDoc === 'string' ? currentDoc : '')) || '';
+
+    // Use vendor.set for deep object persistence reliability
     vendor.set(`documents.${docType}`, {
         url,
         status,
         reason: newReason
     });
 
-    // Check if all required documents (photo, idProof, addressProof) are verified
+    // CRITICAL: Ensure Mongoose detects the change in the nested 'documents' object
+    vendor.markModified('documents');
+
+    // Check if all required documents (photo, idProof, addressProof) are verified or approved
     const requiredDocs = ['photo', 'idProof', 'addressProof'];
     const allVerified = requiredDocs.every(doc => {
         const d = vendor.documents[doc];
-        return d && typeof d === 'object' && d.status === 'verified';
+        return d && typeof d === 'object' && (d.status === 'verified' || d.status === 'approved');
     });
+
+    console.log(`DEBUG Check: Vendor ${vendorId} - Doc: ${docType} -> ${status}. All Req Verified: ${allVerified}`);
 
     if (allVerified) {
         vendor.isVerified = true;
         vendor.documentStatus = 'approved';
+        vendor.registrationStep = 'COMPLETED';
 
         // Start membership if not already started
         if (!vendor.membership.startDate) {
@@ -379,6 +388,7 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
         vendor.documentStatus = 'rejected';
     } else {
         vendor.isVerified = false;
+        // Keep as pending if not all required docs are approved/verified
         vendor.documentStatus = 'pending';
     }
 
@@ -414,15 +424,18 @@ const verifyAllDocuments = async (vendorId) => {
     docs.forEach(doc => {
         const val = vendor.documents[doc];
         if (typeof val === 'string' && val) {
-            vendor.set(`documents.${doc}`, { url: val, status: 'verified', reason: undefined });
+            vendor.set(`documents.${doc}`, { url: val, status: 'verified', reason: null });
         } else if (val && typeof val === 'object' && val.url) {
             vendor.set(`documents.${doc}.status`, 'verified');
-            vendor.set(`documents.${doc}.reason`, undefined);
+            vendor.set(`documents.${doc}.reason`, null);
         }
     });
 
+    vendor.markModified('documents');
+
     vendor.isVerified = true;
     vendor.documentStatus = 'approved';
+    vendor.registrationStep = 'COMPLETED';
 
     // Start membership if not already started
     if (!vendor.membership.startDate) {
@@ -636,6 +649,16 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     await vendor.save();
 
     // Emit real-time membership activation to vendor via socket
+    const docTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+    const documentStatuses = {};
+    docTypes.forEach(doc => {
+        const d = vendor.documents?.[doc];
+        documentStatuses[doc] = {
+            status: (d && typeof d === 'object') ? (d.status || 'pending') : 'pending',
+            reason: (d && typeof d === 'object') ? (d.reason || null) : null,
+        };
+    });
+
     emitToVendor(vendor._id, 'membership_activated', {
         membership: {
             isActive: vendor.membership.isActive,
@@ -645,11 +668,14 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         },
         documentStatus: vendor.documentStatus,
         isVerified: vendor.isVerified,
+        documents: documentStatuses,
     });
 
     return {
         success: true,
         message: 'Payment verified. Membership activated successfully.',
+        isVerified: vendor.isVerified,
+        documentStatus: vendor.documentStatus,
         membership: {
             isActive: vendor.membership.isActive,
             startDate: vendor.membership.startDate,

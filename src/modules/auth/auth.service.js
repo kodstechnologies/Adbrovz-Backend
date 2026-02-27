@@ -306,6 +306,9 @@ const completeVendorSignup = async ({ signupId, pin, confirmPin, acceptedTerms, 
     token,
     refreshToken,
     message: 'Vendor registration completed successfully. Please wait for document approval.',
+    isVerified: vendor.isVerified || false,
+    isMembershipActive: vendor.membership?.isActive || false,
+    documentStatus: vendor.documentStatus,
   };
 };
 
@@ -708,9 +711,12 @@ const initiateVendorLogin = async ({ phoneNumber }) => {
     throw new ApiError(401, MESSAGES.AUTH.INVALID_CREDENTIALS);
   }
 
+  // Document approval check removed per request - allow login regardless of status
+  /*
   if (vendor.documentStatus !== 'approved') {
     throw new ApiError(405, 'Vendor account is not approved yet');
   }
+  */
 
   // Allow vendors to proceed to PIN entry, but the app should handle the 405 differently if needed.
   // We're restoring the block here but using 405 per use request.
@@ -763,9 +769,12 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
     if (!user) {
       throw new ApiError(401, MESSAGES.AUTH.INVALID_CREDENTIALS);
     }
+    // Document approval check removed per request
+    /*
     if (user.documentStatus !== 'approved') {
       throw new ApiError(405, 'Vendor account is not approved yet');
     }
+    */
   } else {
     // Default to user
     user = await User.findOne({ phoneNumber }).select('+pin');
@@ -828,6 +837,8 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
     },
     token,
     refreshToken,
+    isVerified: user.isVerified || false,
+    isMembershipActive: user.membership?.isActive || false,
   };
 
   // For vendors: include verification/document status so the app can route correctly

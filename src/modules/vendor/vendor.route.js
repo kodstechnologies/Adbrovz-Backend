@@ -7,7 +7,9 @@ const { upload, uploadToCloudinary } = require('../../middlewares/cloudinary.mid
 
 // Debugging middleware
 router.use((req, res, next) => {
-    console.log(`DEBUG: Vendor Route - ${req.method} ${req.originalUrl}`);
+    console.log(`🔍 [VENDOR REQ] ${req.method} ${req.originalUrl}`);
+    if (Object.keys(req.params).length) console.log(`   Params:`, req.params);
+    if (Object.keys(req.body).length) console.log(`   Body:`, JSON.stringify(req.body));
     next();
 });
 

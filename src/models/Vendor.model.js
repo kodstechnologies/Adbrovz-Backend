@@ -92,32 +92,32 @@ const vendorSchema = new mongoose.Schema(
     documents: {
       photo: {
         url: { type: String, default: '' },
-        status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
+        status: { type: String, enum: ['pending', 'verified', 'approved', 'rejected'], default: 'pending' },
         reason: { type: String }
       },
       idProof: {
         url: { type: String, default: '' },
-        status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
+        status: { type: String, enum: ['pending', 'verified', 'approved', 'rejected'], default: 'pending' },
         reason: { type: String }
       },
       addressProof: {
         url: { type: String, default: '' },
-        status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
+        status: { type: String, enum: ['pending', 'verified', 'approved', 'rejected'], default: 'pending' },
         reason: { type: String }
       },
       workProof: {
         url: { type: String, default: '' },
-        status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
+        status: { type: String, enum: ['pending', 'verified', 'approved', 'rejected'], default: 'pending' },
         reason: { type: String }
       },
       bankProof: {
         url: { type: String, default: '' },
-        status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
+        status: { type: String, enum: ['pending', 'verified', 'approved', 'rejected'], default: 'pending' },
         reason: { type: String }
       },
       policeVerification: {
         url: { type: String, default: '' },
-        status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
+        status: { type: String, enum: ['pending', 'verified', 'approved', 'rejected'], default: 'pending' },
         reason: { type: String }
       },
     },
@@ -200,8 +200,10 @@ const vendorSchema = new mongoose.Schema(
     toJSON: {
       virtuals: true,
       transform: (doc, ret) => {
-        ret.id = ret._id;
-        delete ret._id;
+        // Ensure both id and _id are consistently returned as strings
+        const stringId = ret._id ? ret._id.toString() : (doc._id ? doc._id.toString() : null);
+        ret.id = stringId;
+        ret._id = stringId;
         delete ret.__v;
         return ret;
       }
