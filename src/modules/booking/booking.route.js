@@ -25,6 +25,7 @@ router.post('/vendor/:id/arrived', authenticate, bookingController.markArrived);
 router.post('/vendor/:id/start-work', authenticate, bookingController.startWork);
 router.post('/vendor/:id/request-completion-otp', authenticate, bookingController.requestCompletionOTP);
 router.post('/vendor/:id/complete-work', authenticate, bookingController.completeWork);
+router.get('/vendor/:id', authenticate, bookingController.getVendorBookingById);
 /**
  * USER – BOOKING FLOW
  */

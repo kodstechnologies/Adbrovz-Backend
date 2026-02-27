@@ -99,15 +99,35 @@ const getMyBookings = asyncHandler(async (req, res) => {
             ? await bookingService.getBookingsByVendor(userId)
             : await bookingService.getBookingsByUser(userId);
 
+    const statusMap = {
+        'pending_acceptance': 'Pending Acceptance',
+        'pending': 'Accepted',
+        'on_the_way': 'Vendor on the Way',
+        'arrived': 'Vendor Arrived',
+        'ongoing': 'Working',
+        'completed': 'Completed',
+        'cancelled': 'Cancelled'
+    };
+
+    const enhanceBooking = (b) => {
+        const obj = b.toObject ? b.toObject() : b;
+        obj.displayStatus = statusMap[obj.status] || obj.status;
+        return obj;
+    };
+
     const categorized = {
-        pending: rawBookings.filter(b =>
-            ['pending_acceptance', 'pending'].includes(b.status)
-        ),
-        active: rawBookings.filter(b =>
-            ['on_the_way', 'arrived', 'ongoing'].includes(b.status)
-        ),
-        completed: rawBookings.filter(b => b.status === 'completed'),
-        cancelled: rawBookings.filter(b => b.status === 'cancelled')
+        pending: rawBookings
+            .filter(b => ['pending_acceptance', 'pending'].includes(b.status))
+            .map(enhanceBooking),
+        active: rawBookings
+            .filter(b => ['on_the_way', 'arrived', 'ongoing'].includes(b.status))
+            .map(enhanceBooking),
+        completed: rawBookings
+            .filter(b => b.status === 'completed')
+            .map(enhanceBooking),
+        cancelled: rawBookings
+            .filter(b => b.status === 'cancelled')
+            .map(enhanceBooking)
     };
 
     res.status(200).json(
@@ -119,7 +139,7 @@ const getMyBookings = asyncHandler(async (req, res) => {
  * Get booking by ID
  */
 const getBookingById = asyncHandler(async (req, res) => {
-    const userId = req.user?.userId;
+    const userId = req.user?.userId || req.user?._id;
     const role = req.user?.role;
     const { id } = req.params;
 
@@ -129,6 +149,11 @@ const getBookingById = asyncHandler(async (req, res) => {
         new ApiResponse(200, booking, 'Booking details retrieved successfully')
     );
 });
+
+/**
+ * Vendor specific booking detail (Alias for common logic but cleaner for vendor route)
+ */
+const getVendorBookingById = getBookingById;
 
 /**
  * Get completed booking history for user
@@ -296,5 +321,6 @@ module.exports = {
     markArrived,
     startWork,
     requestCompletionOTP,
-    completeWork
+    completeWork,
+    getVendorBookingById
 };

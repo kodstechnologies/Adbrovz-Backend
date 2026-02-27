@@ -278,10 +278,40 @@ const getBookingDetails = async (bookingId, userId, role) => {
 
     const bookingObj = booking.toObject();
 
-    // Security: Do not expose OTPs to the vendor
-    // The vendor must physically ask the user for the OTP
-    if (role === 'vendor' && bookingObj.otp) {
-        delete bookingObj.otp;
+    // User friendly status mapping
+    const statusMap = {
+        'pending_acceptance': 'Pending Acceptance',
+        'pending': 'Accepted',
+        'on_the_way': 'Vendor on the Way',
+        'arrived': 'Vendor Arrived',
+        'ongoing': 'Working',
+        'completed': 'Completed',
+        'cancelled': 'Cancelled'
+    };
+    bookingObj.displayStatus = statusMap[booking.status] || booking.status;
+
+    // OTP visibility logic
+    if (bookingObj.otp) {
+        if (role === 'user') {
+            // User sees everything, but we provide helpers for current state
+            if (['pending', 'on_the_way', 'arrived'].includes(bookingObj.status)) {
+                bookingObj.currentOTP = {
+                    label: 'Start OTP',
+                    code: bookingObj.otp.startOTP || '1234',
+                    instruction: 'Give this to the vendor to Start Work'
+                };
+            } else if (bookingObj.status === 'ongoing') {
+                bookingObj.currentOTP = {
+                    label: 'Completion OTP',
+                    code: bookingObj.otp.completionOTP || '4321',
+                    instruction: 'Give this to the vendor to Complete Work'
+                };
+            }
+            // Keep the raw otp object as user requested "dont want hide"
+        } else {
+            // Vendors/others never see the OTP codes directly
+            delete bookingObj.otp;
+        }
     }
 
     return bookingObj;
@@ -320,7 +350,13 @@ const createBooking = async (userId, bookingData) => {
     }
 
     const existingBookingsCount = await Booking.countDocuments({ user: userId });
-    // OTP check removed as users are now auto-verified
+
+    // First booking OTP requirement
+    if (existingBookingsCount === 0) {
+        if (!otp || otp.toString() !== '1234') {
+            throw new ApiError(400, 'FIRST_BOOKING_OTP_REQUIRED');
+        }
+    }
 
     const processedServices = [];
     for (const item of services) {
