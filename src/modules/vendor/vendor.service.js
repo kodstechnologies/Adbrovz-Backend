@@ -385,9 +385,9 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
     await vendor.save();
 
     // Emit real-time update to vendor via socket
-    const docTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+    const docTypesFields = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
     const documentStatuses = {};
-    docTypes.forEach(doc => {
+    docTypesFields.forEach(doc => {
         const d = vendor.documents?.[doc];
         documentStatuses[doc] = {
             status: (d && typeof d === 'object') ? (d.status || 'pending') : 'pending',

@@ -708,8 +708,12 @@ const initiateVendorLogin = async ({ phoneNumber }) => {
     throw new ApiError(401, MESSAGES.AUTH.INVALID_CREDENTIALS);
   }
 
-  // Allow all vendors to proceed to PIN entry regardless of documentStatus.
-  // The app will receive verification status after PIN is confirmed.
+  if (vendor.documentStatus !== 'approved') {
+    throw new ApiError(405, 'Vendor account is not approved yet');
+  }
+
+  // Allow vendors to proceed to PIN entry, but the app should handle the 405 differently if needed.
+  // We're restoring the block here but using 405 per use request.
 
   if (vendor.isLocked && vendor.lockUntil > Date.now()) {
     throw new ApiError(403, MESSAGES.AUTH.ACCOUNT_LOCKED);
@@ -759,8 +763,9 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
     if (!user) {
       throw new ApiError(401, MESSAGES.AUTH.INVALID_CREDENTIALS);
     }
-    // Removed documentStatus block: vendors can log in regardless of approval status.
-    // Verification status is returned in the response so the app can route correctly.
+    if (user.documentStatus !== 'approved') {
+      throw new ApiError(405, 'Vendor account is not approved yet');
+    }
   } else {
     // Default to user
     user = await User.findOne({ phoneNumber }).select('+pin');
