@@ -708,9 +708,8 @@ const initiateVendorLogin = async ({ phoneNumber }) => {
     throw new ApiError(401, MESSAGES.AUTH.INVALID_CREDENTIALS);
   }
 
-  if (vendor.documentStatus !== 'approved') {
-    throw new ApiError(403, 'Vendor account is not approved yet');
-  }
+  // Allow all vendors to proceed to PIN entry regardless of documentStatus.
+  // The app will receive verification status after PIN is confirmed.
 
   if (vendor.isLocked && vendor.lockUntil > Date.now()) {
     throw new ApiError(403, MESSAGES.AUTH.ACCOUNT_LOCKED);
@@ -724,7 +723,7 @@ const initiateVendorLogin = async ({ phoneNumber }) => {
 
   return {
     loginId,
-    message: 'Vendor verified. Please enter your PIN.',
+    message: 'Please enter your PIN.',
   };
 };
 
@@ -760,9 +759,8 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
     if (!user) {
       throw new ApiError(401, MESSAGES.AUTH.INVALID_CREDENTIALS);
     }
-    if (user.documentStatus !== 'approved') {
-      throw new ApiError(403, 'Vendor account is not approved yet');
-    }
+    // Removed documentStatus block: vendors can log in regardless of approval status.
+    // Verification status is returned in the response so the app can route correctly.
   } else {
     // Default to user
     user = await User.findOne({ phoneNumber }).select('+pin');
@@ -814,7 +812,7 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
 
   const userIdField = role === 'vendor' ? 'vendorID' : 'userID';
 
-  return {
+  const responsePayload = {
     user: {
       id: user._id,
       [userIdField]: user[userIdField],
@@ -826,6 +824,31 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
     token,
     refreshToken,
   };
+
+  // For vendors: include verification/document status so the app can route correctly
+  if (role === 'vendor') {
+    const docTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+    const documentStatuses = {};
+    docTypes.forEach(doc => {
+      const d = user.documents?.[doc];
+      documentStatuses[doc] = {
+        status: (d && typeof d === 'object') ? (d.status || 'pending') : 'pending',
+        reason: (d && typeof d === 'object') ? (d.reason || null) : null,
+      };
+    });
+
+    responsePayload.verificationStatus = {
+      isVerified: user.isVerified || false,
+      documentStatus: user.documentStatus || 'pending',
+      membership: {
+        isActive: user.membership?.isActive || false,
+        expiryDate: user.membership?.expiryDate || null,
+      },
+      documents: documentStatuses,
+    };
+  }
+
+  return responsePayload;
 };
 
 // ======================== SEND OTP (for reset) ========================

@@ -7,6 +7,7 @@ const ApiError = require('../../utils/ApiError');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const config = require('../../config/env');
+const { emitToVendor } = require('../../socket');
 
 /**
  * Helper to parse array inputs that might be sent as malformed strings
@@ -342,8 +343,8 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
     // Apply the specific verification update
     const currentDoc = vendor.documents[docType]; // Now guaranteed to be object or migrated
     const url = typeof currentDoc === 'string' ? currentDoc : (currentDoc?.url || '');
-    // Clear reason if verifying, keep/update if rejecting
-    const newReason = status === 'verified' ? undefined : (reason || (currentDoc && typeof currentDoc === 'object' ? currentDoc.reason : undefined));
+    // Use null (not undefined) to properly clear reason in MongoDB
+    const newReason = status === 'verified' ? null : (reason || (currentDoc && typeof currentDoc === 'object' ? currentDoc.reason : null) || null);
 
     vendor.set(`documents.${docType}`, {
         url,
@@ -382,6 +383,23 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
     }
 
     await vendor.save();
+
+    // Emit real-time update to vendor via socket
+    const docTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+    const documentStatuses = {};
+    docTypes.forEach(doc => {
+        const d = vendor.documents?.[doc];
+        documentStatuses[doc] = {
+            status: (d && typeof d === 'object') ? (d.status || 'pending') : 'pending',
+            reason: (d && typeof d === 'object') ? (d.reason || null) : null,
+        };
+    });
+    emitToVendor(vendor._id, 'vendor_verification_update', {
+        isVerified: vendor.isVerified,
+        documentStatus: vendor.documentStatus,
+        documents: documentStatuses,
+    });
+
     return vendor;
 };
 
@@ -419,6 +437,23 @@ const verifyAllDocuments = async (vendorId) => {
     }
 
     await vendor.save();
+
+    // Emit real-time update to vendor via socket
+    const docTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+    const documentStatuses = {};
+    docTypes.forEach(doc => {
+        const d = vendor.documents?.[doc];
+        documentStatuses[doc] = {
+            status: (d && typeof d === 'object') ? (d.status || 'pending') : 'pending',
+            reason: (d && typeof d === 'object') ? (d.reason || null) : null,
+        };
+    });
+    emitToVendor(vendor._id, 'vendor_verification_update', {
+        isVerified: vendor.isVerified,
+        documentStatus: vendor.documentStatus,
+        documents: documentStatuses,
+    });
+
     return vendor;
 };
 
@@ -599,6 +634,18 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     vendor.registrationStep = 'COMPLETED';
 
     await vendor.save();
+
+    // Emit real-time membership activation to vendor via socket
+    emitToVendor(vendor._id, 'membership_activated', {
+        membership: {
+            isActive: vendor.membership.isActive,
+            startDate: vendor.membership.startDate,
+            expiryDate: vendor.membership.expiryDate,
+            durationMonths: vendor.membership.durationMonths || 3,
+        },
+        documentStatus: vendor.documentStatus,
+        isVerified: vendor.isVerified,
+    });
 
     return {
         success: true,

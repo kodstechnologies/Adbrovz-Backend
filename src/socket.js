@@ -92,6 +92,21 @@ const getIo = () => {
     return io;
 };
 
+/**
+ * Emit an event to all socket connections of a given vendor.
+ * Safe to call even if the vendor is not connected (no-op).
+ */
+const emitToVendor = (vendorId, event, data) => {
+    if (!io) return;
+    const sockets = activeVendors.get(vendorId.toString()) || [];
+    sockets.forEach(socketId => {
+        io.to(socketId).emit(event, data);
+    });
+    if (sockets.length > 0) {
+        console.log(`📡 Emitted '${event}' to Vendor ${vendorId} on ${sockets.length} socket(s)`);
+    }
+};
+
 // Helper to check if a specific vendor is online
 const isVendorOnline = (vendorId) => {
     const sockets = activeVendors.get(vendorId.toString());
@@ -108,5 +123,6 @@ module.exports = {
     getIo,
     isVendorOnline,
     getVendorSockets,
+    emitToVendor,
     activeVendors
 };
