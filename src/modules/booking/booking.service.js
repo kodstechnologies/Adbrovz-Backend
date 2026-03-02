@@ -2,6 +2,8 @@ const Booking = require('../../models/Booking.model');
 const Vendor = require('../../models/Vendor.model');
 const Service = require('../../models/Service.model');
 const User = require('../../models/User.model');
+const { ROLES } = require('../../constants/roles');
+
 
 const ApiError = require('../../utils/ApiError');
 const cacheService = require('../../services/cache.service');
@@ -113,17 +115,19 @@ const acceptLead = async (vendorId, bookingId) => {
     await booking.save();
     console.log(`[DEBUG] Lead accepted: ${bookingId}, status: ${booking.status}, history length: ${booking.statusHistory.length}`);
 
-    // Fetch fully populated booking object for the frontend
-    const populatedBooking = await getBookingDetails(booking._id, vendorId, 'vendor');
+    // Fetch role-specific payloads for the socket emissions
+    const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
+    const vendorPayload = await getBookingDetails(booking._id, vendorId, 'vendor');
 
     const { emitToUser, emitToVendor } = require('../../socket');
-    emitToUser(booking.user, 'booking_status_updated', populatedBooking);
-    emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
+    emitToUser(booking.user, 'booking_status_updated', userPayload);
+    emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
     return {
-        booking: populatedBooking,
+        booking: vendorPayload, // Return vendor-specific view to the caller (vendor)
         message: 'Lead accepted successfully'
     };
+
 };
 
 /**
@@ -143,14 +147,15 @@ const markOnTheWay = async (vendorId, bookingId) => {
     await booking.save();
     console.log(`[DEBUG] Status updated to On The Way: ${bookingId}, history length: ${booking.statusHistory.length}`);
 
-    // Fetch fully populated booking object for the frontend
-    const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
+    // Fetch role-specific payloads for the socket emissions
+    const userPayload = await getBookingDetails(bookingId, booking.user, ROLES.USER);
+    const vendorPayload = await getBookingDetails(bookingId, vendorId, ROLES.VENDOR);
 
     const { emitToUser, emitToVendor } = require('../../socket');
-    emitToUser(booking.user, 'booking_status_updated', populatedBooking);
-    emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
+    emitToUser(booking.user, 'booking_status_updated', userPayload);
+    emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
-    return { booking: populatedBooking, message: 'Status updated to On The Way' };
+    return { booking: vendorPayload, message: 'Status updated to On The Way' };
 };
 
 /**
@@ -171,14 +176,16 @@ const markArrived = async (vendorId, bookingId) => {
     await booking.save();
     console.log(`[DEBUG] Status updated to Arrived: ${bookingId}, history length: ${booking.statusHistory.length}`);
 
-    // Fetch fully populated booking object for the frontend
-    const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
+    // Fetch role-specific payloads for the socket emissions
+    const userPayload = await getBookingDetails(bookingId, booking.user, 'user');
+    const vendorPayload = await getBookingDetails(bookingId, vendorId, 'vendor');
 
     const { emitToUser, emitToVendor } = require('../../socket');
-    emitToUser(booking.user, 'booking_status_updated', populatedBooking);
-    emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
+    emitToUser(booking.user, 'booking_status_updated', userPayload);
+    emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
-    return { booking: populatedBooking, message: 'Status updated to Arrived' };
+    return { booking: vendorPayload, message: 'Status updated to Arrived' };
+
 };
 
 /**
@@ -204,14 +211,16 @@ const startWork = async (vendorId, bookingId, enteredOTP) => {
     await booking.save();
     console.log(`[DEBUG] Status updated to Ongoing/Working: ${bookingId}, status field is now: ${booking.status}, history length: ${booking.statusHistory.length}`);
 
-    // Fetch fully populated booking object for the frontend
-    const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
+    // Fetch role-specific payloads for the socket emissions
+    const userPayload = await getBookingDetails(bookingId, booking.user, 'user');
+    const vendorPayload = await getBookingDetails(bookingId, vendorId, 'vendor');
 
     const { emitToUser, emitToVendor } = require('../../socket');
-    emitToUser(booking.user, 'booking_status_updated', populatedBooking);
-    emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
+    emitToUser(booking.user, 'booking_status_updated', userPayload);
+    emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
-    return { booking: populatedBooking, message: 'Work started successfully' };
+    return { booking: vendorPayload, message: 'Work started successfully' };
+
 };
 
 /**
@@ -234,14 +243,16 @@ const requestCompletionOTP = async (vendorId, bookingId) => {
     booking.markModified('otp');
     await booking.save();
 
-    // Fetch fully populated booking object for the frontend
-    const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
+    // Fetch role-specific payloads for the socket emissions
+    const userPayload = await getBookingDetails(bookingId, booking.user, 'user');
+    const vendorPayload = await getBookingDetails(bookingId, vendorId, 'vendor');
 
     const { emitToUser, emitToVendor } = require('../../socket');
-    emitToUser(booking.user, 'booking_status_updated', populatedBooking);
-    emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
+    emitToUser(booking.user, 'booking_status_updated', userPayload);
+    emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
-    return { booking: populatedBooking, message: 'Completion OTP generated successfully' };
+    return { booking: vendorPayload, message: 'Completion OTP generated successfully' };
+
 };
 
 /**
@@ -280,14 +291,16 @@ const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
     await booking.save();
     console.log(`[DEBUG] Status updated to Completed: ${bookingId}, history length: ${booking.statusHistory.length}`);
 
-    // Fetch fully populated booking object for the frontend
-    const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
+    // Fetch role-specific payloads for the socket emissions
+    const userPayload = await getBookingDetails(bookingId, booking.user, 'user');
+    const vendorPayload = await getBookingDetails(bookingId, vendorId, 'vendor');
 
     const { emitToUser, emitToVendor } = require('../../socket');
-    emitToUser(booking.user, 'booking_status_updated', populatedBooking);
-    emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
+    emitToUser(booking.user, 'booking_status_updated', userPayload);
+    emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
-    return { booking: populatedBooking, message: 'Booking completed successfully' };
+    return { booking: vendorPayload, message: 'Booking completed successfully' };
+
 };
 
 const findBookingByUser = async (bookingId, userId) => {
@@ -339,7 +352,10 @@ const getBookingDetails = async (bookingId, userId, role) => {
 
     // OTP visibility logic
     if (bookingObj.otp) {
-        if (role === 'user') {
+        const isUserRole = role === 'user' || role === ROLES.USER;
+        const isVendorRole = role === 'vendor' || role === ROLES.VENDOR;
+
+        if (isUserRole) {
             // User sees everything, but we provide helpers for current state
             // and hide completion OTP until it's ready.
             const startOTPCode = bookingObj.otp.startOTP || '1234';
@@ -372,12 +388,15 @@ const getBookingDetails = async (bookingId, userId, role) => {
             if (!completionOTPCode) {
                 bookingObj.otp.completionOTP = 'Hidden (Pending)';
             }
-        } else {
-            // Vendors/others never see the OTP codes directly
+        } else if (isVendorRole) {
+            // Vendors never see the OTP codes directly
             delete bookingObj.otp;
             delete bookingObj.currentOTP;
+            delete bookingObj.activeOTP;
         }
+        // If role is undefined (internal use), we keep the OTP as is
     }
+
 
     // Ensure statusHistory is present and formatted (it's already in bookingObj, but let's be explicit if needed)
     if (bookingObj.statusHistory) {
