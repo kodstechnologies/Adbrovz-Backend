@@ -786,7 +786,8 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
     }
   }
 
-  if (user.status && user.status !== 'ACTIVE') {
+  const allowedStatuses = ['ACTIVE', 'PENDING_VERIFICATION', 'PENDING_DOCS', 'REJECTED', 'PENDING'];
+  if (user.status && !allowedStatuses.includes(user.status)) {
     throw new ApiError(403, `Account is ${user.status.toLowerCase()}. Please contact support.`);
   }
 
@@ -838,7 +839,8 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
     token,
     refreshToken,
     isVerified: user.isVerified || false,
-    isMembershipActive: user.membership?.isActive || false,
+    isMembership: !!(user.membership?.isActive),
+    isDocsVerified: user.documentStatus === 'approved',
   };
 
   // For vendors: include verification/document status so the app can route correctly
