@@ -35,6 +35,7 @@ router.get('/completed-history', authenticate, bookingController.getCompletedHis
 router.post('/:id/cancel', authenticate, bookingController.cancelBooking);
 router.post('/:id/reschedule', authenticate, bookingController.rescheduleBooking);
 router.post('/:id/retry-search', authenticate, bookingController.retrySearch);
+router.get('/:id/status-history', authenticate, bookingController.getBookingStatusHistory);
 router.get('/:id', authenticate, bookingController.getBookingById);
 
 module.exports = router;

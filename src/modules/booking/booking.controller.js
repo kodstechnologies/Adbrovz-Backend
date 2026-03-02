@@ -151,6 +151,21 @@ const getBookingById = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Get booking status history
+ */
+const getBookingStatusHistory = asyncHandler(async (req, res) => {
+    const userId = req.user?.userId || req.user?._id;
+    const role = req.user?.role;
+    const { id } = req.params;
+
+    const history = await bookingService.getBookingStatusHistory(id, userId, role);
+
+    res.status(200).json(
+        new ApiResponse(200, history, 'Booking status history retrieved successfully')
+    );
+});
+
+/**
  * Vendor specific booking detail (Alias for common logic but cleaner for vendor route)
  */
 const getVendorBookingById = getBookingById;
@@ -322,5 +337,6 @@ module.exports = {
     startWork,
     requestCompletionOTP,
     completeWork,
-    getVendorBookingById
+    getVendorBookingById,
+    getBookingStatusHistory
 };

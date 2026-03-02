@@ -45,6 +45,17 @@ const bookingSchema = new mongoose.Schema(
       ],
       default: 'pending_acceptance',
     },
+    statusHistory: [{
+      _id: false,
+      status: {
+        type: String,
+        required: true
+      },
+      timestamp: {
+        type: Date,
+        default: Date.now
+      }
+    }],
     scheduledDate: {
       type: Date,
       required: true,

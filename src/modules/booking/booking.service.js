@@ -65,11 +65,13 @@ const requestLead = async (
         bookingID: `BK-${uuidv4().slice(0, 8).toUpperCase()}`,
         user: userId,
         status: 'pending_acceptance',
+        statusHistory: [{ status: 'pending_acceptance', timestamp: new Date() }],
         scheduledDate: scheduledDate || new Date(),
         scheduledTime: scheduledTime || '00:00',
         location: { address, pincode }
     });
 
+    console.log(`[DEBUG] Booking created: ${booking._id}, status: ${booking.status}`);
     return {
         booking,
         availableVendorsCount: matchingVendors.length,
@@ -103,12 +105,20 @@ const acceptLead = async (vendorId, bookingId) => {
 
     booking.vendor = vendorId;
     booking.status = 'pending'; // enters standard booking lifecycle
-    booking.otp = { startOTP, completionOTP };
+    booking.statusHistory.push({ status: 'pending', timestamp: new Date() });
+    booking.markModified('statusHistory');
+    // Only set startOTP initially. completionOTP will be set when requested.
+    booking.otp = { startOTP, completionOTP: null };
 
     await booking.save();
+    console.log(`[DEBUG] Lead accepted: ${bookingId}, status: ${booking.status}, history length: ${booking.statusHistory.length}`);
 
     // Fetch fully populated booking object for the frontend
     const populatedBooking = await getBookingDetails(booking._id, vendorId, 'vendor');
+
+    const { emitToUser, emitToVendor } = require('../../socket');
+    emitToUser(booking.user, 'booking_status_updated', populatedBooking);
+    emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
 
     return {
         booking: populatedBooking,
@@ -128,10 +138,17 @@ const markOnTheWay = async (vendorId, bookingId) => {
     }
 
     booking.status = 'on_the_way';
+    booking.statusHistory.push({ status: 'on_the_way', timestamp: new Date() });
+    booking.markModified('statusHistory');
     await booking.save();
+    console.log(`[DEBUG] Status updated to On The Way: ${bookingId}, history length: ${booking.statusHistory.length}`);
 
     // Fetch fully populated booking object for the frontend
     const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
+
+    const { emitToUser, emitToVendor } = require('../../socket');
+    emitToUser(booking.user, 'booking_status_updated', populatedBooking);
+    emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
 
     return { booking: populatedBooking, message: 'Status updated to On The Way' };
 };
@@ -148,11 +165,18 @@ const markArrived = async (vendorId, bookingId) => {
     }
 
     booking.status = 'arrived';
+    booking.statusHistory.push({ status: 'arrived', timestamp: new Date() });
+    booking.markModified('statusHistory');
     booking.vendorArrivedAt = new Date();
     await booking.save();
+    console.log(`[DEBUG] Status updated to Arrived: ${bookingId}, history length: ${booking.statusHistory.length}`);
 
     // Fetch fully populated booking object for the frontend
     const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
+
+    const { emitToUser, emitToVendor } = require('../../socket');
+    emitToUser(booking.user, 'booking_status_updated', populatedBooking);
+    emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
 
     return { booking: populatedBooking, message: 'Status updated to Arrived' };
 };
@@ -174,11 +198,18 @@ const startWork = async (vendorId, bookingId, enteredOTP) => {
     }
 
     booking.status = 'ongoing';
+    booking.statusHistory.push({ status: 'ongoing', timestamp: new Date() });
+    booking.markModified('statusHistory');
     booking.workStartedAt = new Date();
     await booking.save();
+    console.log(`[DEBUG] Status updated to Ongoing/Working: ${bookingId}, status field is now: ${booking.status}, history length: ${booking.statusHistory.length}`);
 
     // Fetch fully populated booking object for the frontend
     const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
+
+    const { emitToUser, emitToVendor } = require('../../socket');
+    emitToUser(booking.user, 'booking_status_updated', populatedBooking);
+    emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
 
     return { booking: populatedBooking, message: 'Work started successfully' };
 };
@@ -195,11 +226,20 @@ const requestCompletionOTP = async (vendorId, bookingId) => {
     }
 
     const completionOTP = '4321';
-    booking.otp = { ...booking.otp, completionOTP };
+    if (!booking.otp) {
+        booking.otp = { startOTP: '1234', completionOTP };
+    } else {
+        booking.otp.completionOTP = completionOTP;
+    }
+    booking.markModified('otp');
     await booking.save();
 
     // Fetch fully populated booking object for the frontend
     const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
+
+    const { emitToUser, emitToVendor } = require('../../socket');
+    emitToUser(booking.user, 'booking_status_updated', populatedBooking);
+    emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
 
     return { booking: populatedBooking, message: 'Completion OTP generated successfully' };
 };
@@ -229,6 +269,8 @@ const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
     }
 
     booking.status = 'completed';
+    booking.statusHistory.push({ status: 'completed', timestamp: new Date() });
+    booking.markModified('statusHistory');
     booking.payment = {
         ...booking.payment,
         method: paymentMethod,
@@ -236,9 +278,14 @@ const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
     };
     booking.workCompletedAt = new Date();
     await booking.save();
+    console.log(`[DEBUG] Status updated to Completed: ${bookingId}, history length: ${booking.statusHistory.length}`);
 
     // Fetch fully populated booking object for the frontend
     const populatedBooking = await getBookingDetails(bookingId, vendorId, 'vendor');
+
+    const { emitToUser, emitToVendor } = require('../../socket');
+    emitToUser(booking.user, 'booking_status_updated', populatedBooking);
+    emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
 
     return { booking: populatedBooking, message: 'Booking completed successfully' };
 };
@@ -294,24 +341,51 @@ const getBookingDetails = async (bookingId, userId, role) => {
     if (bookingObj.otp) {
         if (role === 'user') {
             // User sees everything, but we provide helpers for current state
-            if (['pending', 'on_the_way', 'arrived'].includes(bookingObj.status)) {
-                bookingObj.currentOTP = {
+            // and hide completion OTP until it's ready.
+            const startOTPCode = bookingObj.otp.startOTP || '1234';
+            const completionOTPCode = bookingObj.otp.completionOTP || null;
+
+            bookingObj.currentOTP = {
+                startOTP: {
                     label: 'Start OTP',
-                    code: bookingObj.otp.startOTP || '1234',
+                    code: startOTPCode,
                     instruction: 'Give this to the vendor to Start Work'
-                };
-            } else if (bookingObj.status === 'ongoing') {
-                bookingObj.currentOTP = {
+                },
+                completionOTP: {
                     label: 'Completion OTP',
-                    code: bookingObj.otp.completionOTP || '4321',
-                    instruction: 'Give this to the vendor to Complete Work'
-                };
+                    code: completionOTPCode ? completionOTPCode : 'Hidden',
+                    status: completionOTPCode ? 'available' : 'pending',
+                    instruction: completionOTPCode
+                        ? 'Give this to the vendor to Complete Work'
+                        : 'Will be visible once vendor requests completion'
+                }
+            };
+
+            // Maintain status specific convenience field if needed
+            if (['pending', 'on_the_way', 'arrived'].includes(bookingObj.status)) {
+                bookingObj.activeOTP = bookingObj.currentOTP.startOTP;
+            } else if (bookingObj.status === 'ongoing') {
+                bookingObj.activeOTP = bookingObj.currentOTP.completionOTP;
             }
-            // Keep the raw otp object as user requested "dont want hide"
+
+            // Expose the raw otp object but sanitize completionOTP if not ready
+            if (!completionOTPCode) {
+                bookingObj.otp.completionOTP = 'Hidden (Pending)';
+            }
         } else {
             // Vendors/others never see the OTP codes directly
             delete bookingObj.otp;
+            delete bookingObj.currentOTP;
         }
+    }
+
+    // Ensure statusHistory is present and formatted (it's already in bookingObj, but let's be explicit if needed)
+    if (bookingObj.statusHistory) {
+        bookingObj.statusHistory = bookingObj.statusHistory.map(h => ({
+            status: h.status,
+            timestamp: h.timestamp,
+            displayStatus: statusMap[h.status] || h.status
+        }));
     }
 
     return bookingObj;
@@ -384,8 +458,11 @@ const createBooking = async (userId, bookingData) => {
         scheduledTime: time,
         location: { address, latitude, longitude, pincode },
         pricing: { totalPrice: totalPrice || 0, basePrice: totalPrice || 0 },
-        status: 'pending_acceptance'
+        status: 'pending_acceptance',
+        statusHistory: [{ status: 'pending_acceptance', timestamp: new Date() }]
     });
+
+    console.log(`[DEBUG] Booking created (createBooking): ${booking._id}, status: ${booking.status}`);
 
     if (confirmation === true) {
         searchVendors(booking, true).catch(console.error);
@@ -568,6 +645,8 @@ const cancelBooking = async (userId, bookingId, reason) => {
     }
 
     booking.status = 'cancelled';
+    booking.statusHistory.push({ status: 'cancelled', timestamp: new Date() });
+    booking.markModified('statusHistory');
     booking.cancellation = {
         cancelledBy: 'user',
         reason,
@@ -580,6 +659,12 @@ const cancelBooking = async (userId, bookingId, reason) => {
         .populate('services.service', 'title adminPrice photo')
         .populate('vendor', 'name phoneNumber photo')
         .populate('user', 'name phoneNumber photo');
+
+    const { emitToUser, emitToVendor } = require('../../socket');
+    emitToUser(booking.user, 'booking_status_updated', populatedBooking);
+    if (booking.vendor) {
+        emitToVendor(booking.vendor, 'booking_status_updated', populatedBooking);
+    }
 
     return populatedBooking || booking;
 };
@@ -651,6 +736,30 @@ const retrySearchVendors = async (userId, bookingId) => {
     return { found: nearby.length > 0, count: nearby.length };
 };
 
+/**
+ * Get booking status history
+ */
+const getBookingStatusHistory = async (bookingId, userId, role) => {
+    const query = role === 'vendor' ? { vendor: userId } : role === 'user' ? { user: userId } : {};
+
+    if (mongoose.isValidObjectId(bookingId)) {
+        query.$or = [{ _id: bookingId }, { bookingID: bookingId }];
+    } else {
+        query.bookingID = bookingId;
+    }
+
+    const booking = await Booking.findOne(query).select('statusHistory status');
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    // Clean up history by removing any potential Mongoose ID fields for a cleaner response
+    const cleanHistory = (booking.statusHistory || []).map(item => ({
+        status: item.status,
+        timestamp: item.timestamp
+    }));
+
+    return cleanHistory;
+};
+
 module.exports = {
     // Lead flow
     requestLead,
@@ -672,6 +781,7 @@ module.exports = {
     getVendorBookingHistory,
     getVendorLaterBookings,
     retrySearchVendors,
+    getBookingStatusHistory,
 
     // Post-acceptance execution flow
     markOnTheWay,

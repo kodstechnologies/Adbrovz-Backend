@@ -404,13 +404,31 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
             reason: (d && typeof d === 'object') ? (d.reason || null) : null,
         };
     });
+
+    // Provide detailed message about what stopped the account verification
+    let message = `Document ${docType} updated to ${status}.`;
+    if (!vendor.isVerified && allVerified === false) {
+        const missing = requiredDocs.filter(doc => {
+            const d = vendor.documents[doc];
+            return !(d && typeof d === 'object' && (d.status === 'verified' || d.status === 'approved'));
+        });
+        message += ` Account still pending. Missing/unverified: ${missing.join(', ')}`;
+    } else if (vendor.isVerified) {
+        message += " Account is now fully verified!";
+    }
+
     emitToVendor(vendor._id, 'vendor_verification_update', {
         isVerified: vendor.isVerified,
         documentStatus: vendor.documentStatus,
         documents: documentStatuses,
+        message
     });
 
-    return vendor;
+    return {
+        vendor,
+        message,
+        isVerified: vendor.isVerified
+    };
 };
 
 /**
@@ -452,22 +470,30 @@ const verifyAllDocuments = async (vendorId) => {
     await vendor.save();
 
     // Emit real-time update to vendor via socket
-    const docTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+    const docTypesFields = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
     const documentStatuses = {};
-    docTypes.forEach(doc => {
+    docTypesFields.forEach(doc => {
         const d = vendor.documents?.[doc];
         documentStatuses[doc] = {
             status: (d && typeof d === 'object') ? (d.status || 'pending') : 'pending',
             reason: (d && typeof d === 'object') ? (d.reason || null) : null,
         };
     });
+
+    const message = "Account is now fully verified via Admin 'Verify All' action!";
+
     emitToVendor(vendor._id, 'vendor_verification_update', {
         isVerified: vendor.isVerified,
         documentStatus: vendor.documentStatus,
         documents: documentStatuses,
+        message
     });
 
-    return vendor;
+    return {
+        vendor,
+        message,
+        isVerified: vendor.isVerified
+    };
 };
 
 /**
@@ -479,6 +505,14 @@ const toggleVendorSuspension = async (vendorId, { isSuspended }) => {
 
     vendor.isSuspended = isSuspended;
     await vendor.save();
+
+    emitToVendor(vendor._id, 'vendor_verification_update', {
+        isVerified: vendor.isVerified,
+        documentStatus: vendor.documentStatus,
+        isSuspended: vendor.isSuspended,
+        message: isSuspended ? 'Your account has been suspended.' : 'Your account has been reactivated.'
+    });
+
     return vendor;
 };
 
@@ -501,7 +535,26 @@ const rejectVendorAccount = async (vendorId, { reason }) => {
         }
     });
 
+    vendor.markModified('documents');
     await vendor.save();
+
+    const docTypesFields = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+    const documentStatuses = {};
+    docTypesFields.forEach(doc => {
+        const d = vendor.documents?.[doc];
+        documentStatuses[doc] = {
+            status: (d && typeof d === 'object') ? (d.status || 'pending') : 'pending',
+            reason: (d && typeof d === 'object') ? (d.reason || null) : null,
+        };
+    });
+
+    emitToVendor(vendor._id, 'vendor_verification_update', {
+        isVerified: vendor.isVerified,
+        documentStatus: vendor.documentStatus,
+        documents: documentStatuses,
+        message: `Your account has been rejected. Reason: ${reason || 'No reason provided'}`
+    });
+
     return vendor;
 };
 
@@ -669,6 +722,7 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         documentStatus: vendor.documentStatus,
         isVerified: vendor.isVerified,
         documents: documentStatuses,
+        message: 'Membership activated successfully!',
     });
 
     return {
@@ -690,6 +744,33 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     };
 };
 
+/**
+ * Get vendor verification status
+ */
+const getVerificationStatus = async (vendorId) => {
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const docTypesFields = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+    const documentStatuses = {};
+    docTypesFields.forEach(doc => {
+        const d = vendor.documents?.[doc];
+        documentStatuses[doc] = {
+            status: (d && typeof d === 'object') ? (d.status || 'pending') : 'pending',
+            reason: (d && typeof d === 'object') ? (d.reason || null) : null,
+            url: (d && typeof d === 'object') ? (d.url || '') : (typeof d === 'string' ? d : '')
+        };
+    });
+
+    return {
+        isVerified: vendor.isVerified,
+        documentStatus: vendor.documentStatus,
+        registrationStep: vendor.registrationStep,
+        documents: documentStatuses,
+        status: vendor.status // Uses the virtual status
+    };
+};
+
 module.exports = {
     getAllVendors,
     getMembershipInfo,
@@ -707,5 +788,6 @@ module.exports = {
     toggleOnlineStatus,
     getVendorProfile,
     updateVendorProfile,
+    getVerificationStatus,
 };
 
