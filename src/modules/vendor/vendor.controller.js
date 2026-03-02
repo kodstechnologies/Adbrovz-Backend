@@ -179,6 +179,29 @@ const updateProfile = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * Get vendor verification status
+ */
+const getVerificationStatus = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.userId;
+    const result = await vendorService.getVerificationStatus(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Verification status retrieved successfully')
+    );
+});
+
+/**
+ * Delete vendor account (Self-service)
+ */
+const deleteAccount = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId;
+    const result = await vendorService.deleteVendorAccount(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Account deleted successfully')
+    );
+});
+
+
 module.exports = {
     getAllVendors,
     getMembership,
@@ -194,5 +217,7 @@ module.exports = {
     getProfile,
     getCoins,
     updateProfile,
+    getVerificationStatus,
+    deleteAccount,
 };
 

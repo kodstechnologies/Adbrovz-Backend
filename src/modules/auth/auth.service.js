@@ -321,7 +321,7 @@ const completeVendorSignup = async ({ signupId, pin, confirmPin, acceptedTerms, 
  */
 const initiateUserLogin = async ({ phoneNumber, acceptedPolicies }) => {
   // Find user
-  const user = await User.findOne({ phoneNumber });
+  const user = await User.findOne({ phoneNumber, deletedAt: null });
 
   if (!user) {
     throw new ApiError(401, MESSAGES.AUTH.INVALID_CREDENTIALS);
@@ -705,7 +705,7 @@ const verifySignupOTP = async (phoneNumber, otp, role = 'user', req = null) => {
  * - Creates a login session and returns loginId
  */
 const initiateVendorLogin = async ({ phoneNumber }) => {
-  const vendor = await Vendor.findOne({ phoneNumber });
+  const vendor = await Vendor.findOne({ phoneNumber, deletedAt: null });
 
   if (!vendor) {
     throw new ApiError(401, MESSAGES.AUTH.INVALID_CREDENTIALS);
@@ -765,7 +765,7 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
 
   // Based on role, search in specific model
   if (role === 'vendor') {
-    user = await Vendor.findOne({ phoneNumber }).select('+pin');
+    user = await Vendor.findOne({ phoneNumber, deletedAt: null }).select('+pin');
     if (!user) {
       throw new ApiError(401, MESSAGES.AUTH.INVALID_CREDENTIALS);
     }
@@ -777,7 +777,7 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
     */
   } else {
     // Default to user
-    user = await User.findOne({ phoneNumber }).select('+pin');
+    user = await User.findOne({ phoneNumber, deletedAt: null }).select('+pin');
     if (!user) {
       throw new ApiError(401, MESSAGES.AUTH.INVALID_CREDENTIALS);
     }

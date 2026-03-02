@@ -42,6 +42,9 @@ router.patch('/:vendorId/status', authenticate, authorize(ROLES.ADMIN), vendorCo
 router.get('/profile', authenticate, authorize(ROLES.VENDOR), vendorController.getProfile);
 router.get('/coins', authenticate, authorize(ROLES.VENDOR), vendorController.getCoins);
 router.put('/profile', authenticate, authorize(ROLES.VENDOR), upload.single('image'), uploadToCloudinary('vendors'), vendorController.updateProfile);
+router.get('/verification-status', authenticate, authorize(ROLES.VENDOR), vendorController.getVerificationStatus);
+router.delete('/account', authenticate, authorize(ROLES.VENDOR), vendorController.deleteAccount);
+
 
 // Admin can also get profile by ID
 router.get('/profile/:vendorId', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), vendorController.getProfile);

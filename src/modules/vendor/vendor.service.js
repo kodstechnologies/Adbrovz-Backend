@@ -771,6 +771,21 @@ const getVerificationStatus = async (vendorId) => {
     };
 };
 
+/**
+ * Delete vendor account (Soft delete)
+ */
+const deleteVendorAccount = async (vendorId) => {
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    vendor.deletedAt = new Date();
+    vendor.isActive = false;
+    await vendor.save();
+
+    return { message: 'Account deleted successfully' };
+};
+
+
 module.exports = {
     getAllVendors,
     getMembershipInfo,
@@ -789,5 +804,6 @@ module.exports = {
     getVendorProfile,
     updateVendorProfile,
     getVerificationStatus,
+    deleteVendorAccount,
 };
 
