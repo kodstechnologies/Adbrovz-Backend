@@ -610,12 +610,18 @@ const toggleOnlineStatus = async (vendorId, isOnline) => {
         throw new ApiError(403, 'Your account is suspended. Please contact support.');
     }
 
-    vendor.isOnline = isOnline;
-    await vendor.save();
+    // Use findByIdAndUpdate for reliable atomic DB write
+    const updated = await Vendor.findByIdAndUpdate(
+        vendorId,
+        { isOnline: Boolean(isOnline) },
+        { new: true }
+    );
+
+    console.log(`[DB] Vendor ${vendorId} isOnline set to: ${updated.isOnline}`);
 
     return {
-        isOnline: vendor.isOnline,
-        message: `You are now ${vendor.isOnline ? 'online' : 'offline'}`,
+        isOnline: updated.isOnline,
+        message: `You are now ${updated.isOnline ? 'online' : 'offline'}`,
     };
 };
 
