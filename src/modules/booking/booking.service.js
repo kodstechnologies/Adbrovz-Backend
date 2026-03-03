@@ -85,18 +85,22 @@ const requestLead = async (
  * Accept a lead (Vendor accepts)
  */
 const acceptLead = async (vendorId, bookingId) => {
+    console.log(`[SOCKET] acceptLead called for vendor: ${vendorId}, booking: ${bookingId}`);
     const query = mongoose.isValidObjectId(bookingId)
         ? { $or: [{ _id: bookingId }, { bookingID: bookingId }] }
         : { bookingID: bookingId };
 
     const vendor = await Vendor.findById(vendorId);
-    if (!vendor) throw new ApiError(404, 'Vendor not found');
+    if (!vendor) {
+        console.log(`[SOCKET] Vendor not found: ${vendorId}`);
+        throw new ApiError(404, 'Vendor not found');
+    }
 
     // Generate Start OTP
     const startOTP = '1234';
 
-    // Atomic update: only succeeds if status is still 'pending_acceptance'
-    // This prevents two vendors from accepting the same booking simultaneously
+    // Atomic update
+    console.log(`[SOCKET] Attempting atomic update for booking: ${bookingId}`);
     const booking = await Booking.findOneAndUpdate(
         { ...query, status: 'pending_acceptance' },
         {
@@ -112,30 +116,33 @@ const acceptLead = async (vendorId, bookingId) => {
         { new: true }
     );
 
-    // If no booking was updated, it was already accepted or doesn't exist
     if (!booking) {
+        console.log(`[SOCKET] Booking ${bookingId} already accepted or not found`);
         const existingBooking = await Booking.findOne(query);
         if (!existingBooking) {
             throw new ApiError(404, 'Booking not found');
         }
-        // Booking exists but was already accepted by another vendor
         throw new ApiError(400, 'You missed your order! This booking has already been accepted by another vendor.');
     }
 
-    console.log(`[DEBUG] Lead accepted: ${bookingId}, status: ${booking.status}, history length: ${booking.statusHistory.length}`);
+    console.log(`[SOCKET] Lead ${bookingId} locked by vendor ${vendorId}`);
 
-    // Fetch role-specific payloads for the socket emissions
     const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
     const vendorPayload = await getBookingDetails(booking._id, vendorId, 'vendor');
 
+    console.log(`[SOCKET] Payloads fetched, requiring socket module...`);
     const { emitToUser, emitToVendor, activeVendors } = require('../../socket');
+
+    console.log(`[SOCKET] Emitting update to user ${booking.user}`);
     emitToUser(booking.user, 'booking_status_updated', userPayload);
+
+    console.log(`[SOCKET] Emitting update to vendor ${vendorId}`);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
-    // Notify ALL other connected vendors that this booking is no longer available
     const { getIo } = require('../../socket');
     const io = getIo();
     if (io) {
+        console.log(`[SOCKET] Notifying other vendors about acceptance`);
         const vendorIdStr = vendorId.toString();
         activeVendors.forEach((socketIds, otherVendorId) => {
             if (otherVendorId.toString() !== vendorIdStr) {
@@ -150,13 +157,13 @@ const acceptLead = async (vendorId, bookingId) => {
         });
     }
 
+    console.log(`[SOCKET] acceptLead completed successfully for booking: ${bookingId}`);
     return {
         bookingId: booking._id,
         bookingID: booking.bookingID,
         booking: vendorPayload,
         message: 'Lead accepted successfully'
     };
-
 };
 
 /**
@@ -829,8 +836,12 @@ const getBookingStatusHistory = async (bookingId, userId, role) => {
  * Vendor updates price for unpriced services
  */
 const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
+    console.log(`[SOCKET] updateBookingPrice called for booking: ${bookingId}`);
     const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
-    if (!booking) throw new ApiError(404, 'Booking not found');
+    if (!booking) {
+        console.log(`[SOCKET] Booking not found for updateBookingPrice: ${bookingId}`);
+        throw new ApiError(404, 'Booking not found');
+    }
 
     if (booking.priceUpdatedOnce) {
         throw new ApiError(400, 'Price can only be updated once per booking');
@@ -840,6 +851,7 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
         throw new ApiError(400, 'Price can only be updated before starting work');
     }
 
+    console.log(`[SOCKET] Processing updated services for booking: ${bookingId}`);
     let modified = false;
     for (const update of updatedServices) {
         const item = booking.services.find(s => s.service.toString() === update.serviceId.toString());
@@ -847,6 +859,7 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
             // Check if it was unpriced in Service model
             const serviceDoc = await Service.findById(item.service);
             if (serviceDoc && !serviceDoc.isAdminPriced) {
+                console.log(`[SOCKET] Updating price for service: ${item.service}`);
                 item.vendorPrice = update.price;
                 item.finalPrice = update.price * (item.quantity || 1);
                 item.isPriceConfirmed = false;
@@ -856,6 +869,7 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
     }
 
     if (!modified) {
+        console.log(`[SOCKET] No unpriced services found for update: ${bookingId}`);
         throw new ApiError(400, 'No unpriced services found to update');
     }
 
@@ -868,12 +882,19 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
     booking.isPriceConfirmed = false;
     booking.priceConfirmationTimeout = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
 
+    console.log(`[SOCKET] Saving booking with updated price: ${bookingId}`);
     await booking.save();
 
+    console.log(`[SOCKET] Fetching user payload for price update: ${bookingId}`);
     const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
+
+    console.log(`[SOCKET] Requiring socket for price update...`);
     const { emitToUser } = require('../../socket');
+
+    console.log(`[SOCKET] Emitting price update to user: ${booking.user}`);
     emitToUser(booking.user, 'booking_price_updated', userPayload);
 
+    console.log(`[SOCKET] updateBookingPrice completed successfully for booking: ${bookingId}`);
     return { booking: userPayload, message: 'Price updated, awaiting user confirmation' };
 };
 

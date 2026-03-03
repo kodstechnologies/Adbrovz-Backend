@@ -88,8 +88,10 @@ const initSocket = (server) => {
                 const { vendorId, bookingId } = data;
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.acceptLead(vendorId, bookingId);
+                console.log(`📡 [SOCKET] Sending 'booking_accepted_success' to socket ${socket.id}`);
                 socket.emit('booking_accepted_success', result);
             } catch (error) {
+                console.error(`📡 [SOCKET] Sending 'booking_error' to socket ${socket.id}: ${error.message}`);
                 socket.emit('booking_error', { action: 'accept_booking', message: error.message });
             }
         });
@@ -176,8 +178,10 @@ const initSocket = (server) => {
                 const { vendorId, bookingId, updatedServices } = data;
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.updateBookingPrice(vendorId, bookingId, updatedServices);
+                console.log(`📡 [SOCKET] Sending 'booking_update_price_success' to socket ${socket.id}`);
                 socket.emit('booking_update_price_success', result);
             } catch (error) {
+                console.error(`📡 [SOCKET] Sending 'booking_error' (update_price) to socket ${socket.id}: ${error.message}`);
                 socket.emit('booking_error', { action: 'update_booking_price', message: error.message });
             }
         });
