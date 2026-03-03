@@ -89,39 +89,66 @@ const acceptLead = async (vendorId, bookingId) => {
         ? { $or: [{ _id: bookingId }, { bookingID: bookingId }] }
         : { bookingID: bookingId };
 
-    const booking = await Booking.findOne(query);
-    if (!booking) throw new ApiError(404, 'Booking not found');
-
-    if (booking.status !== 'pending_acceptance') {
-        throw new ApiError(400, 'Lead already accepted or cancelled');
-    }
-
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    // Generate Start OTP and assign the vendor
-
-    // Generate Start OTP and assign the vendor
+    // Generate Start OTP
     const startOTP = '1234';
-    const completionOTP = '4321';
 
-    booking.vendor = vendorId;
-    booking.status = 'pending'; // enters standard booking lifecycle
-    booking.statusHistory.push({ status: 'pending', timestamp: new Date() });
-    booking.markModified('statusHistory');
-    // Only set startOTP initially. completionOTP will be set when requested.
-    booking.otp = { startOTP, completionOTP: null };
+    // Atomic update: only succeeds if status is still 'pending_acceptance'
+    // This prevents two vendors from accepting the same booking simultaneously
+    const booking = await Booking.findOneAndUpdate(
+        { ...query, status: 'pending_acceptance' },
+        {
+            $set: {
+                vendor: vendorId,
+                status: 'pending',
+                otp: { startOTP, completionOTP: null }
+            },
+            $push: {
+                statusHistory: { status: 'pending', timestamp: new Date() }
+            }
+        },
+        { new: true }
+    );
 
-    await booking.save();
+    // If no booking was updated, it was already accepted or doesn't exist
+    if (!booking) {
+        const existingBooking = await Booking.findOne(query);
+        if (!existingBooking) {
+            throw new ApiError(404, 'Booking not found');
+        }
+        // Booking exists but was already accepted by another vendor
+        throw new ApiError(400, 'You missed your order! This booking has already been accepted by another vendor.');
+    }
+
     console.log(`[DEBUG] Lead accepted: ${bookingId}, status: ${booking.status}, history length: ${booking.statusHistory.length}`);
 
     // Fetch role-specific payloads for the socket emissions
     const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
     const vendorPayload = await getBookingDetails(booking._id, vendorId, 'vendor');
 
-    const { emitToUser, emitToVendor } = require('../../socket');
+    const { emitToUser, emitToVendor, activeVendors } = require('../../socket');
     emitToUser(booking.user, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
+
+    // Notify ALL other connected vendors that this booking is no longer available
+    const { getIo } = require('../../socket');
+    const io = getIo();
+    if (io) {
+        const vendorIdStr = vendorId.toString();
+        activeVendors.forEach((socketIds, otherVendorId) => {
+            if (otherVendorId.toString() !== vendorIdStr) {
+                socketIds.forEach(socketId => {
+                    io.to(socketId).emit('booking_already_accepted', {
+                        bookingId: booking._id,
+                        bookingID: booking.bookingID,
+                        message: 'You missed your order! This booking has already been accepted by another vendor.'
+                    });
+                });
+            }
+        });
+    }
 
     return {
         booking: vendorPayload, // Return vendor-specific view to the caller (vendor)
