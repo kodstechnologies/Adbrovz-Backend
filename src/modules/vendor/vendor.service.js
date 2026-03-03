@@ -600,7 +600,10 @@ const purchaseCreditPlan = async (vendorId, { planId }) => {
  */
 const toggleOnlineStatus = async (vendorId, isOnline) => {
     const vendor = await Vendor.findById(vendorId);
-    if (!vendor) throw new ApiError(404, 'Vendor not found');
+    if (!vendor) {
+        console.error(`[DB ERROR] Vendor not found with ID: ${vendorId}`);
+        throw new ApiError(404, 'Vendor not found');
+    }
 
     if (!vendor.isVerified || vendor.documentStatus !== 'approved') {
         throw new ApiError(403, 'Your account must be approved before going online');
@@ -610,16 +613,25 @@ const toggleOnlineStatus = async (vendorId, isOnline) => {
         throw new ApiError(403, 'Your account is suspended. Please contact support.');
     }
 
+    // Fix boolean parsing for string inputs safely
+    const targetStatus = isOnline === true || isOnline === 'true';
+
     // Use findByIdAndUpdate for reliable atomic DB write
     const updated = await Vendor.findByIdAndUpdate(
         vendorId,
-        { isOnline: Boolean(isOnline) },
-        { new: true }
+        { isOnline: targetStatus },
+        { new: true, runValidators: true }
     );
 
-    console.log(`[DB] Vendor ${vendorId} isOnline set to: ${updated.isOnline}`);
+    if (!updated) {
+        throw new ApiError(500, 'Failed to update vendor status in database');
+    }
+
+    console.log(`[DB SUCCESS] Vendor ${vendorId} (${vendor.vendorID}) isOnline updated to: ${updated.isOnline}`);
 
     return {
+        vendorId: updated._id,
+        vendorID: updated.vendorID,
         isOnline: updated.isOnline,
         message: `You are now ${updated.isOnline ? 'online' : 'offline'}`,
     };
