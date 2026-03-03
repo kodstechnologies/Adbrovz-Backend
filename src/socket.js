@@ -6,12 +6,21 @@ let io;
 const activeVendors = new Map(); // vendorId -> [socketId1, socketId2, ...]
 const activeUsers = new Map(); // userId -> [socketId1, socketId2, ...]
 
-const registerVendorSocket = (vendorId, socketId) => {
-    const vId = vendorId.toString();
+const registerVendorSocket = async (vendorId, socketId) => {
+    const vId = (typeof vendorId === 'object' && vendorId._id) ? vendorId._id.toString() : vendorId.toString();
     if (!activeVendors.has(vId)) activeVendors.set(vId, []);
     const sockets = activeVendors.get(vId);
     if (!sockets.includes(socketId)) sockets.push(socketId);
     console.log(`✅ Vendor ${vId} auto-registered on socket ${socketId}. Total: ${sockets.length}`);
+
+    // Persist online status to DB
+    try {
+        const Vendor = require('./models/Vendor.model');
+        await Vendor.findByIdAndUpdate(vId, { isOnline: true });
+        console.log(` Vendor ${vId} marked online in DB`);
+    } catch (err) {
+        console.error(`Failed to update vendor ${vId} online status:`, err.message);
+    }
 };
 
 const registerUserSocket = (userId, socketId) => {
@@ -162,6 +171,28 @@ const initSocket = (server) => {
             }
         });
 
+        socket.on('update_booking_price', async (data) => {
+            try {
+                const { vendorId, bookingId, updatedServices } = data;
+                const bookingService = require('./modules/booking/booking.service');
+                const result = await bookingService.updateBookingPrice(vendorId, bookingId, updatedServices);
+                socket.emit('booking_update_price_success', result);
+            } catch (error) {
+                socket.emit('booking_error', { action: 'update_booking_price', message: error.message });
+            }
+        });
+
+        socket.on('confirm_booking_price', async (data) => {
+            try {
+                const { userId, bookingId } = data;
+                const bookingService = require('./modules/booking/booking.service');
+                const result = await bookingService.confirmBookingPrice(userId, bookingId);
+                socket.emit('booking_confirm_price_success', result);
+            } catch (error) {
+                socket.emit('booking_error', { action: 'confirm_booking_price', message: error.message });
+            }
+        });
+
         // Admin/Verification socket actions
         socket.on('verify_vendor_document', async (data) => {
             try {
@@ -197,7 +228,7 @@ const initSocket = (server) => {
             }
         });
 
-        socket.on('disconnect', () => {
+        socket.on('disconnect', async () => {
             console.log(`WebSocket Disconnected: ${socket.id}`);
             // Remove socket from active list
             for (const [vendorId, sockets] of activeVendors.entries()) {
@@ -208,6 +239,15 @@ const initSocket = (server) => {
                     if (sockets.length === 0) {
                         activeVendors.delete(vendorId);
                         console.log(`   Vendor ${vendorId} fully offline.`);
+
+                        // Persist offline status to DB
+                        try {
+                            const Vendor = require('./models/Vendor.model');
+                            await Vendor.findByIdAndUpdate(vendorId, { isOnline: false });
+                            console.log(`🔴 Vendor ${vendorId} marked offline in DB`);
+                        } catch (err) {
+                            console.error(`⚠️ Failed to update vendor ${vendorId} offline status:`, err.message);
+                        }
                     }
                     break;
                 }

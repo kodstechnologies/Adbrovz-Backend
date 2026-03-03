@@ -127,6 +127,14 @@ const bookingSchema = new mongoose.Schema(
     priceConfirmationTimeout: {
       type: Date,
     },
+    priceUpdatedOnce: {
+      type: Boolean,
+      default: false,
+    },
+    isPriceConfirmed: {
+      type: Boolean,
+      default: true,
+    },
     gracePeriodEnd: {
       type: Date,
     },

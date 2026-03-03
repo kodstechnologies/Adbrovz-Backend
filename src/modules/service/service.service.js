@@ -261,6 +261,13 @@ const createService = async (data) => {
         }
     }
 
+    // Normalize adminPrice: empty string or non-numeric should be null
+    if (data.adminPrice === '' || data.adminPrice === undefined || data.adminPrice === 'null') {
+        data.adminPrice = null;
+    } else if (data.adminPrice !== null) {
+        data.adminPrice = Number(data.adminPrice);
+    }
+
     return await Service.create(data);
 };
 
@@ -285,7 +292,14 @@ const updateService = async (serviceId, data) => {
         }
     }
 
-    return await Service.findByIdAndUpdate(serviceId, data, { new: true });
+    // Normalize adminPrice: empty string or non-numeric should be null
+    if (data.adminPrice === '' || data.adminPrice === undefined || data.adminPrice === 'null') {
+        data.adminPrice = null;
+    } else if (data.adminPrice !== null) {
+        data.adminPrice = Number(data.adminPrice);
+    }
+
+    return await Service.findByIdAndUpdate(serviceId, data, { new: true, runValidators: true });
 };
 
 /**

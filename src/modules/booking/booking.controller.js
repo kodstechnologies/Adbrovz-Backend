@@ -313,6 +313,35 @@ const completeWork = asyncHandler(async (req, res) => {
     res.status(200).json(new ApiResponse(200, result.booking, result.message));
 });
 
+/**
+ * Vendor updates price for unpriced services
+ */
+const updatePrice = asyncHandler(async (req, res) => {
+    const vendorId = req.user?._id || req.body.vendorId;
+    const { id } = req.params; // bookingId
+    const { updatedServices } = req.body;
+
+    const result = await bookingService.updateBookingPrice(vendorId, id, updatedServices);
+
+    res.status(200).json(
+        new ApiResponse(200, result.booking, result.message)
+    );
+});
+
+/**
+ * User confirms the updated price
+ */
+const confirmPrice = asyncHandler(async (req, res) => {
+    const userId = req.user?._id || req.user?.userId;
+    const { id } = req.params; // bookingId
+
+    const result = await bookingService.confirmBookingPrice(userId, id);
+
+    res.status(200).json(
+        new ApiResponse(200, result.booking, result.message)
+    );
+});
+
 module.exports = {
     // Lead flow
     requestLead,
@@ -338,5 +367,7 @@ module.exports = {
     requestCompletionOTP,
     completeWork,
     getVendorBookingById,
-    getBookingStatusHistory
+    getBookingStatusHistory,
+    updatePrice,
+    confirmPrice
 };

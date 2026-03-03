@@ -34,7 +34,6 @@ router.post('/membership/verify-payment', authenticate, authorize(ROLES.VENDOR),
 router.post('/membership/verify', authenticate, authorize(ROLES.VENDOR), vendorController.verifyMembership);
 
 // Vendor status routes
-// Vendor status routes
 router.patch('/status', authenticate, authorize(ROLES.VENDOR), vendorController.toggleOnlineStatus);
 router.patch('/:vendorId/status', authenticate, authorize(ROLES.ADMIN), vendorController.toggleOnlineStatus);
 

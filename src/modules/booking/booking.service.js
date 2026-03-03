@@ -151,7 +151,9 @@ const acceptLead = async (vendorId, bookingId) => {
     }
 
     return {
-        booking: vendorPayload, // Return vendor-specific view to the caller (vendor)
+        bookingId: booking._id,
+        bookingID: booking.bookingID,
+        booking: vendorPayload,
         message: 'Lead accepted successfully'
     };
 
@@ -227,6 +229,9 @@ const startWork = async (vendorId, bookingId, enteredOTP) => {
     }
 
     const validStartOTP = booking.otp?.startOTP || '1234';
+    if (!booking.isPriceConfirmed) {
+        throw new ApiError(400, "Price must be confirmed by user before starting work");
+    }
     if (!enteredOTP || enteredOTP.toString() !== validStartOTP) {
         throw new ApiError(400, 'Invalid Start OTP');
     }
@@ -406,12 +411,25 @@ const getBookingDetails = async (bookingId, userId, role) => {
 
             // Maintain status specific convenience field if needed
             if (['pending', 'on_the_way', 'arrived'].includes(bookingObj.status)) {
-                bookingObj.activeOTP = bookingObj.currentOTP.startOTP;
+                if (bookingObj.isPriceConfirmed) {
+                    bookingObj.activeOTP = bookingObj.currentOTP.startOTP;
+                } else {
+                    bookingObj.activeOTP = {
+                        label: 'Start OTP',
+                        code: 'Locked',
+                        instruction: 'Visible once price is confirmed'
+                    };
+                    bookingObj.currentOTP.startOTP.code = 'Locked';
+                    bookingObj.currentOTP.startOTP.instruction = 'Price confirmation pending';
+                }
             } else if (bookingObj.status === 'ongoing') {
                 bookingObj.activeOTP = bookingObj.currentOTP.completionOTP;
             }
 
-            // Expose the raw otp object but sanitize completionOTP if not ready
+            // Expose the raw otp object but sanitize based on readiness
+            if (!bookingObj.isPriceConfirmed) {
+                bookingObj.otp.startOTP = 'Locked (Price Pending)';
+            }
             if (!completionOTPCode) {
                 bookingObj.otp.completionOTP = 'Hidden (Pending)';
             }
@@ -696,7 +714,8 @@ const cancelBooking = async (userId, bookingId, reason) => {
     booking.cancellation = {
         cancelledBy: 'user',
         reason,
-        cancelledAt: now
+        cancelledAt: now,
+        travelChargeApplied: booking.isPriceConfirmed === false ? false : true
     };
 
     await booking.save();
@@ -806,6 +825,79 @@ const getBookingStatusHistory = async (bookingId, userId, role) => {
     return cleanHistory;
 };
 
+/**
+ * Vendor updates price for unpriced services
+ */
+const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
+    const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (booking.priceUpdatedOnce) {
+        throw new ApiError(400, 'Price can only be updated once per booking');
+    }
+
+    if (!['pending', 'on_the_way', 'arrived'].includes(booking.status)) {
+        throw new ApiError(400, 'Price can only be updated before starting work');
+    }
+
+    let modified = false;
+    for (const update of updatedServices) {
+        const item = booking.services.find(s => s.service.toString() === update.serviceId.toString());
+        if (item) {
+            // Check if it was unpriced in Service model
+            const serviceDoc = await Service.findById(item.service);
+            if (serviceDoc && !serviceDoc.isAdminPriced) {
+                item.vendorPrice = update.price;
+                item.finalPrice = update.price * (item.quantity || 1);
+                item.isPriceConfirmed = false;
+                modified = true;
+            }
+        }
+    }
+
+    if (!modified) {
+        throw new ApiError(400, 'No unpriced services found to update');
+    }
+
+    // Recalculate total price
+    const newBasePrice = booking.services.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+    booking.pricing.basePrice = newBasePrice;
+    booking.pricing.totalPrice = newBasePrice + (booking.pricing.travelCharge || 0) + (booking.pricing.additionalCharges || 0);
+
+    booking.priceUpdatedOnce = true;
+    booking.isPriceConfirmed = false;
+    booking.priceConfirmationTimeout = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+
+    await booking.save();
+
+    const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
+    const { emitToUser } = require('../../socket');
+    emitToUser(booking.user, 'booking_price_updated', userPayload);
+
+    return { booking: userPayload, message: 'Price updated, awaiting user confirmation' };
+};
+
+/**
+ * User confirms the updated price
+ */
+const confirmBookingPrice = async (userId, bookingId) => {
+    const booking = await Booking.findOne({ _id: bookingId, user: userId });
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    booking.isPriceConfirmed = true;
+    booking.services.forEach(s => s.isPriceConfirmed = true);
+    await booking.save();
+
+    const vendorPayload = await getBookingDetails(booking._id, booking.vendor, 'vendor');
+    const userPayload = await getBookingDetails(booking._id, userId, 'user');
+
+    const { emitToVendor, emitToUser } = require('../../socket');
+    emitToVendor(booking.vendor, 'booking_price_confirmed', vendorPayload);
+    emitToUser(userId, 'booking_status_updated', userPayload);
+
+    return { booking: userPayload, message: 'Price confirmed successfully' };
+};
+
 module.exports = {
     // Lead flow
     requestLead,
@@ -834,5 +926,7 @@ module.exports = {
     markArrived,
     startWork,
     requestCompletionOTP,
-    completeWork
+    completeWork,
+    updateBookingPrice,
+    confirmBookingPrice
 };

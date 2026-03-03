@@ -25,6 +25,7 @@ router.post('/vendor/:id/arrived', authenticate, bookingController.markArrived);
 router.post('/vendor/:id/start-work', authenticate, bookingController.startWork);
 router.post('/vendor/:id/request-completion-otp', authenticate, bookingController.requestCompletionOTP);
 router.post('/vendor/:id/complete-work', authenticate, bookingController.completeWork);
+router.post('/vendor/:id/update-price', authenticate, bookingController.updatePrice);
 router.get('/vendor/:id', authenticate, bookingController.getVendorBookingById);
 /**
  * USER – BOOKING FLOW
@@ -32,6 +33,7 @@ router.get('/vendor/:id', authenticate, bookingController.getVendorBookingById);
 router.post('/', bookingController.createBooking); // Temporarily bypassed check
 router.get('/my-bookings', authenticate, bookingController.getMyBookings);
 router.get('/completed-history', authenticate, bookingController.getCompletedHistory);
+router.post('/:id/confirm-price', authenticate, bookingController.confirmPrice);
 router.post('/:id/cancel', authenticate, bookingController.cancelBooking);
 router.post('/:id/reschedule', authenticate, bookingController.rescheduleBooking);
 router.post('/:id/retry-search', authenticate, bookingController.retrySearch);

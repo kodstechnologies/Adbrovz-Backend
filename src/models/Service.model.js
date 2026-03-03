@@ -72,6 +72,17 @@ const serviceSchema = new mongoose.Schema(
   }
 );
 
+// Pre-save hook to set isAdminPriced automatically
+serviceSchema.pre('save', function (next) {
+  if (this.adminPrice !== undefined && this.adminPrice !== null && this.adminPrice > 0) {
+    this.isAdminPriced = true;
+  } else {
+    this.isAdminPriced = false;
+    this.adminPrice = null; // Normalize to null if not priced
+  }
+  next();
+});
+
 // Indexes
 serviceSchema.index({ category: 1, subcategory: 1 });
 serviceSchema.index({ isActive: 1 });

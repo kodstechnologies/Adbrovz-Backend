@@ -638,6 +638,7 @@ const getVendorProfile = async (vendorId) => {
         zipcode: vendor.zipcode || (vendor.workPincodes && vendor.workPincodes[0]) || '',
         country: vendor.country || 'India',
         coins: vendor.coins || 0,
+        isOnline: vendor.isOnline || false,
     };
 };
 
