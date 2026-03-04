@@ -342,6 +342,21 @@ const confirmPrice = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * User rejects the updated price
+ */
+const rejectPrice = asyncHandler(async (req, res) => {
+    const userId = req.user?._id || req.user?.userId;
+    const { id } = req.params; // bookingId
+    const { reason } = req.body;
+
+    const result = await bookingService.rejectBookingPrice(userId, id, reason);
+
+    res.status(200).json(
+        new ApiResponse(200, result.booking, result.message)
+    );
+});
+
 module.exports = {
     // Lead flow
     requestLead,
@@ -369,5 +384,8 @@ module.exports = {
     getVendorBookingById,
     getBookingStatusHistory,
     updatePrice,
-    confirmPrice
+    getBookingStatusHistory,
+    updatePrice,
+    confirmPrice,
+    rejectPrice
 };

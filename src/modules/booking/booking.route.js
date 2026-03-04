@@ -34,6 +34,7 @@ router.post('/', bookingController.createBooking); // Temporarily bypassed check
 router.get('/my-bookings', authenticate, bookingController.getMyBookings);
 router.get('/completed-history', authenticate, bookingController.getCompletedHistory);
 router.post('/:id/confirm-price', authenticate, bookingController.confirmPrice);
+router.post('/:id/reject-price', authenticate, bookingController.rejectPrice);
 router.post('/:id/cancel', authenticate, bookingController.cancelBooking);
 router.post('/:id/reschedule', authenticate, bookingController.rescheduleBooking);
 router.post('/:id/retry-search', authenticate, bookingController.retrySearch);

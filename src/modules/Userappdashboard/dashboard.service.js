@@ -147,8 +147,12 @@ const deleteServiceSection = async (id) => {
  */
 const getAllBanners = async (query = {}) => {
     const filter = {};
+
     if (query.type) {
         filter.type = query.type;
+    } else if (query.fetchAll !== 'true') {
+        // Default to user banners if not fetching all (Admin requires all)
+        filter.type = 'user';
     }
 
     const banners = await Banner.find(filter)

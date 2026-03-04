@@ -197,6 +197,20 @@ const initSocket = (server) => {
             }
         });
 
+        socket.on('reject_booking_price', async (data) => {
+            console.log(`[SOCKET] Received 'reject_booking_price' from socket ${socket.id}`, data);
+            try {
+                const { userId, bookingId, reason } = data;
+                const bookingService = require('./modules/booking/booking.service');
+                const result = await bookingService.rejectBookingPrice(userId, bookingId, reason);
+                console.log(`📡 [SOCKET] Sending 'booking_reject_price_success' to socket ${socket.id}`);
+                socket.emit('booking_reject_price_success', result);
+            } catch (error) {
+                console.error(`📡 [SOCKET] Sending 'booking_error' (reject_price) to socket ${socket.id}: ${error.message}`);
+                socket.emit('booking_error', { action: 'reject_booking_price', message: error.message });
+            }
+        });
+
         // Admin/Verification socket actions
         socket.on('verify_vendor_document', async (data) => {
             try {

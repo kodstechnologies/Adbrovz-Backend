@@ -919,6 +919,43 @@ const confirmBookingPrice = async (userId, bookingId) => {
     return { booking: userPayload, message: 'Price confirmed successfully' };
 };
 
+/**
+ * User rejects the updated price
+ */
+const rejectBookingPrice = async (userId, bookingId, reason) => {
+    const booking = await findBookingByUser(bookingId, userId);
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (booking.isPriceConfirmed) {
+        throw new ApiError(400, 'Cannot reject price that is already confirmed');
+    }
+
+    const now = new Date();
+    booking.status = 'cancelled';
+    booking.statusHistory.push({ status: 'cancelled', timestamp: now });
+    booking.markModified('statusHistory');
+
+    booking.cancellation = {
+        cancelledBy: 'user',
+        reason: reason || 'Price rejected by user',
+        cancelledAt: now,
+        travelChargeApplied: false
+    };
+
+    await booking.save();
+
+    const populatedBooking = await getBookingDetails(booking._id, userId, 'user');
+    const vendorPayload = await getBookingDetails(booking._id, booking.vendor, 'vendor');
+
+    const { emitToUser, emitToVendor } = require('../../socket');
+    emitToUser(userId, 'booking_status_updated', populatedBooking);
+    if (booking.vendor) {
+        emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
+    }
+
+    return { booking: populatedBooking, message: 'Price rejected and booking cancelled' };
+};
+
 module.exports = {
     // Lead flow
     requestLead,
@@ -949,5 +986,6 @@ module.exports = {
     requestCompletionOTP,
     completeWork,
     updateBookingPrice,
-    confirmBookingPrice
+    confirmBookingPrice,
+    rejectBookingPrice
 };
