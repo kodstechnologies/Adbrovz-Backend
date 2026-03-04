@@ -51,6 +51,8 @@ const getAllVendors = async () => {
     return await Vendor.find()
         .populate('membership.category', 'name')
         .populate('creditPlan.planId', 'name')
+        .populate('selectedSubcategories', 'name price')
+        .populate('selectedServices', 'title adminPrice membershipFee')
         .sort({ createdAt: -1 });
 };
 

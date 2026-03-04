@@ -41,6 +41,10 @@ router.get('/vendors/eligible', adminController.getEligibleVendors);
 router.get('/settings', adminController.getGlobalSettings);
 router.patch('/settings', adminController.updateGlobalSettings);
 
+// Bookings management
+router.get('/bookings', adminController.getAllBookings);
+router.get('/bookings/:id', adminController.getBookingDetails);
+
 // Coin management
 const coinRoutes = require('./coin.route');
 router.use('/coins', coinRoutes);

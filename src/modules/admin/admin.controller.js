@@ -177,6 +177,23 @@ const updateGlobalSettings = asyncHandler(async (req, res) => {
   );
 });
 
+// Get all bookings
+const getAllBookings = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const result = await adminService.getAllBookings(req.query);
+  res.status(200).json(
+    new ApiResponse(200, result, 'Bookings retrieved successfully')
+  );
+});
+
+const getBookingDetails = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const result = await adminService.getBookingDetails(req.params.id);
+  res.status(200).json(
+    new ApiResponse(200, result, 'Booking details retrieved successfully')
+  );
+});
+
 module.exports = {
   getDashboard,
   getUsers,
@@ -195,4 +212,6 @@ module.exports = {
   getEligibleVendors,
   getGlobalSettings,
   updateGlobalSettings,
+  getAllBookings,
+  getBookingDetails,
 };
