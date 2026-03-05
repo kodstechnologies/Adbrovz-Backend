@@ -6,11 +6,12 @@ const cloudinaryService = require('../services/cloudinary.service');
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/pjpeg', 'image/png', 'image/webp', 'application/pdf'];
     if (allowedTypes.includes(file.mimetype)) {
         cb(null, true);
     } else {
-        cb(new ApiError(400, 'Only images and PDF documents are allowed'), false);
+        console.log(`[DEBUG] Object upload rejected. Mimetype was: ${file.mimetype}`);
+        cb(new ApiError(400, 'Only images (.jpg, .png, .webp) and PDF documents are allowed'), false);
     }
 };
 
