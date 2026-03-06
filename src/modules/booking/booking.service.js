@@ -946,11 +946,15 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
 
     console.log(`[SOCKET] Fetching user payload for price update: ${bookingId}`);
     const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
+    const vendorPayload = await getBookingDetails(booking._id, vendorId, 'vendor');
 
-    console.log(`[SOCKET] Requiring socket for price update...`);
-    const { emitToUser } = require('../../socket');
+    const { emitToUser, emitToVendor } = require('../../socket');
 
-    console.log(`[SOCKET] Emitting price update to user: ${booking.user}`);
+    // Notify both for state sync
+    emitToUser(booking.user, 'booking_status_updated', userPayload);
+    emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
+
+    // Specific notification event
     emitToUser(booking.user, 'booking_price_updated', userPayload);
 
     console.log(`[SOCKET] updateBookingPrice completed successfully for booking: ${bookingId}`);
@@ -972,8 +976,13 @@ const confirmBookingPrice = async (userId, bookingId) => {
     const userPayload = await getBookingDetails(booking._id, userId, 'user');
 
     const { emitToVendor, emitToUser } = require('../../socket');
-    emitToVendor(booking.vendor, 'booking_price_confirmed', vendorPayload);
+
+    // Notify both for state sync
+    emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
     emitToUser(userId, 'booking_status_updated', userPayload);
+
+    // Specific notification event
+    emitToVendor(booking.vendor, 'booking_price_confirmed', vendorPayload);
 
     return { booking: userPayload, message: 'Price confirmed successfully' };
 };
