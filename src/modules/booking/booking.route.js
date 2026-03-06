@@ -39,6 +39,18 @@ router.post('/:id/cancel', authenticate, bookingController.cancelBooking);
 router.post('/:id/reschedule', authenticate, bookingController.rescheduleBooking);
 router.post('/:id/retry-search', authenticate, bookingController.retrySearch);
 router.get('/:id/status-history', authenticate, bookingController.getBookingStatusHistory);
+
+// New feature routes
+router.post('/:id/vendor-no-show', authenticate, bookingController.reportVendorNoShow);
+router.post('/:id/grace-period-cancel', authenticate, bookingController.gracePeriodCancel);
+router.post('/:id/confirm-services', authenticate, bookingController.confirmProposedServices);
+router.post('/:id/reject-services', authenticate, bookingController.rejectProposedServices);
+router.post('/vendor/:id/add-services', authenticate, bookingController.addServices);
+
+// User-initiated Extra Services (New)
+router.post('/:id/request-extra-services', authenticate, bookingController.requestExtraServices);
+router.post('/vendor/:id/confirm-extra-services', authenticate, bookingController.vendorConfirmExtraServices);
+
 router.get('/:id', authenticate, bookingController.getBookingById);
 
 module.exports = router;

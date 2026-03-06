@@ -357,6 +357,108 @@ const rejectPrice = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * Report vendor no-show (User)
+ */
+const reportVendorNoShow = asyncHandler(async (req, res) => {
+    const userId = req.user?.userId || req.user?._id;
+    const { id } = req.params;
+
+    const result = await bookingService.reportVendorNoShow(userId, id);
+
+    res.status(200).json(
+        new ApiResponse(200, result.booking, result.message)
+    );
+});
+
+/**
+ * Cancel booking after grace period (User)
+ */
+const gracePeriodCancel = asyncHandler(async (req, res) => {
+    const userId = req.user?.userId || req.user?._id;
+    const { id } = req.params;
+
+    const result = await bookingService.gracePeriodCancel(userId, id);
+
+    res.status(200).json(
+        new ApiResponse(200, result.booking, result.message)
+    );
+});
+
+/**
+ * Add services to ongoing booking (Vendor)
+ */
+const addServices = asyncHandler(async (req, res) => {
+    const vendorId = req.user?.userId || req.user?._id || req.body.vendorId;
+    const { id } = req.params;
+    const { newServices } = req.body;
+
+    const result = await bookingService.addServicesToBooking(vendorId, id, newServices);
+
+    res.status(200).json(
+        new ApiResponse(200, result.booking, result.message)
+    );
+});
+
+/**
+ * Confirm proposed services (User)
+ */
+const confirmProposedServices = asyncHandler(async (req, res) => {
+    const userId = req.user?.userId || req.user?._id;
+    const { id } = req.params;
+
+    const result = await bookingService.confirmProposedServices(userId, id);
+
+    res.status(200).json(
+        new ApiResponse(200, result.booking, result.message)
+    );
+});
+
+/**
+ * Reject proposed services (User)
+ */
+const rejectProposedServices = asyncHandler(async (req, res) => {
+    const userId = req.user?.userId || req.user?._id;
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const result = await bookingService.rejectProposedServices(userId, id, reason);
+
+    res.status(200).json(
+        new ApiResponse(200, result.booking, result.message)
+    );
+});
+
+/**
+ * User requests extra services for an existing booking
+ */
+const requestExtraServices = asyncHandler(async (req, res) => {
+    const userId = req.user?.userId || req.user?._id;
+    const { id } = req.params;
+    const { services } = req.body;
+
+    const result = await bookingService.requestExtraServices(userId, id, services);
+
+    res.status(200).json(
+        new ApiResponse(200, result.booking, result.message)
+    );
+});
+
+/**
+ * Vendor confirms user's extra service requests
+ */
+const vendorConfirmExtraServices = asyncHandler(async (req, res) => {
+    const vendorId = req.user?.userId || req.user?._id;
+    const { id } = req.params;
+    const { services } = req.body;
+
+    const result = await bookingService.vendorConfirmExtraServices(vendorId, id, services);
+
+    res.status(200).json(
+        new ApiResponse(200, result.booking, result.message)
+    );
+});
+
 module.exports = {
     // Lead flow
     requestLead,
@@ -384,8 +486,15 @@ module.exports = {
     getVendorBookingById,
     getBookingStatusHistory,
     updatePrice,
-    getBookingStatusHistory,
-    updatePrice,
     confirmPrice,
-    rejectPrice
+    rejectPrice,
+
+    // New features
+    reportVendorNoShow,
+    gracePeriodCancel,
+    addServices,
+    confirmProposedServices,
+    rejectProposedServices,
+    requestExtraServices,
+    vendorConfirmExtraServices
 };

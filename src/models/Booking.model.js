@@ -138,6 +138,21 @@ const bookingSchema = new mongoose.Schema(
     gracePeriodEnd: {
       type: Date,
     },
+    isGracePeriodNotified: {
+      type: Boolean,
+      default: false,
+    },
+    proposedServices: [{
+      service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service' },
+      quantity: { type: Number, default: 1 },
+      adminPrice: { type: Number },
+      vendorPrice: { type: Number },
+      finalPrice: { type: Number },
+    }],
+    userRequestedServices: [{
+      service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service' },
+      quantity: { type: Number, default: 1 },
+    }],
   },
   {
     timestamps: true,

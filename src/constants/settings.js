@@ -75,6 +75,18 @@ const DEFAULT_SETTINGS = {
         value: 30,
         description: 'How long to keep in-app notifications.',
     },
+    'bookings.cancel_limit': {
+        value: 1,
+        description: 'Maximum number of times a user can cancel a booking.',
+    },
+    'bookings.search_timeout_mins': {
+        value: 2,
+        description: 'Minutes to search for vendors before showing Try Again to the user.',
+    },
+    'pricing.accept_lead_coin_cost': {
+        value: 10,
+        description: 'Coins deducted from vendor when accepting a lead.',
+    },
 };
 
 module.exports = {

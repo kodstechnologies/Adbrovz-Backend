@@ -42,6 +42,8 @@ router.get('/settings', adminController.getGlobalSettings);
 router.patch('/settings', adminController.updateGlobalSettings);
 
 // Bookings management
+router.get('/bookings/export', adminController.exportBookings);
+router.get('/audit-logs/export', adminController.exportAuditLogs);
 router.get('/bookings', adminController.getAllBookings);
 router.get('/bookings/:id', adminController.getBookingDetails);
 

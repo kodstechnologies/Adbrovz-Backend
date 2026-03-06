@@ -384,7 +384,7 @@ const getBookingDetails = async (bookingId) => {
   const booking = await Booking.findById(bookingId)
     .populate('user', 'name phoneNumber email profileImage status')
     .populate('vendor', 'name phoneNumber email profileImage specialization rating status isSuspended adminSuspended')
-    .populate('services.service', 'title description price duration')
+    .populate('services.service', 'title description adminPrice duration photo')
     .populate('rejectedVendors', 'name')
     .populate('laterVendors', 'name');
 
@@ -398,11 +398,76 @@ const getBookingDetails = async (bookingId) => {
     Dispute.find({ booking: bookingId }).populate('raisedBy', 'name type')
   ]);
 
+  // Transform status history for better admin readability
+  const statusLabels = {
+    'pending_acceptance': 'Waiting for Vendor',
+    'pending': 'Accepted by Vendor',
+    'on_the_way': 'Vendor on the Way',
+    'arrived': 'Vendor Arrived',
+    'ongoing': 'Work in Progress',
+    'completed': 'Job Completed',
+    'cancelled': 'Cancelled'
+  };
+
+  const enhancedHistory = booking.statusHistory.map(h => ({
+    status: h.status,
+    label: statusLabels[h.status] || h.status,
+    timestamp: h.timestamp
+  }));
+
   return {
-    booking,
+    booking: {
+      ...booking.toJSON(),
+      statusLabel: statusLabels[booking.status] || booking.status,
+      enhancedHistory
+    },
     feedback,
     disputes
   };
+};
+
+const exportBookingsCSV = async (query = {}) => {
+  const { bookings } = await getAllBookings({ ...query, limit: 10000 });
+  const { parse } = require('json2csv');
+
+  const fields = [
+    { label: 'Booking ID', value: 'bookingID' },
+    { label: 'Status', value: 'status' },
+    { label: 'Scheduled Date', value: (row) => row.scheduledDate ? new Date(row.scheduledDate).toLocaleDateString() : 'N/A' },
+    { label: 'Scheduled Time', value: 'scheduledTime' },
+    { label: 'User Name', value: 'user.name' },
+    { label: 'User Phone', value: 'user.phoneNumber' },
+    { label: 'Vendor Name', value: 'vendor.name' },
+    { label: 'Vendor Phone', value: 'vendor.phoneNumber' },
+    { label: 'Total Price', value: 'pricing.totalPrice' },
+    { label: 'Payment Method', value: (row) => row.payment?.method || 'N/A' },
+    { label: 'Created At', value: (row) => new Date(row.createdAt).toLocaleString() }
+  ];
+
+  return parse(bookings, { fields });
+};
+
+const exportAuditLogsCSV = async (query = {}) => {
+  const { limit = 10000, skip = 0, action } = query;
+  const filter = action ? { action } : {};
+  const logs = await AuditLog.find(filter)
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .skip(skip)
+    .populate('user', 'name username');
+
+  const { parse } = require('json2csv');
+
+  const fields = [
+    { label: 'Date', value: (row) => new Date(row.createdAt).toLocaleString() },
+    { label: 'Action', value: 'action' },
+    { label: 'Performed By', value: (row) => row.user?.name || row.user?.username || 'System' },
+    { label: 'User Model', value: 'userModel' },
+    { label: 'IP Address', value: 'ip' },
+    { label: 'Details', value: (row) => JSON.stringify(row.details) }
+  ];
+
+  return parse(logs, { fields });
 };
 
 module.exports = {
@@ -424,4 +489,6 @@ module.exports = {
   getSetting,
   getAllBookings,
   getBookingDetails,
+  exportBookingsCSV,
+  exportAuditLogsCSV,
 };

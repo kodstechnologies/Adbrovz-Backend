@@ -194,6 +194,24 @@ const getBookingDetails = asyncHandler(async (req, res) => {
   );
 });
 
+const exportBookings = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const csv = await adminService.exportBookingsCSV(req.query);
+
+  res.header('Content-Type', 'text/csv');
+  res.attachment(`bookings_export_${new Date().toISOString().split('T')[0]}.csv`);
+  res.status(200).send(csv);
+});
+
+const exportAuditLogs = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const csv = await adminService.exportAuditLogsCSV(req.query);
+
+  res.header('Content-Type', 'text/csv');
+  res.attachment(`audit_logs_export_${new Date().toISOString().split('T')[0]}.csv`);
+  res.status(200).send(csv);
+});
+
 module.exports = {
   getDashboard,
   getUsers,
@@ -214,4 +232,6 @@ module.exports = {
   updateGlobalSettings,
   getAllBookings,
   getBookingDetails,
+  exportBookings,
+  exportAuditLogs
 };

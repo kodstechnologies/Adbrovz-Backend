@@ -6,8 +6,24 @@ let io;
 const activeVendors = new Map(); // vendorId -> [socketId1, socketId2, ...]
 const activeUsers = new Map(); // userId -> [socketId1, socketId2, ...]
 
+const stringifyId = (id) => {
+    if (!id) return null;
+    if (typeof id === 'string') return id;
+    if (typeof id === 'object') {
+        if (id._id) return id._id.toString();
+        if (id.id) return id.id.toString();
+        if (id.userId) return id.userId.toString();
+    }
+    return id.toString();
+};
+
 const registerVendorSocket = async (vendorId, socketId) => {
-    const vId = (typeof vendorId === 'object' && vendorId._id) ? vendorId._id.toString() : vendorId.toString();
+    const vId = stringifyId(vendorId);
+    if (!vId || vId === '[object Object]') {
+        console.error(` Attempted to register vendor with invalid ID:`, vendorId);
+        return;
+    }
+
     if (!activeVendors.has(vId)) activeVendors.set(vId, []);
     const sockets = activeVendors.get(vId);
     if (!sockets.includes(socketId)) sockets.push(socketId);
@@ -24,7 +40,12 @@ const registerVendorSocket = async (vendorId, socketId) => {
 };
 
 const registerUserSocket = (userId, socketId) => {
-    const uId = userId.toString();
+    const uId = stringifyId(userId);
+    if (!uId || uId === '[object Object]') {
+        console.error(`⚠️ Attempted to register user with invalid ID:`, userId);
+        return;
+    }
+
     if (!activeUsers.has(uId)) activeUsers.set(uId, []);
     const sockets = activeUsers.get(uId);
     if (!sockets.includes(socketId)) sockets.push(socketId);
@@ -48,16 +69,16 @@ const initSocket = (server) => {
         const token = socket.handshake.auth?.token || socket.handshake.query?.token;
         if (token) {
             try {
-                const decoded = jwt.verify(token, config.JWT_SECRET);
+                const decoded = jwt.verifyUnsafe ? jwt.verifyUnsafe(token) : jwt.verify(token, config.JWT_SECRET);
                 const role = decoded.role;
-                const id = decoded.userId || decoded.id || decoded._id;
+                const id = stringifyId(decoded.userId || decoded.id || decoded._id);
                 if (id) {
                     if (role === 'vendor') {
                         registerVendorSocket(id, socket.id);
-                        socket.vendorId = id.toString();
+                        socket.vendorId = id;
                     } else if (role === 'user') {
                         registerUserSocket(id, socket.id);
-                        socket.userId = id.toString();
+                        socket.userId = id;
                     }
                 }
             } catch (err) {
@@ -68,37 +89,50 @@ const initSocket = (server) => {
 
         // Manual register_vendor (fallback for Postman / non-JWT connections)
         socket.on('register_vendor', (vendorId) => {
-            if (vendorId) {
-                registerVendorSocket(vendorId, socket.id);
-                socket.vendorId = vendorId.toString();
+            const vId = stringifyId(vendorId);
+            if (vId) {
+                registerVendorSocket(vId, socket.id);
+                socket.vendorId = vId;
             }
         });
 
         // Manual register_user (fallback)
         socket.on('register_user', (userId) => {
-            if (userId) {
-                registerUserSocket(userId, socket.id);
-                socket.userId = userId.toString();
+            const uId = stringifyId(userId);
+            if (uId) {
+                registerUserSocket(uId, socket.id);
+                socket.userId = uId;
             }
         });
 
         // Vendor actions on bookings
         socket.on('accept_booking', async (data) => {
             try {
-                const { vendorId, bookingId } = data;
+                const vendorId = stringifyId(data?.vendorId || socket.vendorId);
+                const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
+
+                console.log(`[SOCKET] accept_booking - vendorId: ${vendorId}, bookingId: ${bookingId}`);
+
+                if (!vendorId) throw new Error('Vendor ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.acceptLead(vendorId, bookingId);
-                console.log(`📡 [SOCKET] Sending 'booking_accepted_success' to socket ${socket.id}`);
                 socket.emit('booking_accepted_success', result);
             } catch (error) {
-                console.error(`📡 [SOCKET] Sending 'booking_error' to socket ${socket.id}: ${error.message}`);
+                console.error(`[SOCKET] accept_booking error: ${error.message}`);
                 socket.emit('booking_error', { action: 'accept_booking', message: error.message });
             }
         });
 
         socket.on('reject_booking', async (data) => {
             try {
-                const { vendorId, bookingId } = data;
+                const vendorId = stringifyId(data?.vendorId || socket.vendorId);
+                const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
+
+                if (!vendorId) throw new Error('Vendor ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.rejectLead(vendorId, bookingId);
                 socket.emit('booking_rejected_success', result);
@@ -109,7 +143,12 @@ const initSocket = (server) => {
 
         socket.on('later_booking', async (data) => {
             try {
-                const { vendorId, bookingId } = data;
+                const vendorId = stringifyId(data?.vendorId || socket.vendorId);
+                const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
+
+                if (!vendorId) throw new Error('Vendor ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.markLeadLater(vendorId, bookingId);
                 socket.emit('booking_later_success', result);
@@ -120,7 +159,12 @@ const initSocket = (server) => {
 
         socket.on('mark_on_the_way', async (data) => {
             try {
-                const { vendorId, bookingId } = data;
+                const vendorId = stringifyId(data?.vendorId || socket.vendorId);
+                const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
+
+                if (!vendorId) throw new Error('Vendor ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.markOnTheWay(vendorId, bookingId);
                 socket.emit('booking_on_the_way_success', result);
@@ -131,7 +175,12 @@ const initSocket = (server) => {
 
         socket.on('mark_arrived', async (data) => {
             try {
-                const { vendorId, bookingId } = data;
+                const vendorId = stringifyId(data?.vendorId || socket.vendorId);
+                const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
+
+                if (!vendorId) throw new Error('Vendor ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.markArrived(vendorId, bookingId);
                 socket.emit('booking_arrived_success', result);
@@ -142,7 +191,13 @@ const initSocket = (server) => {
 
         socket.on('start_work', async (data) => {
             try {
-                const { vendorId, bookingId, otp } = data;
+                const vendorId = stringifyId(data?.vendorId || socket.vendorId);
+                const bookingId = stringifyId(data?.bookingId);
+                const { otp } = data || {};
+
+                if (!vendorId) throw new Error('Vendor ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.startWork(vendorId, bookingId, otp);
                 socket.emit('booking_start_work_success', result);
@@ -153,7 +208,12 @@ const initSocket = (server) => {
 
         socket.on('request_completion_otp', async (data) => {
             try {
-                const { vendorId, bookingId } = data;
+                const vendorId = stringifyId(data?.vendorId || socket.vendorId);
+                const bookingId = stringifyId(data?.bookingId);
+
+                if (!vendorId) throw new Error('Vendor ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.requestCompletionOTP(vendorId, bookingId);
                 socket.emit('booking_request_completion_otp_success', result);
@@ -164,7 +224,13 @@ const initSocket = (server) => {
 
         socket.on('complete_work', async (data) => {
             try {
-                const { vendorId, bookingId, otp, paymentMethod } = data;
+                const vendorId = stringifyId(data?.vendorId || socket.vendorId);
+                const bookingId = stringifyId(data?.bookingId);
+                const { otp, paymentMethod } = data || {};
+
+                if (!vendorId) throw new Error('Vendor ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.completeWork(vendorId, bookingId, otp, paymentMethod);
                 socket.emit('booking_complete_work_success', result);
@@ -175,20 +241,29 @@ const initSocket = (server) => {
 
         socket.on('update_booking_price', async (data) => {
             try {
-                const { vendorId, bookingId, updatedServices } = data;
+                const vendorId = stringifyId(data?.vendorId || socket.vendorId);
+                const bookingId = stringifyId(data?.bookingId);
+                const { updatedServices } = data || {};
+
+                if (!vendorId) throw new Error('Vendor ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.updateBookingPrice(vendorId, bookingId, updatedServices);
-                console.log(`📡 [SOCKET] Sending 'booking_update_price_success' to socket ${socket.id}`);
                 socket.emit('booking_update_price_success', result);
             } catch (error) {
-                console.error(`📡 [SOCKET] Sending 'booking_error' (update_price) to socket ${socket.id}: ${error.message}`);
                 socket.emit('booking_error', { action: 'update_booking_price', message: error.message });
             }
         });
 
         socket.on('confirm_booking_price', async (data) => {
             try {
-                const { userId, bookingId } = data;
+                const userId = stringifyId(data?.userId || socket.userId);
+                const bookingId = stringifyId(data?.bookingId);
+
+                if (!userId) throw new Error('User ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.confirmBookingPrice(userId, bookingId);
                 socket.emit('booking_confirm_price_success', result);
@@ -198,23 +273,148 @@ const initSocket = (server) => {
         });
 
         socket.on('reject_booking_price', async (data) => {
-            console.log(`[SOCKET] Received 'reject_booking_price' from socket ${socket.id}`, data);
             try {
-                const { userId, bookingId, reason } = data;
+                const userId = stringifyId(data?.userId || socket.userId);
+                const bookingId = stringifyId(data?.bookingId);
+                const { reason } = data || {};
+
+                if (!userId) throw new Error('User ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.rejectBookingPrice(userId, bookingId, reason);
-                console.log(`📡 [SOCKET] Sending 'booking_reject_price_success' to socket ${socket.id}`);
                 socket.emit('booking_reject_price_success', result);
             } catch (error) {
-                console.error(`📡 [SOCKET] Sending 'booking_error' (reject_price) to socket ${socket.id}: ${error.message}`);
                 socket.emit('booking_error', { action: 'reject_booking_price', message: error.message });
+            }
+        });
+
+        // ── New real-time actions ──
+
+        socket.on('report_vendor_no_show', async (data) => {
+            try {
+                const userId = stringifyId(data?.userId || socket.userId);
+                const bookingId = stringifyId(data?.bookingId);
+
+                if (!userId) throw new Error('User ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
+                const result = await bookingService.reportVendorNoShow(userId, bookingId);
+                socket.emit('booking_vendor_no_show_success', result);
+            } catch (error) {
+                socket.emit('booking_error', { action: 'report_vendor_no_show', message: error.message });
+            }
+        });
+
+        socket.on('grace_period_cancel', async (data) => {
+            try {
+                const userId = stringifyId(data?.userId || socket.userId);
+                const bookingId = stringifyId(data?.bookingId);
+
+                if (!userId) throw new Error('User ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
+                const result = await bookingService.gracePeriodCancel(userId, bookingId);
+                socket.emit('booking_grace_period_cancel_success', result);
+            } catch (error) {
+                socket.emit('booking_error', { action: 'grace_period_cancel', message: error.message });
+            }
+        });
+
+        socket.on('add_booking_services', async (data) => {
+            try {
+                const vendorId = stringifyId(data?.vendorId || socket.vendorId);
+                const bookingId = stringifyId(data?.bookingId);
+                const { newServices } = data || {};
+
+                if (!vendorId) throw new Error('Vendor ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
+                const result = await bookingService.addServicesToBooking(vendorId, bookingId, newServices);
+                socket.emit('booking_services_proposal_sent', result);
+            } catch (error) {
+                socket.emit('booking_error', { action: 'add_booking_services', message: error.message });
+            }
+        });
+
+        socket.on('confirm_proposed_services', async (data) => {
+            try {
+                const userId = stringifyId(data?.userId || socket.userId);
+                const bookingId = stringifyId(data?.bookingId);
+
+                if (!userId) throw new Error('User ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
+                const result = await bookingService.confirmProposedServices(userId, bookingId);
+                socket.emit('booking_services_confirmed_success', result);
+            } catch (error) {
+                socket.emit('booking_error', { action: 'confirm_proposed_services', message: error.message });
+            }
+        });
+
+        socket.on('reject_proposed_services', async (data) => {
+            try {
+                const userId = stringifyId(data?.userId || socket.userId);
+                const bookingId = stringifyId(data?.bookingId);
+                const { reason } = data || {};
+
+                if (!userId) throw new Error('User ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
+                const result = await bookingService.rejectProposedServices(userId, bookingId, reason);
+                socket.emit('booking_services_rejected_success', result);
+            } catch (error) {
+                socket.emit('booking_error', { action: 'reject_proposed_services', message: error.message });
+            }
+        });
+
+        socket.on('request_extra_services', async (data) => {
+            try {
+                const userId = stringifyId(data?.userId || socket.userId);
+                const bookingId = stringifyId(data?.bookingId);
+                const { services } = data || {};
+
+                if (!userId) throw new Error('User ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
+                const result = await bookingService.requestExtraServices(userId, bookingId, services);
+                socket.emit('extra_services_request_sent', result);
+            } catch (error) {
+                socket.emit('booking_error', { action: 'request_extra_services', message: error.message });
+            }
+        });
+
+        socket.on('vendor_confirm_extra_services', async (data) => {
+            try {
+                const vendorId = stringifyId(data?.vendorId || socket.vendorId);
+                const bookingId = stringifyId(data?.bookingId);
+                const { services } = data || {};
+
+                if (!vendorId) throw new Error('Vendor ID is required');
+                if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
+                const result = await bookingService.vendorConfirmExtraServices(vendorId, bookingId, services);
+                socket.emit('vendor_confirm_extra_services_success', result);
+            } catch (error) {
+                socket.emit('booking_error', { action: 'vendor_confirm_extra_services', message: error.message });
             }
         });
 
         // Admin/Verification socket actions
         socket.on('verify_vendor_document', async (data) => {
             try {
-                const { vendorId, docType, status, reason } = data;
+                const vendorId = stringifyId(data?.vendorId);
+                const { docType, status, reason } = data || {};
+
+                if (!vendorId) throw new Error('Vendor ID is required');
+
                 const vendorService = require('./modules/vendor/vendor.service');
                 const result = await vendorService.verifyDocument(vendorId, { docType, status, reason });
                 socket.emit('verify_vendor_document_success', result);
@@ -225,7 +425,9 @@ const initSocket = (server) => {
 
         socket.on('get_verification_status', async (data) => {
             try {
-                const { vendorId } = data;
+                const vendorId = stringifyId(data?.vendorId || socket.vendorId);
+                if (!vendorId) throw new Error('Vendor ID is required');
+
                 const vendorService = require('./modules/vendor/vendor.service');
                 const result = await vendorService.getVerificationStatus(vendorId);
                 socket.emit('verification_status_response', result);
@@ -237,7 +439,9 @@ const initSocket = (server) => {
 
         socket.on('verify_all_vendor_documents', async (data) => {
             try {
-                const { vendorId } = data;
+                const vendorId = stringifyId(data?.vendorId);
+                if (!vendorId) throw new Error('Vendor ID is required');
+
                 const vendorService = require('./modules/vendor/vendor.service');
                 const result = await vendorService.verifyAllDocuments(vendorId);
                 socket.emit('verify_all_vendor_documents_success', result);
