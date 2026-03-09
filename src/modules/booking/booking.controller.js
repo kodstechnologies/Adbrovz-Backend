@@ -11,7 +11,11 @@ const requestLead = asyncHandler(async (req, res) => {
     const result = await bookingService.requestLead(userId, req.body);
 
     res.status(201).json(
-        new ApiResponse(201, result, 'Lead request created successfully')
+        new ApiResponse(201, {
+            booking: result.booking,
+            availableVendorsCount: result.availableVendorsCount,
+            searchTimeoutMins: result.searchTimeoutMins
+        }, 'Lead request created successfully')
     );
 });
 
@@ -34,13 +38,14 @@ const acceptLead = asyncHandler(async (req, res) => {
  */
 const createBooking = asyncHandler(async (req, res) => {
     const userId = req.user?.userId || req.body.userId;
-    const booking = await bookingService.createBooking(userId, req.body);
+    const { booking, searchTimeoutMins } = await bookingService.createBooking(userId, req.body);
 
     res.status(201).json(
         new ApiResponse(
             201,
             {
                 booking,
+                searchTimeoutMins,
                 message: "Request sent, waiting for vendor confirmation.",
                 status: "Pending Acceptance"
             },

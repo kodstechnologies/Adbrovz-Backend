@@ -73,10 +73,16 @@ const requestLead = async (
         location: { address, pincode }
     });
 
-    console.log(`[DEBUG] Booking created: ${booking._id}, status: ${booking.status}`);
+    const searchTimeoutMins = (await adminService.getSetting('bookings.search_timeout_mins')) || 2;
+
+    // Trigger broadcast (similar to createBooking)
+    searchVendors(booking, true).catch(console.error);
+
+    console.log(`[DEBUG] Lead request created: ${booking._id}, status: ${booking.status}`);
     return {
         booking,
         availableVendorsCount: matchingVendors.length,
+        searchTimeoutMins,
         message: 'Lead broadcasted to available vendors'
     };
 };
@@ -570,13 +576,13 @@ const createBooking = async (userId, bookingData) => {
         statusHistory: [{ status: 'pending_acceptance', timestamp: new Date() }]
     });
 
-    console.log(`[DEBUG] Booking created (createBooking): ${booking._id}, status: ${booking.status}`);
+    const searchTimeoutMins = (await adminService.getSetting('bookings.search_timeout_mins')) || 2;
 
     if (confirmation === true) {
         searchVendors(booking, true).catch(console.error);
     }
 
-    return booking;
+    return { booking, searchTimeoutMins };
 };
 
 /**
