@@ -1303,6 +1303,95 @@ const rejectProposedServices = async (userId, bookingId, reason) => {
     };
 };
 
+/**
+ * User confirms the priced extra services from the vendor
+ */
+async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
+    const booking = await findBookingByUser(bookingId, userId);
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (!booking.userRequestedServices || booking.userRequestedServices.length === 0) {
+        throw new ApiError(400, 'No extra services pending approval');
+    }
+
+    if (!acceptedServiceIds || acceptedServiceIds.length === 0) {
+        throw new ApiError(400, 'Please provide the IDs of the services you wish to accept');
+    }
+
+    let isUpdated = false;
+
+    // Filter which ones the user accepted and which to keep/discard
+    const remainingRequests = [];
+
+    for (const requestItem of booking.userRequestedServices) {
+        const sid = requestItem.service.toString();
+        
+        // If user accepted this service
+        if (acceptedServiceIds.includes(sid)) {
+            // Must have been priced by vendor
+            if (requestItem.adminPrice === 0 && requestItem.vendorPrice === 0) {
+                // If it's literally free, maybe allow it, but usually this means unpriced
+                // We'll trust finalPrice. If finalPrice is undefined, don't allow.
+                if (requestItem.finalPrice == null) {
+                    remainingRequests.push(requestItem);
+                    continue;
+                }
+            }
+
+            // Move to main services array
+            booking.services.push({
+                service: requestItem.service,
+                quantity: requestItem.quantity,
+                adminPrice: requestItem.adminPrice,
+                vendorPrice: requestItem.vendorPrice,
+                finalPrice: requestItem.finalPrice,
+                isPriceConfirmed: true
+            });
+
+            isUpdated = true;
+        } else {
+            // User did not accept this one (maybe they rejected it or ignored it)
+            // If they explicitly reject, you might want a separate flow, but usually 
+            // we just drop it or keep it pending. Let's drop unaccepted ones for clean state,
+            // or we can leave them. Let's assume acceptedServiceIds is the definitive list of what they want.
+            // So we drop the rest.
+        }
+    }
+
+    if (!isUpdated) {
+        throw new ApiError(400, 'Could not confirm any of the provided services. Ensure they were priced by the vendor.');
+    }
+
+    // Clear userRequestedServices completely since they acted on it
+    booking.userRequestedServices = [];
+
+    // Recalculate total price
+    const newBasePrice = booking.services.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+    booking.pricing.basePrice = newBasePrice;
+    booking.pricing.totalPrice = newBasePrice + (booking.pricing.travelCharge || 0) + (booking.pricing.additionalCharges || 0);
+
+    await booking.save();
+
+    const { emitToVendor, emitToUser } = require('../../socket');
+    const vendorPayload = await getBookingDetails(booking._id, booking.vendor, 'vendor');
+    const userPayload = await getBookingDetails(booking._id, userId, 'user');
+
+    emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
+    emitToUser(userId, 'booking_status_updated', userPayload);
+
+    // Specific event
+    emitToVendor(booking.vendor, 'extra_services_confirmed_by_user', {
+        bookingId: booking._id,
+        newTotal: booking.pricing.totalPrice,
+        message: 'User has confirmed the extra services and the new price.'
+    });
+
+    return {
+        booking: userPayload,
+        message: 'Extra services confirmed and added to your booking.'
+    };
+}
+
 module.exports = {
     // Lead flow
     requestLead,
@@ -1343,7 +1432,8 @@ module.exports = {
     confirmProposedServices,
     rejectProposedServices,
     requestExtraServices,
-    vendorConfirmExtraServices
+    vendorConfirmExtraServices,
+    userConfirmExtraServices
 };
 
 /**
@@ -1415,11 +1505,6 @@ async function requestExtraServices(userId, bookingId, newServices) {
     };
 }
 
-/**
- * Vendor confirms extra services requested by user (and provides pricing/markup if needed)
- * For now, we'll use the logic similar to addServicesToBooking where vendor "proposes" 
- * the final version based on user's request.
- */
 async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices) {
     const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
     if (!booking) throw new ApiError(404, 'Booking not found');
@@ -1428,7 +1513,64 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
         throw new ApiError(400, 'No pending user service requests to confirm');
     }
 
-    // Vendor provides the final list with prices (similar to addServicesToBooking logic)
-    // We'll reuse addServicesToBooking logic but specifically for confirming user requests
-    return await addServicesToBooking(vendorId, bookingId, confirmedServices);
+    if (!confirmedServices || confirmedServices.length === 0) {
+        throw new ApiError(400, 'Vendor must provide pricing for the requested services');
+    }
+
+    let isUpdated = false;
+
+    // Update the pricing for the requested services without moving them
+    for (const item of confirmedServices) {
+        // Find matching service in userRequestedServices
+        const requestItem = booking.userRequestedServices.find(
+            s => s.service.toString() === item.serviceId.toString()
+        );
+
+        if (requestItem) {
+            const serviceDoc = await Service.findById(item.serviceId);
+            if (!serviceDoc) continue;
+
+            const qty = requestItem.quantity || 1;
+            const adminPrice = serviceDoc.adminPrice || 0;
+            const vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
+
+            requestItem.adminPrice = adminPrice;
+            requestItem.vendorPrice = vendorPrice;
+            requestItem.finalPrice = adminPrice > 0
+                ? adminPrice * qty
+                : (vendorPrice > 0 ? vendorPrice * qty : 0);
+            requestItem.isPriceConfirmed = false; // Still needs user approval
+            
+            isUpdated = true;
+        }
+    }
+
+    if (!isUpdated) {
+        throw new ApiError(400, 'None of the provided services matched the user requests');
+    }
+
+    await booking.save();
+
+    const populatedBooking = await Booking.findById(booking._id)
+        .populate('userRequestedServices.service', 'title photo adminPrice');
+
+    const { emitToUser, emitToVendor } = require('../../socket');
+    const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
+    const vendorPayload = await getBookingDetails(booking._id, vendorId, 'vendor');
+
+    emitToUser(booking.user, 'booking_status_updated', userPayload);
+    emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
+
+    // Notify user to approve the prices
+    emitToUser(booking.user, 'extra_services_priced_by_vendor', {
+        bookingId: booking._id,
+        bookingID: booking.bookingID,
+        requestedServices: populatedBooking.userRequestedServices,
+        message: 'Vendor has set prices for your extra services. Please review and confirm to add them to your booking.'
+    });
+
+    return {
+        booking: populatedBooking,
+        message: 'Prices set for extra services. Awaiting user approval.'
+    };
 }

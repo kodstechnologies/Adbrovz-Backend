@@ -462,6 +462,21 @@ const vendorConfirmExtraServices = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * User confirms the priced extra services from the vendor
+ */
+const userConfirmExtraServices = asyncHandler(async (req, res) => {
+    const userId = req.user?.userId || req.user?._id;
+    const { id } = req.params;
+    const { acceptedServiceIds } = req.body;
+
+    const result = await bookingService.userConfirmExtraServices(userId, id, acceptedServiceIds);
+
+    res.status(200).json(
+        new ApiResponse(200, result.booking, result.message)
+    );
+});
+
 module.exports = {
     // Lead flow
     requestLead,
@@ -499,5 +514,6 @@ module.exports = {
     confirmProposedServices,
     rejectProposedServices,
     requestExtraServices,
-    vendorConfirmExtraServices
+    vendorConfirmExtraServices,
+    userConfirmExtraServices
 };

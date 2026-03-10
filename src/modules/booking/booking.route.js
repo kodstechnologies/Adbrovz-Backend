@@ -50,6 +50,7 @@ router.post('/vendor/:id/add-services', authenticate, bookingController.addServi
 // User-initiated Extra Services (New)
 router.post('/:id/request-extra-services', authenticate, bookingController.requestExtraServices);
 router.post('/vendor/:id/confirm-extra-services', authenticate, bookingController.vendorConfirmExtraServices);
+router.post('/:id/user-confirm-extra-services', authenticate, bookingController.userConfirmExtraServices);
 
 router.get('/:id', authenticate, bookingController.getBookingById);
 
