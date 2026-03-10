@@ -961,10 +961,8 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
         throw new ApiError(400, 'No unpriced services found to update');
     }
 
-    // Recalculate total price
-    const newBasePrice = booking.services.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
-    booking.pricing.basePrice = newBasePrice;
-    booking.pricing.totalPrice = newBasePrice + (booking.pricing.travelCharge || 0) + (booking.pricing.additionalCharges || 0);
+    // Removed premature recalculation of total price.
+    // The price will be updated when the user confirms the price via `confirmBookingPrice`
 
     booking.priceUpdatedOnce = true;
     booking.isPriceConfirmed = false;
@@ -999,6 +997,12 @@ const confirmBookingPrice = async (userId, bookingId) => {
 
     booking.isPriceConfirmed = true;
     booking.services.forEach(s => s.isPriceConfirmed = true);
+
+    // Recalculate total price now that it's confirmed
+    const newBasePrice = booking.services.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+    booking.pricing.basePrice = newBasePrice;
+    booking.pricing.totalPrice = newBasePrice + (booking.pricing.travelCharge || 0) + (booking.pricing.additionalCharges || 0);
+
     await booking.save();
 
     const vendorPayload = await getBookingDetails(booking._id, booking.vendor, 'vendor');
