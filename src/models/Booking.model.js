@@ -152,6 +152,10 @@ const bookingSchema = new mongoose.Schema(
     userRequestedServices: [{
       service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service' },
       quantity: { type: Number, default: 1 },
+      adminPrice: { type: Number },
+      vendorPrice: { type: Number },
+      finalPrice: { type: Number },
+      isPriceConfirmed: { type: Boolean, default: false },
     }],
   },
   {

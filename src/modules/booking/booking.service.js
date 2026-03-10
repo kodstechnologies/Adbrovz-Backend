@@ -1359,9 +1359,20 @@ async function requestExtraServices(userId, bookingId, newServices) {
         if (!serviceDoc) {
             throw new ApiError(404, `Service ${item.serviceId} not found`);
         }
+        const qty = item.quantity || 1;
+        const adminPrice = serviceDoc.adminPrice || null;
+        const vendorPrice = adminPrice ? null : (item.price || null);
+        const finalPrice = adminPrice
+            ? adminPrice * qty
+            : (vendorPrice ? vendorPrice * qty : null);
+
         booking.userRequestedServices.push({
             service: serviceDoc._id,
-            quantity: item.quantity || 1
+            quantity: qty,
+            adminPrice,
+            vendorPrice,
+            finalPrice,
+            isPriceConfirmed: !!adminPrice
         });
     }
 
