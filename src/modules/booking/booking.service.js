@@ -1396,49 +1396,7 @@ async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
     };
 }
 
-module.exports = {
-    // Lead flow
-    requestLead,
-    acceptLead,
-    rejectLead,
-    markLeadLater,
 
-    // Booking flow
-    createBooking,
-    generateBookingID,
-    searchVendors,
-    cancelBooking,
-    rescheduleBooking,
-    findBookingByUser,
-    getBookingDetails,
-    getBookingsByUser,
-    getBookingsByVendor,
-    getCompletedBookingsByUser,
-    getVendorBookingHistory,
-    getVendorLaterBookings,
-    retrySearchVendors,
-    getBookingStatusHistory,
-
-    // Post-acceptance execution flow
-    markOnTheWay,
-    markArrived,
-    startWork,
-    requestCompletionOTP,
-    completeWork,
-    updateBookingPrice,
-    confirmBookingPrice,
-    rejectBookingPrice,
-
-    // New features
-    reportVendorNoShow,
-    gracePeriodCancel,
-    addServicesToBooking,
-    confirmProposedServices,
-    rejectProposedServices,
-    requestExtraServices,
-    vendorConfirmExtraServices,
-    userConfirmExtraServices
-};
 
 /**
  * User requests additional services for an existing booking
@@ -1477,7 +1435,7 @@ async function requestExtraServices(userId, bookingId, newServices) {
             adminPrice,
             vendorPrice,
             finalPrice,
-            isPriceConfirmed: adminPrice > 0
+            isPriceConfirmed: false // Always false until user approves the total change
         });
     }
 
@@ -1578,3 +1536,47 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
         message: 'Prices set for extra services. Awaiting user approval.'
     };
 }
+
+module.exports = {
+    // Lead flow
+    requestLead,
+    acceptLead,
+    rejectLead,
+    markLeadLater,
+
+    // Booking flow
+    createBooking,
+    generateBookingID,
+    searchVendors,
+    cancelBooking,
+    rescheduleBooking,
+    findBookingByUser,
+    getBookingDetails,
+    getBookingsByUser,
+    getBookingsByVendor,
+    getCompletedBookingsByUser,
+    getVendorBookingHistory,
+    getVendorLaterBookings,
+    retrySearchVendors,
+    getBookingStatusHistory,
+
+    // Post-acceptance execution flow
+    markOnTheWay,
+    markArrived,
+    startWork,
+    requestCompletionOTP,
+    completeWork,
+    updateBookingPrice,
+    confirmBookingPrice,
+    rejectBookingPrice,
+
+    // New features
+    reportVendorNoShow,
+    gracePeriodCancel,
+    addServicesToBooking,
+    confirmProposedServices,
+    rejectProposedServices,
+    requestExtraServices,
+    vendorConfirmExtraServices,
+    userConfirmExtraServices
+};

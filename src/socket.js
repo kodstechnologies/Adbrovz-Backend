@@ -250,7 +250,7 @@ const initSocket = (server) => {
 
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.updateBookingPrice(vendorId, bookingId, updatedServices);
-                socket.emit('booking_update_price_success', result);
+                socket.emit('booking_price_proposed', result);
             } catch (error) {
                 socket.emit('booking_error', { action: 'update_booking_price', message: error.message });
             }
@@ -266,7 +266,7 @@ const initSocket = (server) => {
 
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.confirmBookingPrice(userId, bookingId);
-                socket.emit('booking_confirm_price_success', result);
+                socket.emit('booking_update_price_success', result);
             } catch (error) {
                 socket.emit('booking_error', { action: 'confirm_booking_price', message: error.message });
             }
