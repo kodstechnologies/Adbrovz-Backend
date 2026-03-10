@@ -494,6 +494,17 @@ const getBookingDetails = async (bookingId, userId, role) => {
         // If role is undefined (internal use), we keep the OTP as is
     }
 
+    // Ensure extra services arrays always have pricing fields (for older documents)
+    if (bookingObj.userRequestedServices) {
+        bookingObj.userRequestedServices = bookingObj.userRequestedServices.map(item => ({
+            ...item,
+            adminPrice: item.adminPrice ?? 0,
+            vendorPrice: item.vendorPrice ?? 0,
+            finalPrice: item.finalPrice ?? 0,
+            isPriceConfirmed: item.isPriceConfirmed ?? false
+        }));
+    }
+
 
     // Ensure statusHistory is present and formatted (it's already in bookingObj, but let's be explicit if needed)
     if (bookingObj.statusHistory) {
@@ -1360,11 +1371,11 @@ async function requestExtraServices(userId, bookingId, newServices) {
             throw new ApiError(404, `Service ${item.serviceId} not found`);
         }
         const qty = item.quantity || 1;
-        const adminPrice = serviceDoc.adminPrice || null;
-        const vendorPrice = adminPrice ? null : (item.price || null);
-        const finalPrice = adminPrice
+        const adminPrice = serviceDoc.adminPrice || 0;
+        const vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
+        const finalPrice = adminPrice > 0
             ? adminPrice * qty
-            : (vendorPrice ? vendorPrice * qty : null);
+            : (vendorPrice > 0 ? vendorPrice * qty : 0);
 
         booking.userRequestedServices.push({
             service: serviceDoc._id,
@@ -1372,7 +1383,7 @@ async function requestExtraServices(userId, bookingId, newServices) {
             adminPrice,
             vendorPrice,
             finalPrice,
-            isPriceConfirmed: !!adminPrice
+            isPriceConfirmed: adminPrice > 0
         });
     }
 
