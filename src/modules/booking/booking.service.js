@@ -984,7 +984,7 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
     // Specific notification event
-    emitToUser(booking.user, 'booking_price_updated', userPayload);
+    emitToUser(booking.user, 'booking_price_proposed', userPayload);
 
     console.log(`[SOCKET] updateBookingPrice completed successfully for booking: ${bookingId}`);
     return { booking: userPayload, message: 'Price updated, awaiting user confirmation' };
