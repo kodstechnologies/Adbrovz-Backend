@@ -51,6 +51,7 @@ router.post('/vendor/:id/add-services', authenticate, bookingController.addServi
 router.post('/:id/request-extra-services', authenticate, bookingController.requestExtraServices);
 router.post('/vendor/:id/confirm-extra-services', authenticate, bookingController.vendorConfirmExtraServices);
 router.post('/:id/user-confirm-extra-services', authenticate, bookingController.userConfirmExtraServices);
+router.post('/:id/user-reject-extra-services', authenticate, bookingController.userRejectExtraServices);
 
 router.get('/:id', authenticate, bookingController.getBookingById);
 

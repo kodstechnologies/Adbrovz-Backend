@@ -506,10 +506,12 @@ const getBookingDetails = async (bookingId, userId, role) => {
     }
 
 
-    // Ensure statusHistory is present and formatted (it's already in bookingObj, but let's be explicit if needed)
+    // Ensure statusHistory is present and formatted
     if (bookingObj.statusHistory) {
         bookingObj.statusHistory = bookingObj.statusHistory.map(h => ({
             status: h.status,
+            reason: h.reason,
+            actor: h.actor,
             timestamp: h.timestamp,
             displayStatus: statusMap[h.status] || h.status
         }));
@@ -1003,6 +1005,14 @@ const confirmBookingPrice = async (userId, bookingId) => {
     booking.pricing.basePrice = newBasePrice;
     booking.pricing.totalPrice = newBasePrice + (booking.pricing.travelCharge || 0) + (booking.pricing.additionalCharges || 0);
 
+    // Log confirmation
+    booking.statusHistory.push({
+        status: 'price_confirmed',
+        actor: 'user',
+        timestamp: new Date()
+    });
+    booking.markModified('statusHistory');
+
     await booking.save();
 
     const vendorPayload = await getBookingDetails(booking._id, booking.vendor, 'vendor');
@@ -1033,7 +1043,12 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
 
     const now = new Date();
     booking.status = 'cancelled';
-    booking.statusHistory.push({ status: 'cancelled', timestamp: now });
+    booking.statusHistory.push({ 
+        status: 'price_rejected', 
+        actor: 'user',
+        reason: reason || 'Price rejected by user',
+        timestamp: now 
+    });
     booking.markModified('statusHistory');
 
     booking.cancellation = {
@@ -1285,6 +1300,16 @@ const rejectProposedServices = async (userId, bookingId, reason) => {
 
     // Clear proposed without adding to services
     booking.proposedServices = [];
+    
+    // Log rejection in history
+    booking.statusHistory.push({
+        status: 'proposed_services_rejected',
+        actor: 'user',
+        reason: reason || 'User rejected the additional services.',
+        timestamp: new Date()
+    });
+    booking.markModified('statusHistory');
+
     await booking.save();
 
     const { emitToVendor, emitToUser } = require('../../socket');
@@ -1393,6 +1418,51 @@ async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
     return {
         booking: userPayload,
         message: 'Extra services confirmed and added to your booking.'
+    };
+}
+
+/**
+ * User rejects the priced extra service requests
+ */
+async function userRejectExtraServices(userId, bookingId, reason) {
+    const booking = await findBookingByUser(bookingId, userId);
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (!booking.userRequestedServices || booking.userRequestedServices.length === 0) {
+        throw new ApiError(400, 'No extra services pending rejection');
+    }
+
+    // Clear the requests
+    booking.userRequestedServices = [];
+
+    // Log in history
+    booking.statusHistory.push({
+        status: 'extra_services_rejected',
+        actor: 'user',
+        reason: reason || 'User rejected their own requested services after pricing.',
+        timestamp: new Date()
+    });
+    booking.markModified('statusHistory');
+
+    await booking.save();
+
+    const { emitToVendor, emitToUser } = require('../../socket');
+    const vendorPayload = await getBookingDetails(booking._id, booking.vendor, 'vendor');
+    const userPayload = await getBookingDetails(booking._id, userId, 'user');
+
+    emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
+    emitToUser(userId, 'booking_status_updated', userPayload);
+
+    // Specific event
+    emitToVendor(booking.vendor, 'extra_services_rejected_by_user', {
+        bookingId: booking._id,
+        reason: reason || 'User rejected the services.',
+        message: 'User rejected the priced extra services.'
+    });
+
+    return {
+        booking: userPayload,
+        message: 'Extra services rejected.'
     };
 }
 
@@ -1578,5 +1648,6 @@ module.exports = {
     rejectProposedServices,
     requestExtraServices,
     vendorConfirmExtraServices,
-    userConfirmExtraServices
+    userConfirmExtraServices,
+    userRejectExtraServices
 };

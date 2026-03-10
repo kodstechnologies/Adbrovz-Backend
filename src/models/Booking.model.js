@@ -51,6 +51,11 @@ const bookingSchema = new mongoose.Schema(
         type: String,
         required: true
       },
+      reason: { type: String },
+      actor: { 
+        type: String,
+        enum: ['user', 'vendor', 'admin', 'system']
+      },
       timestamp: {
         type: Date,
         default: Date.now
