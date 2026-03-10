@@ -365,7 +365,9 @@ const getAllBookings = async (query = {}) => {
       .skip(parseInt(skip))
       .populate('user', 'name phoneNumber email')
       .populate('vendor', 'name phoneNumber')
-      .populate('services.service', 'title'),
+      .populate('services.service', 'title')
+      .populate('proposedServices.service', 'title')
+      .populate('userRequestedServices.service', 'title'),
     Booking.countDocuments(filter),
   ]);
 
@@ -385,12 +387,17 @@ const getBookingDetails = async (bookingId) => {
     .populate('user', 'name phoneNumber email profileImage status')
     .populate('vendor', 'name phoneNumber email profileImage specialization rating status isSuspended adminSuspended')
     .populate('services.service', 'title description adminPrice duration photo')
+    .populate('proposedServices.service', 'title description adminPrice duration photo')
+    .populate('userRequestedServices.service', 'title description adminPrice duration photo')
     .populate('rejectedVendors', 'name')
     .populate('laterVendors', 'name');
 
   if (!booking) {
     throw new Error('Booking not found');
   }
+
+  console.log('DEBUG: getBookingDetails called for', bookingId);
+  console.log('DEBUG: userRequestedServices:', JSON.stringify(booking.userRequestedServices, null, 2));
 
   // Fetch optional related items
   const [feedback, disputes] = await Promise.all([
