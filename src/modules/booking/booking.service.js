@@ -173,13 +173,22 @@ const acceptLead = async (vendorId, bookingId) => {
     const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
     const vendorPayload = await getBookingDetails(booking._id, vendorId, 'vendor');
 
-    console.log(`[SOCKET] Payloads fetched, requiring socket module...`);
     const { emitToUser, emitToVendor, activeVendors, getIo } = require('../../socket');
 
-    console.log(`[SOCKET] Emitting update to user ${booking.user}`);
-    emitToUser(booking.user, 'booking_status_updated', userPayload);
+    const userIdStr = booking.user.toString();
+    console.log(`[SOCKET] Emitting acceptance update to user: ${userIdStr}`);
 
-    console.log(`[SOCKET] Emitting update to vendor ${vendorId}`);
+    // Notify user immediately that search is over
+    emitToUser(userIdStr, 'booking_search_update', {
+        bookingId: booking._id,
+        bookingID: booking.bookingID,
+        status: 'accepted',
+        vendor: vendorPayload.vendor,
+        message: 'A vendor has accepted your booking request!'
+    });
+
+    console.log(`[SOCKET] Emitting standard status updates...`);
+    emitToUser(userIdStr, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
     const io = getIo();
@@ -195,15 +204,6 @@ const acceptLead = async (vendorId, bookingId) => {
                 });
             });
         }
-    });
-
-    // Notify user that the search is finished and someone accepted
-    emitToUser(booking.user, 'booking_search_update', {
-        bookingId: booking._id,
-        bookingID: booking.bookingID,
-        status: 'accepted',
-        vendor: vendorPayload.vendor,
-        message: 'A vendor has accepted your booking request!'
     });
 
     console.log(`[SOCKET] acceptLead completed successfully for booking: ${bookingId}`);
