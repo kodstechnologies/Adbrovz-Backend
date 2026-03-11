@@ -407,6 +407,23 @@ const initSocket = (server) => {
             }
         });
 
+        socket.on('get_booking_status', async (data) => {
+            try {
+                const bookingId = stringifyId(data?.bookingId);
+                const role = data?.role || (socket.userId ? 'user' : 'vendor');
+                const userId = stringifyId(socket.userId || socket.vendorId);
+
+                if (!bookingId) throw new Error('Booking ID is required');
+                if (!userId) throw new Error('You must be logged in to check booking status');
+
+                const bookingService = require('./modules/booking/booking.service');
+                const result = await bookingService.getBookingDetails(bookingId, userId, role);
+                socket.emit('booking_status_response', result);
+            } catch (error) {
+                socket.emit('booking_error', { action: 'get_booking_status', message: error.message });
+            }
+        });
+
         // Admin/Verification socket actions
         socket.on('verify_vendor_document', async (data) => {
             try {

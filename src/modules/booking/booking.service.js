@@ -601,6 +601,34 @@ const createBooking = async (userId, bookingData) => {
 };
 
 /**
+ * Helper to get the time range (start and end) for a booking
+ */
+const getBookingTimeRange = async (booking) => {
+    // Ensure services are populated to get approxCompletionTime
+    let bookingWithServices = booking;
+    if (!booking.services?.[0]?.service?.approxCompletionTime) {
+        bookingWithServices = await Booking.findById(booking._id).populate('services.service');
+    }
+
+    if (!bookingWithServices || !bookingWithServices.scheduledDate || !bookingWithServices.scheduledTime) {
+        return null;
+    }
+
+    const [hours, minutes] = bookingWithServices.scheduledTime.split(':').map(Number);
+    const start = new Date(bookingWithServices.scheduledDate);
+    start.setHours(hours || 0, minutes || 0, 0, 0);
+
+    let totalDuration = 0;
+    bookingWithServices.services.forEach(item => {
+        const duration = item.service?.approxCompletionTime || 60; // default 60 mins
+        totalDuration += duration * (item.quantity || 1);
+    });
+
+    const end = new Date(start.getTime() + totalDuration * 60 * 1000);
+    return { start, end };
+};
+
+/**
  * Vendor search and broadcast
  */
 const searchVendors = async (booking, broadcast = false) => {
@@ -612,6 +640,30 @@ const searchVendors = async (booking, broadcast = false) => {
         ...(booking.laterVendors || [])
     ].map(id => id.toString());
 
+    // ── Busy vendor exclusion logic ──
+    const currentRange = await getBookingTimeRange(booking);
+    const busyVendorIds = [];
+
+    if (currentRange) {
+        // Find all accepted/ongoing bookings for the same day
+        const activeBookings = await Booking.find({
+            scheduledDate: booking.scheduledDate,
+            status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] },
+            vendor: { $exists: true, $ne: null }
+        }).populate('services.service');
+
+        for (const activeBooking of activeBookings) {
+            const range = await getBookingTimeRange(activeBooking);
+            if (!range) continue;
+
+            // Check for overlap: max(start1, start2) < min(end1, end2)
+            const overlap = Math.max(currentRange.start, range.start) < Math.min(currentRange.end, range.end);
+            if (overlap) {
+                busyVendorIds.push(activeBooking.vendor.toString());
+            }
+        }
+    }
+
     const query = {
         isOnline: true,
         isActive: true,
@@ -621,8 +673,9 @@ const searchVendors = async (booking, broadcast = false) => {
         selectedServices: { $in: serviceIds }
     };
 
-    if (ignoredVendors.length > 0) {
-        query._id = { $nin: ignoredVendors };
+    const nins = [...new Set([...ignoredVendors, ...busyVendorIds])];
+    if (nins.length > 0) {
+        query._id = { $nin: nins };
     }
 
     const vendors = await Vendor.find(query).select('_id');
