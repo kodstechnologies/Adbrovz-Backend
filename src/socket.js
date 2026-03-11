@@ -537,13 +537,20 @@ const emitToVendor = (vendorId, event, data) => {
  * Safe to call even if the user is not connected (no-op).
  */
 const emitToUser = (userId, event, data) => {
-    if (!io) return;
-    const sockets = activeUsers.get(userId.toString()) || [];
-    sockets.forEach(socketId => {
-        io.to(socketId).emit(event, data);
-    });
-    if (sockets.length > 0) {
-        console.log(`📡 Emitted '${event}' to User ${userId} on ${sockets.length} socket(s)`);
+    if (!io) {
+        console.warn(`[SOCKET] Cannot emit to user ${userId}: Socket.io not initialized`);
+        return;
+    }
+    const userIdStr = userId.toString();
+    const sockets = activeUsers.get(userIdStr) || [];
+    
+    if (sockets.length === 0) {
+        console.log(`[SOCKET] No active sockets found for User ${userIdStr}. FAILED to emit '${event}'.`);
+    } else {
+        sockets.forEach(socketId => {
+            io.to(socketId).emit(event, data);
+        });
+        console.log(`📡 Emitted '${event}' to User ${userIdStr} on ${sockets.length} socket(s)`);
     }
 };
 

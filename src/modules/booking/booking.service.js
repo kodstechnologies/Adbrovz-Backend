@@ -163,6 +163,20 @@ const acceptLead = async (vendorId, bookingId) => {
         throw new ApiError(400, 'You missed your order! This booking has already been accepted by another vendor.');
     }
 
+    // ── Emit acceptance update IMMEDIATELY after locking ──
+    try {
+        const { emitToUser } = require('../../socket');
+        emitToUser(booking.user, 'booking_search_update', {
+            bookingId: booking._id,
+            bookingID: booking.bookingID,
+            status: 'accepted',
+            message: 'A vendor has accepted your booking request!'
+        });
+        console.log(`[SOCKET] Emitted 'accepted' status update for user: ${booking.user}`);
+    } catch (socketErr) {
+        console.error(`[SOCKET] Failed to emit search update in acceptLead: ${socketErr.message}`);
+    }
+
     // ── Deduct coins from vendor ──
     vendor.coins -= coinCost;
     await vendor.save();
@@ -176,18 +190,8 @@ const acceptLead = async (vendorId, bookingId) => {
     const { emitToUser, emitToVendor, activeVendors, getIo } = require('../../socket');
 
     const userIdStr = booking.user.toString();
-    console.log(`[SOCKET] Emitting acceptance update to user: ${userIdStr}`);
+    console.log(`[SOCKET] Emitting standard status updates to user: ${userIdStr}`);
 
-    // Notify user immediately that search is over
-    emitToUser(userIdStr, 'booking_search_update', {
-        bookingId: booking._id,
-        bookingID: booking.bookingID,
-        status: 'accepted',
-        vendor: vendorPayload.vendor,
-        message: 'A vendor has accepted your booking request!'
-    });
-
-    console.log(`[SOCKET] Emitting standard status updates...`);
     emitToUser(userIdStr, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
