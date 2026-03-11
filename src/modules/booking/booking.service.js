@@ -727,6 +727,26 @@ const searchVendors = async (booking, broadcast = false) => {
             }
 
             console.log(`📡 Broadcasted booking ${booking._id} to ${broadcastCount} vendors via WebSocket.`);
+
+            // ── Search Timeout Notification ──
+            const searchTimeoutMins = (await adminService.getSetting('bookings.search_timeout_mins')) || 2;
+            setTimeout(async () => {
+                try {
+                    const currentBooking = await Booking.findById(booking._id);
+                    if (currentBooking && currentBooking.status === 'pending_acceptance') {
+                        emitToUser(booking.user, 'booking_search_update', {
+                            bookingId: booking._id,
+                            bookingID: booking.bookingID,
+                            status: 'timeout',
+                            message: `The search window of ${searchTimeoutMins} mins has expired. No vendor has accepted yet. You can try searching again.`
+                        });
+                        console.log(`⏰ Search timeout notification sent for booking ${booking._id}`);
+                    }
+                } catch (err) {
+                    console.error('Error during scheduled search timeout notification:', err);
+                }
+            }, searchTimeoutMins * 60 * 1000);
+            
         } catch (error) {
             console.error('Socket.io error during broadcast:', error.message);
         }
