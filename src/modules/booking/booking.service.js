@@ -174,7 +174,7 @@ const acceptLead = async (vendorId, bookingId) => {
     const vendorPayload = await getBookingDetails(booking._id, vendorId, 'vendor');
 
     console.log(`[SOCKET] Payloads fetched, requiring socket module...`);
-    const { emitToUser, emitToVendor, activeVendors } = require('../../socket');
+    const { emitToUser, emitToVendor, activeVendors, getIo } = require('../../socket');
 
     console.log(`[SOCKET] Emitting update to user ${booking.user}`);
     emitToUser(booking.user, 'booking_status_updated', userPayload);
@@ -182,23 +182,29 @@ const acceptLead = async (vendorId, bookingId) => {
     console.log(`[SOCKET] Emitting update to vendor ${vendorId}`);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
-    const { getIo } = require('../../socket');
     const io = getIo();
-    if (io) {
-        console.log(`[SOCKET] Notifying other vendors about acceptance`);
-        const vendorIdStr = vendorId.toString();
-        activeVendors.forEach((socketIds, otherVendorId) => {
-            if (otherVendorId.toString() !== vendorIdStr) {
-                socketIds.forEach(socketId => {
-                    io.to(socketId).emit('booking_already_accepted', {
-                        bookingId: booking._id,
-                        bookingID: booking.bookingID,
-                        message: 'You missed your order! This booking has already been accepted by another vendor.'
-                    });
+    console.log(`[SOCKET] Notifying other vendors about acceptance`);
+    const vendorIdStr = vendorId.toString();
+    activeVendors.forEach((socketIds, otherVendorId) => {
+        if (otherVendorId.toString() !== vendorIdStr) {
+            socketIds.forEach(socketId => {
+                io.to(socketId).emit('booking_already_accepted', {
+                    bookingId: booking._id,
+                    bookingID: booking.bookingID,
+                    message: 'You missed your order! This booking has already been accepted by another vendor.'
                 });
-            }
-        });
-    }
+            });
+        }
+    });
+
+    // Notify user that the search is finished and someone accepted
+    emitToUser(booking.user, 'booking_search_update', {
+        bookingId: booking._id,
+        bookingID: booking.bookingID,
+        status: 'accepted',
+        vendor: vendorPayload.vendor,
+        message: 'A vendor has accepted your booking request!'
+    });
 
     console.log(`[SOCKET] acceptLead completed successfully for booking: ${bookingId}`);
     return {
@@ -701,6 +707,25 @@ const searchVendors = async (booking, broadcast = false) => {
                     broadcastCount++;
                 }
             });
+
+            const { emitToUser } = require('../../socket');
+            if (broadcastCount > 0) {
+                emitToUser(booking.user, 'booking_search_update', {
+                    bookingId: booking._id,
+                    bookingID: booking.bookingID,
+                    status: 'searching',
+                    vendorCount: broadcastCount,
+                    message: `Searching for vendors... notified ${broadcastCount} available vendor(s).`
+                });
+            } else {
+                emitToUser(booking.user, 'booking_search_update', {
+                    bookingId: booking._id,
+                    bookingID: booking.bookingID,
+                    status: 'no_vendors_available',
+                    message: 'No vendors are currently available in your area. You can try retrying in a few minutes.'
+                });
+            }
+
             console.log(`📡 Broadcasted booking ${booking._id} to ${broadcastCount} vendors via WebSocket.`);
         } catch (error) {
             console.error('Socket.io error during broadcast:', error.message);
