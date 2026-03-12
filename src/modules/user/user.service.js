@@ -28,17 +28,14 @@ const updateUser = async (userId, updateData, req = null) => {
     throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
   }
 
-  // Map input fields to model fields if necessary (mirroring vendor service pattern)
+  // Map input fields to model fields
   if (updateData.name) user.name = updateData.name;
   if (updateData.email || updateData.mail) user.email = updateData.email || updateData.mail;
+  // Accept both phoneNumber (direct) and mobileNumber (alias from mobile apps)
+  if (updateData.phoneNumber) user.phoneNumber = updateData.phoneNumber;
   if (updateData.mobileNumber) user.phoneNumber = updateData.mobileNumber;
-  if (updateData.address) user.address = updateData.address;
-  if (updateData.city) user.city = updateData.city;
-  if (updateData.state) user.state = updateData.state;
-  if (updateData.zipcode) user.zipcode = updateData.zipcode;
-  if (updateData.country) user.country = updateData.country;
 
-  // Handle image separately (matching vendor pattern: vendor.set('documents.photo.url', ...))
+  // Handle image (from cloudinary middleware or direct URL)
   if (updateData.image || updateData.photo) {
     user.photo = updateData.image || updateData.photo;
   }
@@ -78,7 +75,7 @@ const deleteUser = async (userId, req = null) => {
     Booking.deleteMany({ user: userId }),
     Notification.deleteMany({ user: userId }),
     Dispute.deleteMany({ user: userId }),
-    AuditLog.deleteMany({ user: userId, userModel: 'User' })
+    AuditLog.deleteMany({ user: userId, userModel: 'User', action: { $ne: 'account_deleted' } })
   ]);
 
   // Finally delete the user

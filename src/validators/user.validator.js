@@ -18,18 +18,12 @@ const updateProfileSchema = Joi.object({
     .messages({
       'string.email': 'Invalid email format',
     }),
-  photo: Joi.string()
-    .uri()
-    .optional(),
-  image: Joi.string()
-    .uri()
-    .optional(),
-  address: Joi.string().trim().optional(),
-  city: Joi.string().trim().optional(),
-  state: Joi.string().trim().optional(),
-  zipcode: Joi.string().trim().optional(),
-  country: Joi.string().trim().optional(),
+  // Accept both naming conventions from mobile apps
+  phoneNumber: Joi.string().trim().optional(),
   mobileNumber: Joi.string().trim().optional(),
+  // Image URL (set by cloudinary middleware or passed as a URL string)
+  photo: Joi.string().optional(),
+  image: Joi.string().optional(),
 });
 
 module.exports = {

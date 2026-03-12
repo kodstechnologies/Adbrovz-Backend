@@ -122,7 +122,7 @@ const getMyBookings = asyncHandler(async (req, res) => {
 
     const categorized = {
         pending: rawBookings
-            .filter(b => ['pending_acceptance', 'pending'].includes(b.status))
+            .filter(b => b.status === 'pending')
             .map(enhanceBooking),
         active: rawBookings
             .filter(b => ['on_the_way', 'arrived', 'ongoing'].includes(b.status))
