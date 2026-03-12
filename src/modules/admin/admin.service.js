@@ -23,14 +23,14 @@ const getDashboardStats = async () => {
     startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
 
     // 1. Stat Cards
-    // Total Revenue (Completed Bookings)
+    // Total Revenue (All Non-Cancelled Bookings to show data)
     const [thisMonthRevenue, lastMonthRevenue] = await Promise.all([
       Booking.aggregate([
-        { $match: { status: 'completed', createdAt: { $gte: startOfThisMonth } } },
+        { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfThisMonth } } },
         { $group: { _id: null, total: { $sum: '$pricing.totalPrice' } } }
       ]).then(res => res[0]?.total || 0),
       Booking.aggregate([
-        { $match: { status: 'completed', createdAt: { $gte: startOfLastMonth, $lt: startOfThisMonth } } },
+        { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfLastMonth, $lt: startOfThisMonth } } },
         { $group: { _id: null, total: { $sum: '$pricing.totalPrice' } } }
       ]).then(res => res[0]?.total || 0)
     ]);
@@ -63,7 +63,8 @@ const getDashboardStats = async () => {
     // 2. Week Data (Area Chart)
     const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const weekBookings = await Booking.aggregate([
-      { $match: { status: 'completed', createdAt: { $gte: startOfThisWeek } } },
+      // Use active bookings to show more data in dev
+      { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfThisWeek } } },
       {
         $group: {
           _id: { $dayOfWeek: '$createdAt' },
@@ -85,18 +86,20 @@ const getDashboardStats = async () => {
     });
 
     // 3. Vendor Performance (Pie Chart)
-    const [topVendors, averageVendors, underperformingVendors] = await Promise.all([
+    const [topVendors, averageVendors, underperformingVendors, unratedVendors] = await Promise.all([
       Vendor.countDocuments({ 'performance.rating': { $gte: 4.5 } }),
       Vendor.countDocuments({ 'performance.rating': { $gte: 3.0, $lt: 4.5 } }),
-      Vendor.countDocuments({ 'performance.rating': { $lt: 3.0 } })
+      Vendor.countDocuments({ 'performance.rating': { $gt: 0, $lt: 3.0 } }),
+      Vendor.countDocuments({ 'performance.rating': { $in: [0, null] } }) // Group 0/null as Unrated instead of generic underperforming
     ]);
 
-    const totalRatedVendors = topVendors + averageVendors + underperformingVendors || 1; // Avoid division by zero
+    const totalVendors = topVendors + averageVendors + underperformingVendors + unratedVendors || 1; // Avoid division by zero
     const vendorPerf = [
-      { name: 'Top Vendors', value: Math.round((topVendors / totalRatedVendors) * 100) },
-      { name: 'Average', value: Math.round((averageVendors / totalRatedVendors) * 100) },
-      { name: 'Underperforming', value: Math.round((underperformingVendors / totalRatedVendors) * 100) }
-    ];
+      { name: 'Top Vendors', value: Math.round((topVendors / totalVendors) * 100) },
+      { name: 'Average', value: Math.round((averageVendors / totalVendors) * 100) },
+      { name: 'Underperforming', value: Math.round((underperformingVendors / totalVendors) * 100) },
+      { name: 'Unrated', value: Math.round((unratedVendors / totalVendors) * 100) } // Provide visibility for new test accounts
+    ].filter(v => v.value > 0); // Recharts pie might error on all zeros, but we added unrated so it should add up to 100%
 
     // 4. Peak Hours Analysis
     const peakHoursData = await Booking.aggregate([
