@@ -327,6 +327,31 @@ const purchaseMembership = async (vendorId) => {
 };
 
 /**
+ * Internal helper to format verification status payload for both API and Socket responses
+ */
+const _getVerificationPayload = (vendor) => {
+    const docTypesFields = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+    const documentStatuses = {};
+    docTypesFields.forEach(doc => {
+        const d = vendor.documents?.[doc];
+        documentStatuses[doc] = {
+            status: (d && typeof d === 'object') ? (d.status || 'pending') : 'pending',
+            reason: (d && typeof d === 'object') ? (d.reason || null) : null,
+            url: (d && typeof d === 'object') ? (d.url || '') : (typeof d === 'string' ? d : '')
+        };
+    });
+
+    return {
+        isVerified: vendor.isVerified,
+        documentStatus: vendor.documentStatus,
+        registrationStep: vendor.registrationStep,
+        isSuspended: vendor.isSuspended,
+        documents: documentStatuses,
+        status: vendor.status // Uses the virtual status
+    };
+};
+
+/**
  * Admin: Verify Vendor Document
  */
 const verifyDocument = async (vendorId, { docType, status, reason }) => {
@@ -396,35 +421,10 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
 
     await vendor.save();
 
-    // Emit real-time update to vendor via socket
-    const docTypesFields = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
-    const documentStatuses = {};
-    docTypesFields.forEach(doc => {
-        const d = vendor.documents?.[doc];
-        documentStatuses[doc] = {
-            status: (d && typeof d === 'object') ? (d.status || 'pending') : 'pending',
-            reason: (d && typeof d === 'object') ? (d.reason || null) : null,
-        };
-    });
+    const payload = _getVerificationPayload(vendor);
+    payload.message = message;
 
-    // Provide detailed message about what stopped the account verification
-    let message = `Document ${docType} updated to ${status}.`;
-    if (!vendor.isVerified && allVerified === false) {
-        const missing = requiredDocs.filter(doc => {
-            const d = vendor.documents[doc];
-            return !(d && typeof d === 'object' && (d.status === 'verified' || d.status === 'approved'));
-        });
-        message += ` Account still pending. Missing/unverified: ${missing.join(', ')}`;
-    } else if (vendor.isVerified) {
-        message += " Account is now fully verified!";
-    }
-
-    emitToVendor(vendor._id, 'vendor_verification_update', {
-        isVerified: vendor.isVerified,
-        documentStatus: vendor.documentStatus,
-        documents: documentStatuses,
-        message
-    });
+    emitToVendor(vendor._id, 'vendor_verification_update', payload);
 
     return {
         vendor,
@@ -471,25 +471,11 @@ const verifyAllDocuments = async (vendorId) => {
 
     await vendor.save();
 
-    // Emit real-time update to vendor via socket
-    const docTypesFields = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
-    const documentStatuses = {};
-    docTypesFields.forEach(doc => {
-        const d = vendor.documents?.[doc];
-        documentStatuses[doc] = {
-            status: (d && typeof d === 'object') ? (d.status || 'pending') : 'pending',
-            reason: (d && typeof d === 'object') ? (d.reason || null) : null,
-        };
-    });
-
     const message = "Account is now fully verified via Admin 'Verify All' action!";
+    const payload = _getVerificationPayload(vendor);
+    payload.message = message;
 
-    emitToVendor(vendor._id, 'vendor_verification_update', {
-        isVerified: vendor.isVerified,
-        documentStatus: vendor.documentStatus,
-        documents: documentStatuses,
-        message
-    });
+    emitToVendor(vendor._id, 'vendor_verification_update', payload);
 
     return {
         vendor,
@@ -508,12 +494,11 @@ const toggleVendorSuspension = async (vendorId, { isSuspended }) => {
     vendor.isSuspended = isSuspended;
     await vendor.save();
 
-    emitToVendor(vendor._id, 'vendor_verification_update', {
-        isVerified: vendor.isVerified,
-        documentStatus: vendor.documentStatus,
-        isSuspended: vendor.isSuspended,
-        message: isSuspended ? 'Your account has been suspended.' : 'Your account has been reactivated.'
-    });
+    const message = isSuspended ? 'Your account has been suspended.' : 'Your account has been reactivated.';
+    const payload = _getVerificationPayload(vendor);
+    payload.message = message;
+
+    emitToVendor(vendor._id, 'vendor_verification_update', payload);
 
     return vendor;
 };
@@ -540,22 +525,11 @@ const rejectVendorAccount = async (vendorId, { reason }) => {
     vendor.markModified('documents');
     await vendor.save();
 
-    const docTypesFields = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
-    const documentStatuses = {};
-    docTypesFields.forEach(doc => {
-        const d = vendor.documents?.[doc];
-        documentStatuses[doc] = {
-            status: (d && typeof d === 'object') ? (d.status || 'pending') : 'pending',
-            reason: (d && typeof d === 'object') ? (d.reason || null) : null,
-        };
-    });
+    const message = `Your account has been rejected. Reason: ${reason || 'No reason provided'}`;
+    const payload = _getVerificationPayload(vendor);
+    payload.message = message;
 
-    emitToVendor(vendor._id, 'vendor_verification_update', {
-        isVerified: vendor.isVerified,
-        documentStatus: vendor.documentStatus,
-        documents: documentStatuses,
-        message: `Your account has been rejected. Reason: ${reason || 'No reason provided'}`
-    });
+    emitToVendor(vendor._id, 'vendor_verification_update', payload);
 
     return vendor;
 };
@@ -772,24 +746,7 @@ const getVerificationStatus = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    const docTypesFields = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
-    const documentStatuses = {};
-    docTypesFields.forEach(doc => {
-        const d = vendor.documents?.[doc];
-        documentStatuses[doc] = {
-            status: (d && typeof d === 'object') ? (d.status || 'pending') : 'pending',
-            reason: (d && typeof d === 'object') ? (d.reason || null) : null,
-            url: (d && typeof d === 'object') ? (d.url || '') : (typeof d === 'string' ? d : '')
-        };
-    });
-
-    return {
-        isVerified: vendor.isVerified,
-        documentStatus: vendor.documentStatus,
-        registrationStep: vendor.registrationStep,
-        documents: documentStatuses,
-        status: vendor.status // Uses the virtual status
-    };
+    return _getVerificationPayload(vendor);
 };
 
 /**
