@@ -247,7 +247,7 @@ const createMembershipOrder = async (vendorId) => {
         vendorId: vendor._id,
         vendorName: vendor.name,
         totalFee,
-        vendorBaseMembershipFee: baseFee,
+        vendorBaseMembershipFee: baseFeeSetting,
         duration: '3 months',
         status: razorpayOrder.status,  // 'created'
         razorpayKeyId: config.RAZORPAY_KEY_ID,
