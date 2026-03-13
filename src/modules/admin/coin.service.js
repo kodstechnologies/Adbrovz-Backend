@@ -8,18 +8,14 @@ const ApiError = require('../../utils/ApiError');
  * Get overall coin statistics
  */
 const getCoinStats = async () => {
-    const [userCoins, vendorCoins] = await Promise.all([
-        User.aggregate([{ $group: { _id: null, total: { $sum: "$coins" } } }]),
+    const [vendorCoins] = await Promise.all([
         Vendor.aggregate([{ $group: { _id: null, total: { $sum: "$coins" } } }])
     ]);
 
-    const userSignupBonus = await adminService.getSetting('pricing.signup_welcome_coins');
     const vendorSignupBonus = await adminService.getSetting('pricing.vendor_signup_welcome_coins');
 
     return {
-        totalUserCoins: userCoins[0]?.total || 0,
         totalVendorCoins: vendorCoins[0]?.total || 0,
-        userSignupBonus,
         vendorSignupBonus
     };
 };
@@ -29,8 +25,9 @@ const getCoinStats = async () => {
  */
 const massCredit = async ({ targetModel, amount, purpose, description, adminId }) => {
     if (amount <= 0) throw new ApiError(400, 'Amount must be greater than zero');
+    if (targetModel !== 'Vendor') throw new ApiError(400, 'Mass credit is only available for vendors');
 
-    const Model = targetModel === 'User' ? User : Vendor;
+    const Model = Vendor;
 
     // Update all active records
     const result = await Model.updateMany(
@@ -99,7 +96,8 @@ const getTransactionHistory = async (query = {}) => {
  * Get entities with coin balances
  */
 const getEntitiesWithCoins = async (targetModel, query = {}) => {
-    const Model = targetModel === 'User' ? User : Vendor;
+    if (targetModel !== 'Vendor') throw new ApiError(400, 'Coin management is only available for vendors');
+    const Model = Vendor;
     const { skip = 0, limit = 20, search = '' } = query;
 
     const filter = { deletedAt: null };
@@ -126,8 +124,9 @@ const getEntitiesWithCoins = async (targetModel, query = {}) => {
  */
 const creditIndividual = async ({ targetId, targetModel, amount, purpose, description, adminId }) => {
     if (amount <= 0) throw new ApiError(400, 'Amount must be greater than zero');
+    if (targetModel !== 'Vendor') throw new ApiError(400, 'Individual credit is only available for vendors');
 
-    const Model = targetModel === 'User' ? User : Vendor;
+    const Model = Vendor;
     const entity = await Model.findById(targetId);
 
     if (!entity) {

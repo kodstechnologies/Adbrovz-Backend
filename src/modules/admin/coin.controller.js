@@ -8,10 +8,9 @@ const getCoinStats = asyncHandler(async (req, res) => {
 });
 
 const updateCoinSettings = asyncHandler(async (req, res) => {
-    const { userSignupBonus, vendorSignupBonus } = req.body;
+    const { vendorSignupBonus } = req.body;
     const settings = {};
 
-    if (userSignupBonus !== undefined) settings['pricing.signup_welcome_coins'] = userSignupBonus;
     if (vendorSignupBonus !== undefined) settings['pricing.vendor_signup_welcome_coins'] = vendorSignupBonus;
 
     await adminService.updateGlobalSettings(settings, req.user.userId);

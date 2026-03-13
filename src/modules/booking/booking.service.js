@@ -875,10 +875,16 @@ const cancelBooking = async (userId, bookingId, reason) => {
     }
 
     const lockMins = (await adminService.getSetting('bookings.cancellation_lock_mins')) || 60;
-    const scheduledTime = new Date(booking.scheduledDate);
+    
+    // Combine scheduledDate and scheduledTime into a proper Date object
+    const scheduledDateTime = new Date(booking.scheduledDate);
+    if (booking.scheduledTime) {
+        const [hours, minutes] = booking.scheduledTime.split(':').map(Number);
+        scheduledDateTime.setHours(hours || 0, minutes || 0, 0, 0);
+    }
 
     const now = new Date();
-    const diffMs = scheduledTime - now;
+    const diffMs = scheduledDateTime - now;
     const diffMins = Math.floor(diffMs / (1000 * 60));
 
     if (diffMins < lockMins && diffMins > 0) {

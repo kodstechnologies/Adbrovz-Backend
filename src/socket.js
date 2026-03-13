@@ -90,6 +90,7 @@ const initSocket = (server) => {
         // Manual register_vendor (fallback for Postman / non-JWT connections)
         socket.on('register_vendor', (vendorId) => {
             const vId = stringifyId(vendorId);
+            console.log(`[SOCKET] Manual register_vendor request for ID: ${vId}`);
             if (vId) {
                 registerVendorSocket(vId, socket.id);
                 socket.vendorId = vId;
@@ -99,6 +100,7 @@ const initSocket = (server) => {
         // Manual register_user (fallback)
         socket.on('register_user', (userId) => {
             const uId = stringifyId(userId);
+            console.log(`[SOCKET] Manual register_user request for ID: ${uId}`);
             if (uId) {
                 registerUserSocket(uId, socket.id);
                 socket.userId = uId;
@@ -443,13 +445,19 @@ const initSocket = (server) => {
         socket.on('get_verification_status', async (data) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
-                if (!vendorId) throw new Error('Vendor ID is required');
+                console.log(`[SOCKET] get_verification_status request. vendorId: ${vendorId}, socket.id: ${socket.id}`);
+                
+                if (!vendorId) {
+                    console.warn(`[SOCKET] No vendorId provided for verification status request.`);
+                    throw new Error('Vendor ID is required');
+                }
 
                 const vendorService = require('./modules/vendor/vendor.service');
                 const result = await vendorService.getVerificationStatus(vendorId);
                 socket.emit('verification_status_response', result);
-                console.log(`📡 Sent verification status to Vendor ${vendorId} via Socket ${socket.id}`);
+                console.log(`📡 [SOCKET] Sent verification status to Vendor ${vendorId} via Socket ${socket.id}`);
             } catch (error) {
+                console.error(`[SOCKET] get_verification_status error: ${error.message}`);
                 socket.emit('verification_error', { action: 'get_verification_status', message: error.message });
             }
         });
