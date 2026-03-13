@@ -589,6 +589,12 @@ const createBooking = async (userId, bookingData) => {
         });
     }
 
+    const adminService = require('../admin/admin.service');
+    const baseTravelCharge = (await adminService.getSetting('pricing.travel_charge')) || 0;
+    
+    const calculatedBasePrice = processedServices.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+    const calculatedTotalPrice = calculatedBasePrice + baseTravelCharge;
+
     const booking = await Booking.create({
         bookingID: generateBookingID(),
         user: userId,
@@ -596,7 +602,11 @@ const createBooking = async (userId, bookingData) => {
         scheduledDate: new Date(date),
         scheduledTime: time,
         location: { address, latitude, longitude, pincode },
-        pricing: { totalPrice: totalPrice || 0, basePrice: totalPrice || 0 },
+        pricing: { 
+            totalPrice: calculatedTotalPrice, 
+            basePrice: calculatedBasePrice,
+            travelCharge: baseTravelCharge 
+        },
         status: 'pending_acceptance',
         statusHistory: [{ status: 'pending_acceptance', timestamp: new Date() }]
     });

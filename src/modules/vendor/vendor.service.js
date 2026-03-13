@@ -99,19 +99,24 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, vendorId }) => {
 
     // Fetch global base membership fee
     const adminService = require('../admin/admin.service');
-    const baseFee = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
+    const baseFeeSetting = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
+
+    const durationMonths = Number(overrides?.durationMonths || 3);
+    const multiplier = durationMonths / 3;
 
     const itemsFee = itemList.reduce((sum, item) => sum + (isSubcategory ? (item.price || 0) : (item.membershipFee || 0)), 0);
-    const totalFee = itemsFee + baseFee;
+    const totalFee = (itemsFee + baseFeeSetting) * multiplier;
 
     return {
         totalFee,
-        vendorBaseMembershipFee: baseFee,
-        duration: "3 months",
+        vendorBaseMembershipFee: baseFeeSetting,
+        duration: `${durationMonths} months`,
+        durationMonths,
         services: itemList.map(item => ({
             id: item._id,
             title: isSubcategory ? item.name : item.title,
-            type: isSubcategory ? 'subcategory' : 'service'
+            type: isSubcategory ? 'subcategory' : 'service',
+            membershipFee: isSubcategory ? (item.price || 0) : (item.membershipFee || 0)
         }))
     };
 };
@@ -155,21 +160,26 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
 
     // Fetch global base membership fee
     const adminService = require('../admin/admin.service');
-    const baseFee = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
+    const baseFeeSetting = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
+
+    const durationMonths = Number(overrides.durationMonths || vendor.membership.durationMonths || 3);
+    const multiplier = durationMonths / 3;
 
     const itemsFee = itemList.reduce((sum, item) => sum + (isSubcategory ? (item.price || 0) : (item.membershipFee || 0)), 0);
-    const totalFee = itemsFee + baseFee;
+    const totalFee = (itemsFee + baseFeeSetting) * multiplier;
 
     return {
         vendorId: vendor._id,
         totalFee,
-        vendorBaseMembershipFee: baseFee,
-        duration: "3 months",
+        vendorBaseMembershipFee: baseFeeSetting,
+        duration: `${durationMonths} months`,
+        durationMonths,
         razorpayKeyId: config.RAZORPAY_KEY_ID,
         services: itemList.map(item => ({
             id: item._id,
             title: isSubcategory ? item.name : item.title,
-            type: isSubcategory ? 'subcategory' : 'service'
+            type: isSubcategory ? 'subcategory' : 'service',
+            membershipFee: isSubcategory ? (item.price || 0) : (item.membershipFee || 0)
         }))
     };
 };
@@ -202,9 +212,13 @@ const createMembershipOrder = async (vendorId) => {
     }
 
     const adminService = require('../admin/admin.service');
-    const baseFee = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
+    const baseFeeSetting = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
+    
+    const durationMonths = Number(vendor.membership.durationMonths || 3);
+    const multiplier = durationMonths / 3;
+
     const itemsFee = itemList.reduce((sum, item) => sum + (isSubcategory ? (item.price || 0) : (item.membershipFee || 0)), 0);
-    const totalFee = itemsFee + baseFee;
+    const totalFee = (itemsFee + baseFeeSetting) * multiplier;
 
     if (totalFee <= 0) {
         throw new ApiError(400, 'Membership fee must be greater than 0');
@@ -273,9 +287,13 @@ const selectServices = async (vendorId, { subcategoryIds, durationMonths }) => {
         throw new ApiError(400, 'No valid subcategories selected');
     }
 
-    // Calculate total price: Sum of subcategory prices * (durationMonths / 3)
+    // Fetch global base membership fee
+    const adminService = require('../admin/admin.service');
+    const baseFeeSetting = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
+
+    // Calculate total price: (Sum of subcategory prices + base fee) * (durationMonths / 3)
     const basePrice = subcategories.reduce((sum, sub) => sum + (sub.price || 0), 0);
-    const totalPrice = basePrice * (durationMonths / 3);
+    const totalPrice = (basePrice + baseFeeSetting) * (durationMonths / 3);
 
     // Update vendor
     vendor.selectedSubcategories = parsedSubcategoryIds;
