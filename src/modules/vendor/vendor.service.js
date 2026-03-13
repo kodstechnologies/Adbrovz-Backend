@@ -448,7 +448,7 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
     const payload = _getVerificationPayload(vendor);
     payload.message = message;
 
-    emitToVendor(vendor._id, 'vendor_verification_update', payload);
+    emitToVendor(vendor._id, 'verification_status_response', payload);
 
     return {
         vendor,
@@ -499,7 +499,7 @@ const verifyAllDocuments = async (vendorId) => {
     const payload = _getVerificationPayload(vendor);
     payload.message = message;
 
-    emitToVendor(vendor._id, 'vendor_verification_update', payload);
+    emitToVendor(vendor._id, 'verification_status_response', payload);
 
     return {
         vendor,
@@ -522,7 +522,7 @@ const toggleVendorSuspension = async (vendorId, { isSuspended }) => {
     const payload = _getVerificationPayload(vendor);
     payload.message = message;
 
-    emitToVendor(vendor._id, 'vendor_verification_update', payload);
+    emitToVendor(vendor._id, 'verification_status_response', payload);
 
     return vendor;
 };
@@ -553,7 +553,7 @@ const rejectVendorAccount = async (vendorId, { reason }) => {
     const payload = _getVerificationPayload(vendor);
     payload.message = message;
 
-    emitToVendor(vendor._id, 'vendor_verification_update', payload);
+    emitToVendor(vendor._id, 'verification_status_response', payload);
 
     return vendor;
 };
