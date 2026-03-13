@@ -530,14 +530,24 @@ const getIo = () => {
  * Safe to call even if the vendor is not connected (no-op).
  */
 const emitToVendor = (vendorId, event, data) => {
-    if (!io) return;
-    const sockets = activeVendors.get(vendorId.toString()) || [];
+    if (!io) {
+        console.warn(`[SOCKET] emitToVendor: Socket.io not initialized. Cannot emit '${event}'.`);
+        return;
+    }
+    const vIdStr = vendorId.toString();
+    const sockets = activeVendors.get(vIdStr) || [];
+
+    console.log(`[SOCKET DEBUG] emitToVendor called: event='${event}', vendorId='${vIdStr}', matchedSockets=${sockets.length}, allRegisteredVendors=[${[...activeVendors.keys()].join(', ')}]`);
+
+    if (sockets.length === 0) {
+        console.warn(`[SOCKET] No active sockets for Vendor ${vIdStr}. FAILED to emit '${event}'.`);
+        return;
+    }
+
     sockets.forEach(socketId => {
         io.to(socketId).emit(event, data);
     });
-    if (sockets.length > 0) {
-        console.log(`📡 Emitted '${event}' to Vendor ${vendorId} on ${sockets.length} socket(s)`);
-    }
+    console.log(`📡 Emitted '${event}' to Vendor ${vIdStr} on ${sockets.length} socket(s)`);
 };
 
 /**

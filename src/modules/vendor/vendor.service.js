@@ -561,8 +561,10 @@ const rejectVendorAccount = async (vendorId, { reason }) => {
 /**
  * Admin: Verify Vendor (Legacy/Fallback)
  */
-const verifyVendor = async (vendorId, { status, reason }) => {
-    if (status === 'approved') return await verifyAllDocuments(vendorId);
+const verifyVendor = async (vendorId, { status, documentStatus, reason }) => {
+    // Admin panel sends { documentStatus: 'approved' }, fallback to status
+    const effectiveStatus = status || documentStatus;
+    if (effectiveStatus === 'approved') return await verifyAllDocuments(vendorId);
     return await rejectVendorAccount(vendorId, { reason });
 };
 
