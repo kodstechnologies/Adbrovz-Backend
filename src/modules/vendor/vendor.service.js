@@ -439,6 +439,12 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
 
     await vendor.save();
 
+    const message = allVerified 
+        ? "Congratulations! Your account is now fully verified." 
+        : (status === 'rejected' 
+            ? `Your ${docType} has been rejected. Reason: ${reason || 'Please provide a valid document.'}` 
+            : `Your ${docType} has been ${status}.`);
+
     const payload = _getVerificationPayload(vendor);
     payload.message = message;
 
