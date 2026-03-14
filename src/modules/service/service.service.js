@@ -261,11 +261,13 @@ const createService = async (data) => {
         }
     }
 
-    // Normalize adminPrice: empty string or non-numeric should be null
-    if (data.adminPrice === '' || data.adminPrice === undefined || data.adminPrice === 'null') {
+    // Normalize adminPrice and set isAdminPriced
+    if (data.adminPrice === '' || data.adminPrice === undefined || data.adminPrice === 'null' || Number(data.adminPrice) === 0) {
         data.adminPrice = null;
-    } else if (data.adminPrice !== null) {
+        data.isAdminPriced = false;
+    } else {
         data.adminPrice = Number(data.adminPrice);
+        data.isAdminPriced = true;
     }
 
     return await Service.create(data);
@@ -292,11 +294,13 @@ const updateService = async (serviceId, data) => {
         }
     }
 
-    // Normalize adminPrice: empty string or non-numeric should be null
-    if (data.adminPrice === '' || data.adminPrice === undefined || data.adminPrice === 'null') {
+    // Normalize adminPrice and set isAdminPriced
+    if (data.adminPrice === '' || data.adminPrice === undefined || data.adminPrice === 'null' || Number(data.adminPrice) === 0) {
         data.adminPrice = null;
-    } else if (data.adminPrice !== null) {
+        data.isAdminPriced = false;
+    } else {
         data.adminPrice = Number(data.adminPrice);
+        data.isAdminPriced = true;
     }
 
     return await Service.findByIdAndUpdate(serviceId, data, { new: true, runValidators: true });
