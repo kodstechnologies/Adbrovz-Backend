@@ -249,20 +249,26 @@ const resetPinSchema = Joi.object({
   newPin: Joi.string()
     .length(4)
     .pattern(/^\d+$/)
-    .required()
+    .optional()
     .messages({
       'string.length': 'PIN must be exactly 4 digits',
       'string.pattern.base': 'PIN must contain only numbers',
-      'any.required': 'New PIN is required',
+    }),
+  pin: Joi.string()
+    .length(4)
+    .pattern(/^\d+$/)
+    .optional()
+    .messages({
+      'string.length': 'PIN must be exactly 4 digits',
+      'string.pattern.base': 'PIN must contain only numbers',
     }),
   confirmPin: Joi.string()
-    .valid(Joi.ref('newPin'))
-    .required()
+    .optional()
+    .valid(Joi.ref('newPin'), Joi.ref('pin'))
     .messages({
       'any.only': 'PINs do not match',
-      'any.required': 'Confirm PIN is required',
     }),
-});
+}).or('newPin', 'pin');
 
 // Verify Reset OTP schema (Step 2)
 const verifyResetOTPSchema = Joi.object({

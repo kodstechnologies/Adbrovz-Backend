@@ -59,8 +59,9 @@ const userCompleteResetPIN = asyncHandler(async (req, res) => {
 });
 
 const userResetPIN = asyncHandler(async (req, res) => {
-  const { phoneNumber, otp, newPin, confirmPin } = req.body;
-  const result = await authService.resetPIN(phoneNumber, otp, newPin, confirmPin, 'user', req);
+  const { phoneNumber, otp, newPin, pin, confirmPin } = req.body;
+  const targetPin = newPin || pin;
+  const result = await authService.resetPIN(phoneNumber, otp, targetPin, confirmPin, 'user', req);
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
@@ -114,8 +115,9 @@ const vendorSendOTP = asyncHandler(async (req, res) => {
 });
 
 const vendorResetPIN = asyncHandler(async (req, res) => {
-  const { phoneNumber, otp, newPin, confirmPin } = req.body;
-  const result = await authService.resetPIN(phoneNumber, otp, newPin, confirmPin, 'vendor', req);
+  const { phoneNumber, otp, newPin, pin, confirmPin } = req.body;
+  const targetPin = newPin || pin;
+  const result = await authService.resetPIN(phoneNumber, otp, targetPin, confirmPin, 'vendor', req);
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 

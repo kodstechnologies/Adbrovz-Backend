@@ -194,7 +194,7 @@ const getVerificationStatus = asyncHandler(async (req, res) => {
  * Delete vendor account (Self-service)
  */
 const deleteAccount = asyncHandler(async (req, res) => {
-    const vendorId = req.user.userId;
+    const vendorId = req.user.userId || req.user.id || req.user._id;
     const result = await vendorService.deleteVendorAccount(vendorId);
     res.status(200).json(
         new ApiResponse(200, result, 'Account deleted successfully')

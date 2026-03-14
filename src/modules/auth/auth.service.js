@@ -896,40 +896,44 @@ const sendOTP = async (phoneNumber, role = 'user') => {
 
 // ======================== RESET PIN ========================
 const resetPIN = async (phoneNumber, otp, newPin, confirmPin, role = 'user', req = null) => {
-  if (newPin !== confirmPin) {
+  // Validate PIN match if confirmPin is provided
+  if (confirmPin && newPin !== confirmPin) {
     throw new ApiError(400, MESSAGES.AUTH.PIN_MISMATCH);
   }
 
   let user;
 
+  // Try finding in the specified role first
   if (role === 'vendor') {
     user = await Vendor.findOne({ phoneNumber });
   } else {
     user = await User.findOne({ phoneNumber });
   }
 
+  // Fallback: If not found in primary role, check the other role
+  if (!user) {
+    if (role === 'user') {
+      user = await Vendor.findOne({ phoneNumber });
+      if (user) role = 'vendor';
+    } else {
+      user = await User.findOne({ phoneNumber });
+      if (user) role = 'user';
+    }
+  }
+
   if (!user) {
     throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
   }
 
-  // Verify OTP - Bypassed as per user request
-  const otpKey = `otp:reset:${phoneNumber}`;
-  /*
-  const storedOTP = await cacheService.get(otpKey);
-
-  if (!storedOTP || storedOTP !== otp) {
-    throw new ApiError(400, MESSAGES.AUTH.INVALID_OTP);
-  }
-  */
-
-  // Update PIN
+  // Update PIN - OTP Bypassed as per user request
   user.pin = await hashPIN(newPin);
   user.failedAttempts = 0;
   user.isLocked = false;
   user.lockUntil = undefined;
   await user.save();
 
-  // Delete OTP
+  // Delete OTP if it exists in cache
+  const otpKey = `otp:reset:${phoneNumber}`;
   await cacheService.del(otpKey);
 
   // Audit log - PIN reset
@@ -941,7 +945,7 @@ const resetPIN = async (phoneNumber, otp, newPin, confirmPin, role = 'user', req
       userModel: role === 'vendor' ? 'Vendor' : 'User',
       details: {
         updateType: 'PIN_RESET',
-        resetMethod: 'OTP',
+        resetMethod: 'DIRECT',
       },
       ip,
       userAgent,
