@@ -4,7 +4,7 @@ const bookingController = require('./booking.controller');
 const { authenticate } = require('../../middlewares/auth.middleware');
 
 /**
- * USER – LEAD FLOW
+ * USER – LEAD  
  */
 router.post('/request', authenticate, bookingController.requestLead);
 

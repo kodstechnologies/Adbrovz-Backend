@@ -102,11 +102,13 @@ const acceptLead = async (vendorId, bookingId) => {
         throw new ApiError(404, 'Vendor not found');
     }
 
-    // ── Credit/Coin check ──
+    // ── Credit/Coin check DISABLED ──
+    /*
     const coinCost = (await adminService.getSetting('pricing.accept_lead_coin_cost')) || 10;
     if (vendor.coins < coinCost) {
         throw new ApiError(400, `Insufficient coins. You need ${coinCost} coins to accept a lead (you have ${vendor.coins}).`);
     }
+    */
 
     // ── Fetch booking first (for overlap check) ──
     const pendingBooking = await Booking.findOne({ ...query, status: 'pending_acceptance' });
@@ -177,10 +179,12 @@ const acceptLead = async (vendorId, bookingId) => {
         console.error(`[SOCKET] Failed to emit search update in acceptLead: ${socketErr.message}`);
     }
 
-    // ── Deduct coins from vendor ──
+    // ── Deduct coins from vendor DISABLED ──
+    /*
     vendor.coins -= coinCost;
     await vendor.save();
     console.log(`[SOCKET] Deducted ${coinCost} coins from vendor ${vendorId}. New balance: ${vendor.coins}`);
+    */
 
     console.log(`[SOCKET] Lead ${bookingId} locked by vendor ${vendorId}`);
 
@@ -1322,8 +1326,10 @@ const addServicesToBooking = async (vendorId, bookingId, newServices) => {
         throw new ApiError(400, 'At least one service is required');
     }
 
-    // Clear any older un-acted proposals
-    booking.proposedServices = [];
+    // Append instead of clearing older un-acted proposals
+    if (!booking.proposedServices) {
+        booking.proposedServices = [];
+    }
 
     for (const item of newServices) {
         const serviceDoc = await Service.findById(item.serviceId);
@@ -1630,8 +1636,10 @@ async function requestExtraServices(userId, bookingId, newServices) {
         throw new ApiError(400, 'At least one service is required');
     }
 
-    // Clear previous un-acted user requests
-    booking.userRequestedServices = [];
+    // Append instead of clearing previous un-acted user requests
+    if (!booking.userRequestedServices) {
+        booking.userRequestedServices = [];
+    }
 
     for (const item of newServices) {
         const serviceDoc = await Service.findById(item.serviceId);
