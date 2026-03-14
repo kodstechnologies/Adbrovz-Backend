@@ -526,9 +526,9 @@ const getBookingDetails = async (bookingId, userId, role) => {
     if (bookingObj.userRequestedServices) {
         bookingObj.userRequestedServices = bookingObj.userRequestedServices.map(item => ({
             ...item,
-            adminPrice: item.adminPrice ?? 0,
-            vendorPrice: item.vendorPrice ?? 0,
-            finalPrice: item.finalPrice ?? 0,
+            adminPrice: item.adminPrice,
+            vendorPrice: item.vendorPrice,
+            finalPrice: item.finalPrice,
             isPriceConfirmed: item.isPriceConfirmed ?? false
         }));
     }
@@ -602,7 +602,7 @@ const createBooking = async (userId, bookingData) => {
             adminPrice: serviceDoc.adminPrice,
             finalPrice: serviceDoc.adminPrice
                 ? serviceDoc.adminPrice * (item.quantity || 1)
-                : 0,
+                : null,
             isPriceConfirmed: !!serviceDoc.adminPrice
         });
     }
@@ -1342,7 +1342,7 @@ const addServicesToBooking = async (vendorId, bookingId, newServices) => {
         const vendorPrice = adminPrice ? null : (item.price || null);
         const finalPrice = adminPrice
             ? adminPrice * qty
-            : (vendorPrice ? vendorPrice * qty : 0);
+            : (vendorPrice ? vendorPrice * qty : null);
 
         // Stage in proposedServices, NOT services yet
         booking.proposedServices.push({
