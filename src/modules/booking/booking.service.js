@@ -411,10 +411,24 @@ const findBookingByUser = async (bookingId, userId) => {
  * Get full booking details with population
  */
 const getBookingDetails = async (bookingId, userId, role) => {
-    const query = role === 'vendor' ? { vendor: userId } : { user: userId };
+    let query = {};
+    const isAdmin = role === 'admin' || role === 'super_admin';
+
+    if (isAdmin) {
+        // Admins can see any booking by ID
+        query = {};
+    } else if (role === 'vendor') {
+        query = { vendor: userId };
+    } else {
+        query = { user: userId };
+    }
 
     if (mongoose.isValidObjectId(bookingId)) {
-        query.$or = [{ _id: bookingId }, { bookingID: bookingId }];
+        if (isAdmin) {
+            query._id = bookingId;
+        } else {
+            query.$or = [{ _id: bookingId }, { bookingID: bookingId }];
+        }
     } else {
         query.bookingID = bookingId;
     }
@@ -1020,15 +1034,29 @@ const retrySearchVendors = async (userId, bookingId) => {
  * Get booking status history
  */
 const getBookingStatusHistory = async (bookingId, userId, role) => {
-    const query = role === 'vendor' ? { vendor: userId } : role === 'user' ? { user: userId } : {};
+    let query = {};
+    const isAdmin = role === 'admin' || role === 'super_admin';
+
+    if (isAdmin) {
+        // Admins can see history of any booking
+        query = {};
+    } else if (role === 'vendor') {
+        query = { vendor: userId };
+    } else {
+        query = { user: userId };
+    }
 
     if (mongoose.isValidObjectId(bookingId)) {
-        query.$or = [{ _id: bookingId }, { bookingID: bookingId }];
+        if (isAdmin) {
+            query._id = bookingId;
+        } else {
+            query.$or = [{ _id: bookingId }, { bookingID: bookingId }];
+        }
     } else {
         query.bookingID = bookingId;
     }
 
-    const booking = await Booking.findOne(query).select('statusHistory status');
+    const booking = await Booking.findOne(query).select('statusHistory displayStatus status');
     if (!booking) throw new ApiError(404, 'Booking not found');
 
     // Clean up history by removing any potential Mongoose ID fields for a cleaner response
