@@ -945,7 +945,7 @@ const cancelBooking = async (userId, bookingId, reason) => {
     const { emitToUser, emitToVendor } = require('../../socket');
     emitToUser(booking.user, 'booking_status_updated', populatedBooking);
     if (booking.vendor) {
-        emitToVendor(booking.vendor, 'booking_status_updated', populatedBooking);
+        emitToVendor(booking.vendor, 'booking_cancellation', populatedBooking);
     }
 
     return populatedBooking || booking;
@@ -1229,8 +1229,11 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
         const item = booking.services.find(s => s.service.toString() === update.serviceId.toString());
         if (item) {
             // Check if it was unpriced in Service model
+            // Check if it was unpriced in Service model or if adminPrice is 0/null
             const serviceDoc = await Service.findById(item.service);
-            if (serviceDoc && !serviceDoc.isAdminPriced) {
+            const isUnpriced = serviceDoc && (!serviceDoc.isAdminPriced || !serviceDoc.adminPrice || serviceDoc.adminPrice === 0);
+            
+            if (isUnpriced) {
                 console.log(`[SOCKET] Updating price for service: ${item.service}`);
                 item.vendorPrice = update.price;
                 item.finalPrice = update.price * (item.quantity || 1);
