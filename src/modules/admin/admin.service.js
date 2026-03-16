@@ -192,9 +192,8 @@ const updateUserStatus = async (userId, status, adminId) => {
     throw new Error('User not found');
   }
 
-  const oldStatus = user.status || (user.isActive ? 'ACTIVE' : 'SUSPENDED');
+  const oldStatus = user.status || 'ACTIVE';
   user.status = status;
-  user.isActive = (status === 'ACTIVE');
   await user.save();
 
   // Log the action
@@ -225,9 +224,8 @@ const createCreditPlan = async (planData) => {
   return await CreditPlan.create(planData);
 };
 
-const getCreditPlans = async (includeInactive = true) => {
-  const filter = includeInactive ? {} : { isActive: true };
-  return await CreditPlan.find(filter).sort({ price: 1 });
+const getCreditPlans = async () => {
+  return await CreditPlan.find({}).sort({ price: 1 });
 };
 
 const updateCreditPlan = async (planId, updateData) => {

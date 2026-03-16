@@ -327,7 +327,7 @@ const purchaseMembership = async (vendorId) => {
         throw new ApiError(400, 'Please select services before purchasing membership');
     }
 
-    vendor.membership.isActive = true;
+
     vendor.membership.startDate = new Date();
     const expiryDate = new Date();
     expiryDate.setMonth(expiryDate.getMonth() + (vendor.membership.durationMonths || 3));
@@ -426,7 +426,6 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
 
             vendor.membership.startDate = startDate;
             vendor.membership.expiryDate = expiryDate;
-            vendor.membership.isActive = true;
         }
     } else if (status === 'rejected') {
         vendor.isVerified = false;
@@ -490,7 +489,6 @@ const verifyAllDocuments = async (vendorId) => {
 
         vendor.membership.startDate = startDate;
         vendor.membership.expiryDate = expiryDate;
-        vendor.membership.isActive = true;
     }
 
     await vendor.save();
@@ -713,7 +711,7 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    vendor.membership.isActive = true;
+
     vendor.membership.startDate = new Date();
     const expiryDate = new Date();
     expiryDate.setMonth(expiryDate.getMonth() + (vendor.membership.durationMonths || 3));
@@ -735,7 +733,6 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
 
     emitToVendor(vendor._id, 'membership_activated', {
         membership: {
-            isActive: vendor.membership.isActive,
             startDate: vendor.membership.startDate,
             expiryDate: vendor.membership.expiryDate,
             durationMonths: vendor.membership.durationMonths || 3,
@@ -752,7 +749,6 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         isVerified: vendor.isVerified,
         documentStatus: vendor.documentStatus,
         membership: {
-            isActive: vendor.membership.isActive,
             startDate: vendor.membership.startDate,
             expiryDate: vendor.membership.expiryDate,
             durationMonths: vendor.membership.durationMonths || 3,

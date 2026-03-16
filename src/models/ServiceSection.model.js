@@ -27,10 +27,6 @@ const serviceSectionSchema = new mongoose.Schema(
             type: Number,
             default: 0,
         },
-        isActive: {
-            type: Boolean,
-            default: true,
-        },
     },
     {
         timestamps: true,
@@ -48,7 +44,7 @@ const serviceSectionSchema = new mongoose.Schema(
 );
 
 // Indexes
-serviceSectionSchema.index({ isActive: 1, order: 1 });
+serviceSectionSchema.index({ order: 1 });
 
 const ServiceSection = mongoose.model('ServiceSection', serviceSectionSchema);
 

@@ -11,10 +11,10 @@ const MESSAGES = require('../../constants/messages');
  */
 
 /**
- * Get all active categories
+ * Get all categories
  */
 const getAllCategories = async () => {
-    const categories = await Category.find({ isActive: true })
+    const categories = await Category.find({})
         .sort({ order: 1, name: 1 })
         .select('name description icon defaultFreeCredits');
     return categories;
@@ -24,10 +24,7 @@ const getAllCategories = async () => {
  * Get subcategories by category ID
  */
 const getSubcategoriesByCategoryId = async (categoryId) => {
-    const subcategories = await Subcategory.find({
-        category: categoryId,
-        isActive: true
-    })
+    const subcategories = await Subcategory.find({ category: categoryId })
         .sort({ order: 1, name: 1 })
         .select('name description icon order price');
 
@@ -42,8 +39,7 @@ const getServicesBySubcategoryId = async (subcategoryId, options = {}) => {
     const skip = (page - 1) * limit;
 
     const query = {
-        subcategory: subcategoryId,
-        isActive: true
+        subcategory: subcategoryId
     };
 
     if (search) {
@@ -75,7 +71,7 @@ const getServicesBySubcategoryId = async (subcategoryId, options = {}) => {
  * Get service details by ID
  */
 const getServiceById = async (serviceId) => {
-    const service = await Service.findOne({ _id: serviceId, isActive: true })
+    const service = await Service.findById(serviceId)
         .populate('category', 'name')
         .populate('subcategory', 'name');
 
@@ -95,16 +91,16 @@ const globalSearch = async (query) => {
     const searchRegex = { $regex: query, $options: 'i' };
 
     const [categories, subcategories, services] = await Promise.all([
-        Category.find({ name: searchRegex, isActive: true })
+        Category.find({ name: searchRegex })
             .select('name icon description')
             .limit(10),
 
-        Subcategory.find({ name: searchRegex, isActive: true })
+        Subcategory.find({ name: searchRegex })
             .populate('category', 'name')
             .select('name icon description category')
             .limit(10),
 
-        Service.find({ title: searchRegex, isActive: true })
+        Service.find({ title: searchRegex })
             .populate('category', 'name')
             .populate('subcategory', 'name')
             .select(
@@ -400,7 +396,7 @@ const getAllCategoriesWithSubcategories = async () => {
  * Public: Get flat list of all services (name and ID only)
  */
 const getServiceCatalogue = async () => {
-    const services = await Service.find({ isActive: true })
+    const services = await Service.find({})
         .select('title _id')
         .sort({ title: 1 });
 

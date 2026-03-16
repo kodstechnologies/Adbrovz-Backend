@@ -7,15 +7,15 @@ const ApiError = require('../../utils/ApiError');
  * USER: Get dashboard data (service sections + banners)
  */
 const getDashboardData = async () => {
-    // Get active banners
-    const banners = await Banner.find({ isActive: true, type: 'user' })
+    // Get banners
+    const banners = await Banner.find({ type: 'user' })
         .sort({ order: 1 })
         .populate('category', '_id name')
         .select('title description image category order')
         .then(docs => docs.filter(doc => doc.category)); // Filter out orphaned banners
 
-    // Get active service sections
-    const serviceSections = await ServiceSection.find({ isActive: true })
+    // Get service sections
+    const serviceSections = await ServiceSection.find({})
         .sort({ order: 1 })
         .populate('category', '_id name')
         .populate('subcategory', '_id name');
@@ -30,8 +30,7 @@ const getDashboardData = async () => {
 
             const services = await Service.find({
                 category: section.category._id,
-                subcategory: section.subcategory._id,
-                isActive: true
+                subcategory: section.subcategory._id
             })
                 .limit(section.limit)
                 .select('title description photo approxCompletionTime adminPrice isAdminPriced category subcategory')
@@ -56,13 +55,10 @@ const getDashboardData = async () => {
 
 /**
  * ADMIN/PUBLIC: Get all service sections
- * Query params: isActive (boolean), ignoreEmpty (boolean)
+ * Query params: ignoreEmpty (boolean)
  */
 const getAllServiceSections = async (query = {}) => {
     const filter = {};
-    if (query.isActive) {
-        filter.isActive = query.isActive === 'true';
-    }
 
     const sections = await ServiceSection.find(filter)
         .sort({ order: 1 })
@@ -84,8 +80,7 @@ const getAllServiceSections = async (query = {}) => {
             // Find services for this section
             const services = await Service.find({
                 category: section.category._id,
-                subcategory: section.subcategory._id,
-                isActive: true
+                subcategory: section.subcategory._id
             })
                 .limit(section.limit) // limit to section's limit
                 .sort({ order: 1 }) // implied service order, or createdAt
@@ -98,11 +93,10 @@ const getAllServiceSections = async (query = {}) => {
                 return null;
             }
 
-            // Get total count of active services for this subcategory
+            // Get total count of services for this subcategory
             const count = await Service.countDocuments({
                 category: section.category._id,
-                subcategory: section.subcategory._id,
-                isActive: true
+                subcategory: section.subcategory._id
             });
 
             return {
@@ -158,7 +152,7 @@ const getAllBanners = async (query = {}) => {
     const banners = await Banner.find(filter)
         .sort({ order: 1 })
         .populate('category', 'name')
-        .select('title description image category order isActive type');
+        .select('title description image category order type');
     return banners;
 };
 
@@ -192,7 +186,7 @@ const deleteBanner = async (id) => {
  * USER: Get vendor banners
  */
 const getVendorBanners = async () => {
-    const banners = await Banner.find({ isActive: true, type: 'vendor' })
+    const banners = await Banner.find({ type: 'vendor' })
         .sort({ order: 1 })
         .select('title description image order');
     return banners;

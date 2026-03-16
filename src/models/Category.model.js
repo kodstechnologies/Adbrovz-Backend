@@ -15,11 +15,6 @@ const categorySchema = new mongoose.Schema(
     icon: {
       type: String,
     },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
-
     order: {
       type: Number,
       default: 0,
@@ -41,7 +36,7 @@ const categorySchema = new mongoose.Schema(
 );
 
 // Indexes
-categorySchema.index({ isActive: 1, order: 1 });
+categorySchema.index({ order: 1 });
 
 const Category = mongoose.model('Category', categorySchema);
 

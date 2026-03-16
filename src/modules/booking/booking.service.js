@@ -704,7 +704,6 @@ const searchVendors = async (booking, broadcast = false) => {
 
     const query = {
         isOnline: true,
-        isActive: true,
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
@@ -953,7 +952,57 @@ const cancelBooking = async (userId, bookingId, reason) => {
 };
 
 /**
+ * Get available 1-hour time slots for a vendor on a given date (08:00–20:00)
+ * excluding windows that overlap with existing bookings.
+ */
+const getAvailableSlots = async (vendorId, date, excludeBookingId) => {
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(date);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    // Fetch all vendor's active bookings on that day
+    const vendorBookings = await Booking.find({
+        vendor: vendorId,
+        _id: { $ne: excludeBookingId },
+        scheduledDate: { $gte: dayStart, $lte: dayEnd },
+        status: { $nin: ['cancelled', 'completed', 'pending_acceptance'] }
+    }).populate('services.service');
+
+    // Build busy windows
+    const busyWindows = [];
+    for (const b of vendorBookings) {
+        const range = await getBookingTimeRange(b);
+        if (range) busyWindows.push(range);
+    }
+
+    // Generate candidate slots every 30 mins from 08:00 to 20:00
+    const slots = [];
+    const slotDurationMs = 60 * 60 * 1000; // 1 hour window to check
+    for (let h = 8; h < 20; h++) {
+        for (let m = 0; m < 60; m += 30) {
+            const slotStart = new Date(date);
+            slotStart.setHours(h, m, 0, 0);
+            const slotEnd = new Date(slotStart.getTime() + slotDurationMs);
+
+            const overlaps = busyWindows.some(w =>
+                Math.max(slotStart, w.start) < Math.min(slotEnd, w.end)
+            );
+
+            if (!overlaps) {
+                slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+            }
+        }
+    }
+
+    return slots;
+};
+
+/**
  * Reschedule booking
+ * - Max 2 reschedules per booking
+ * - If vendor assigned: checks for conflicts at new time; returns available slots if busy
+ * - Emits socket to vendor on success
  */
 const rescheduleBooking = async (userId, bookingId, { date, time }) => {
     const booking = await findBookingByUser(bookingId, userId);
@@ -965,19 +1014,100 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
     }
 
     if (['completed', 'cancelled'].includes(booking.status)) {
-        throw new ApiError(400, 'Cannot reschedule');
+        throw new ApiError(400, 'Cannot reschedule a completed or cancelled booking');
     }
 
+    // --- 2-hour cutoff: cannot reschedule within 2 hours of scheduled start ---
+    if (booking.scheduledDate && booking.scheduledTime) {
+        const [hours, mins] = booking.scheduledTime.split(':').map(Number);
+        const scheduledStart = new Date(booking.scheduledDate);
+        scheduledStart.setHours(hours || 0, mins || 0, 0, 0);
+
+        const now = new Date();
+        const diffMs = scheduledStart - now;
+        const diffHours = diffMs / (1000 * 60 * 60);
+
+        if (diffHours < 2) {
+            throw new ApiError(400, 'Rescheduling is not allowed within 2 hours of the scheduled start time');
+        }
+    }
+
+    // --- Vendor conflict check (only if a vendor is assigned) ---
+    if (booking.vendor) {
+        const newDate = new Date(date);
+
+        // Build a temporary booking-like object to compute the time range at the new slot
+        const tempBooking = await Booking.findById(booking._id).populate('services.service');
+        tempBooking.scheduledDate = newDate;
+        tempBooking.scheduledTime = time;
+        const newRange = await getBookingTimeRange(tempBooking);
+
+        if (newRange) {
+            // Find any active booking for this vendor on that day (excluding current)
+            const dayStart = new Date(newDate);
+            dayStart.setHours(0, 0, 0, 0);
+            const dayEnd = new Date(newDate);
+            dayEnd.setHours(23, 59, 59, 999);
+
+            const vendorBookings = await Booking.find({
+                vendor: booking.vendor,
+                _id: { $ne: booking._id },
+                scheduledDate: { $gte: dayStart, $lte: dayEnd },
+                status: { $nin: ['cancelled', 'completed', 'pending_acceptance'] }
+            }).populate('services.service');
+
+            for (const vb of vendorBookings) {
+                const range = await getBookingTimeRange(vb);
+                if (!range) continue;
+                const overlaps = Math.max(newRange.start, range.start) < Math.min(newRange.end, range.end);
+                if (overlaps) {
+                    // Vendor is busy — return available slots instead
+                    const availableSlots = await getAvailableSlots(booking.vendor, newDate, booking._id);
+                    return {
+                        vendorBusy: true,
+                        message: 'Vendor has bookings at that time. Please choose from the available slots.',
+                        availableSlots
+                    };
+                }
+            }
+        }
+    }
+
+    // --- Save reschedule ---
     booking.scheduledDate = new Date(date);
     booking.scheduledTime = time;
     booking.rescheduleCount += 1;
-
+    booking.statusHistory.push({
+        status: booking.status,
+        reason: `Rescheduled to ${date} ${time}`,
+        actor: 'user',
+        timestamp: new Date()
+    });
+    booking.markModified('statusHistory');
     await booking.save();
 
-    // Fetch fully populated booking object for the frontend
-    const populatedBooking = await getBookingDetails(booking._id, userId, 'user');
+    // Fetch populated payloads
+    const userPayload = await getBookingDetails(booking._id, userId, 'user');
 
-    return populatedBooking;
+    // Notify vendor via socket immediately
+    if (booking.vendor) {
+        try {
+            const { emitToVendor } = require('../../socket');
+            const vendorPayload = await getBookingDetails(booking._id, booking.vendor, 'vendor');
+            emitToVendor(booking.vendor, 'booking_rescheduled', {
+                bookingId: booking._id,
+                bookingID: booking.bookingID,
+                newDate: date,
+                newTime: time,
+                message: 'User has rescheduled this booking.',
+                booking: vendorPayload
+            });
+        } catch (socketErr) {
+            console.error(`[SOCKET] Failed to notify vendor on reschedule: ${socketErr.message}`);
+        }
+    }
+
+    return userPayload;
 };
 
 const getBookingsByUser = async (userId) =>

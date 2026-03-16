@@ -40,10 +40,6 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
     status: {
       type: String,
       enum: ['PENDING', 'ACTIVE', 'SUSPENDED'],

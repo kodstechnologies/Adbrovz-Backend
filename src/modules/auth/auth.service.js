@@ -307,7 +307,6 @@ const completeVendorSignup = async ({ signupId, pin, confirmPin, acceptedTerms, 
     refreshToken,
     message: 'Vendor registration completed successfully. Please wait for document approval.',
     isVerified: vendor.isVerified || false,
-    isMembershipActive: vendor.membership?.isActive || false,
     documentStatus: vendor.documentStatus,
   };
 };
@@ -538,9 +537,7 @@ const adminLogin = async ({ username, password }, req = null) => {
     throw new ApiError(401, 'Invalid username or password');
   }
 
-  if (!admin.isActive) {
-    throw new ApiError(403, 'Account is disabled. Please contact Super Admin.');
-  }
+
 
   const isPasswordValid = await comparePassword(password, admin.password);
 
@@ -839,7 +836,6 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
     token,
     refreshToken,
     isVerified: user.isVerified || false,
-    isMembership: !!(user.membership?.isActive),
     isDocsVerified: user.documentStatus === 'approved',
   };
 
@@ -859,7 +855,6 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
       isVerified: user.isVerified || false,
       documentStatus: user.documentStatus || 'pending',
       membership: {
-        isActive: user.membership?.isActive || false,
         expiryDate: user.membership?.expiryDate || null,
       },
       documents: documentStatuses,

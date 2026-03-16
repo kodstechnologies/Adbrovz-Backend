@@ -52,7 +52,7 @@ router.get('/profile/:vendorId', authenticate, authorize(ROLES.ADMIN, ROLES.SUPE
 // Public/Common routes
 router.get('/plans', async (req, res) => {
     const CreditPlan = require('../../models/CreditPlan.model');
-    const plans = await CreditPlan.find({ isActive: true });
+    const plans = await CreditPlan.find({});
     const ApiResponse = require('../../utils/ApiResponse');
     res.status(200).json(new ApiResponse(200, plans, 'Credit plans retrieved'));
 });

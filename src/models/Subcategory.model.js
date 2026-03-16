@@ -19,10 +19,6 @@ const subcategorySchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
     order: {
       type: Number,
       default: 0,
@@ -48,7 +44,7 @@ const subcategorySchema = new mongoose.Schema(
 );
 
 // Indexes
-subcategorySchema.index({ category: 1, isActive: 1 });
+subcategorySchema.index({ category: 1 });
 
 const Subcategory = mongoose.model('Subcategory', subcategorySchema);
 

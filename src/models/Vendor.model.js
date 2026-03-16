@@ -132,7 +132,6 @@ const vendorSchema = new mongoose.Schema(
       durationMonths: { type: Number, default: 3 },
       startDate: { type: Date },
       expiryDate: { type: Date },
-      isActive: { type: Boolean, default: false },
     },
     creditPlan: {
       planId: { type: mongoose.Schema.Types.ObjectId, ref: 'CreditPlan' },
@@ -153,10 +152,6 @@ const vendorSchema = new mongoose.Schema(
     isVerified: {
       type: Boolean,
       default: false,
-    },
-    isActive: {
-      type: Boolean,
-      default: true,
     },
     isOnline: {
       type: Boolean,

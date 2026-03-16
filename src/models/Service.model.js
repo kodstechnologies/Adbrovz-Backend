@@ -36,10 +36,6 @@ const serviceSchema = new mongoose.Schema(
     approxCompletionTime: {
       type: Number, // in minutes
     },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
     quantityEnabled: {
       type: Boolean,
       default: true,
@@ -85,7 +81,6 @@ serviceSchema.pre('save', function (next) {
 
 // Indexes
 serviceSchema.index({ category: 1, subcategory: 1 });
-serviceSchema.index({ isActive: 1 });
 
 const Service = mongoose.model('Service', serviceSchema);
 

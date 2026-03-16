@@ -43,8 +43,7 @@ const seedServiceSections = async () => {
                 category: subcategory.category._id,
                 subcategory: subcategory._id,
                 limit: 10, // Show up to 10 services
-                order: created + 1,
-                isActive: true
+                order: created + 1
             });
 
             console.log(`✅ Created ServiceSection for ${subcategory.name}`);

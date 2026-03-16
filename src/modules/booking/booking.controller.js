@@ -81,14 +81,23 @@ const rescheduleBooking = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Both date and time are required for rescheduling');
     }
 
-    const booking = await bookingService.rescheduleBooking(
-        userId,
-        id,
-        { date, time }
-    );
+    const result = await bookingService.rescheduleBooking(userId, id, { date, time });
+
+    // Vendor is busy at the requested time — return available slots
+    if (result.vendorBusy) {
+        return res.status(409).json({
+            success: false,
+            statusCode: 409,
+            message: result.message,
+            data: {
+                vendorBusy: true,
+                availableSlots: result.availableSlots
+            }
+        });
+    }
 
     res.status(200).json(
-        new ApiResponse(200, booking, 'Booking rescheduled successfully')
+        new ApiResponse(200, result, 'Booking rescheduled successfully')
     );
 });
 

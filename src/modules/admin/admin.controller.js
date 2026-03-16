@@ -84,8 +84,7 @@ const createCreditPlan = asyncHandler(async (req, res) => {
 
 // Get all credit plans
 const getCreditPlans = asyncHandler(async (req, res) => {
-  const { includeInactive = 'true' } = req.query;
-  const plans = await adminService.getCreditPlans(includeInactive === 'true');
+  const plans = await adminService.getCreditPlans();
   res.status(200).json(
     new ApiResponse(200, plans, 'Credit plans retrieved successfully')
   );

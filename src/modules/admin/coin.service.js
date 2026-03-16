@@ -29,9 +29,9 @@ const massCredit = async ({ targetModel, amount, purpose, description, adminId }
 
     const Model = Vendor;
 
-    // Update all active records
+    // Update all records
     const result = await Model.updateMany(
-        { isActive: true, deletedAt: null },
+        { deletedAt: null },
         { $inc: { coins: amount } }
     );
 
@@ -46,7 +46,7 @@ const massCredit = async ({ targetModel, amount, purpose, description, adminId }
         // This could be slow for many users. In a real production app, this should be a background job.
         // Since it's a small/medium app for now, we'll do it here but warn.
 
-        const entities = await Model.find({ isActive: true, deletedAt: null }, '_id coins');
+        const entities = await Model.find({ deletedAt: null }, '_id coins');
 
         const transactions = entities.map(entity => ({
             targetId: entity._id,

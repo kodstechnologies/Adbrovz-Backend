@@ -19,7 +19,6 @@ const seedData = async () => {
                 icon: `uploads/services/icon-cat-${i}.jpg`, // Dummy path
                 membershipFee: 100 * i,
                 order: i,
-                isActive: true
             });
             categories.push(category);
             console.log(`Created Category: ${category.name}`);
@@ -33,7 +32,6 @@ const seedData = async () => {
                 category: categories[i]._id,
                 icon: `uploads/services/icon-sub-${i + 1}.jpg`, // Dummy path
                 description: `Description for Test Subcategory ${i + 1}`,
-                isActive: true,
                 order: i + 1,
                 price: 50 * (i + 1)
             });
@@ -53,7 +51,6 @@ const seedData = async () => {
                 adminPrice: 500 * (i + 1),
                 isAdminPriced: true,
                 approxCompletionTime: 60,
-                isActive: true,
                 quantityEnabled: true,
                 priceAdjustmentEnabled: true
             });

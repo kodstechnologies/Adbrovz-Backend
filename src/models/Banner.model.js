@@ -31,10 +31,6 @@ const bannerSchema = new mongoose.Schema(
             type: Number,
             default: 0,
         },
-        isActive: {
-            type: Boolean,
-            default: true,
-        },
     },
     {
         timestamps: true,
@@ -52,7 +48,7 @@ const bannerSchema = new mongoose.Schema(
 );
 
 // Indexes
-bannerSchema.index({ isActive: 1, order: 1 });
+bannerSchema.index({ order: 1 });
 
 const Banner = mongoose.model('Banner', bannerSchema);
 

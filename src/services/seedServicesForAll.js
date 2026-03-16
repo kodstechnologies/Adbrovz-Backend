@@ -40,7 +40,6 @@ const seedServicesForAllSubcategories = async () => {
                     adminPrice: 300 + (i * 100),
                     isAdminPriced: true,
                     approxCompletionTime: 45 + (i * 15),
-                    isActive: true,
                     quantityEnabled: true,
                     priceAdjustmentEnabled: true
                 });

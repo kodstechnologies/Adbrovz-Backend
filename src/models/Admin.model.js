@@ -32,10 +32,6 @@ const adminSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
     lastLogin: {
       type: Date,
     },
