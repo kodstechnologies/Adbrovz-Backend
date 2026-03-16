@@ -1863,6 +1863,7 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
                 ? adminPrice * qty
                 : (vendorPrice > 0 ? vendorPrice * qty : 0);
             requestItem.isPriceConfirmed = false; // Still needs user approval
+            requestItem.status = 'priced';
             
             isUpdated = true;
         }
@@ -1884,12 +1885,19 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
     emitToUser(booking.user, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
-    // Notify user to approve the prices
+    // Generic event for legacy/general use
     emitToUser(booking.user, 'extra_services_priced_by_vendor', {
         bookingId: booking._id,
         bookingID: booking.bookingID,
         requestedServices: populatedBooking.userRequestedServices,
-        message: 'Vendor has set prices for your extra services. Please review and confirm to add them to your booking.'
+        message: 'Vendor has set prices for your extra services.'
+    });
+
+    // Specific success event requested by user to trigger UI feedback
+    emitToUser(booking.user, 'booking_services_confirmed_success', {
+        bookingId: booking._id,
+        bookingID: booking.bookingID,
+        message: 'Your vendor has accepted the extra services request.'
     });
 
     return {
@@ -1909,8 +1917,12 @@ async function vendorRejectExtraServices(vendorId, bookingId, reason) {
         throw new ApiError(400, 'No pending user service requests to reject');
     }
 
-    // Clear the requests
-    booking.userRequestedServices = [];
+    // Mark as rejected instead of clearing (user can see history)
+    booking.userRequestedServices.forEach(item => {
+        if (item.status === 'pending') {
+            item.status = 'rejected';
+        }
+    });
 
     // Log in history
     booking.statusHistory.push({
@@ -1934,7 +1946,15 @@ async function vendorRejectExtraServices(vendorId, bookingId, reason) {
     emitToUser(booking.user, 'extra_services_rejected_by_vendor', {
         bookingId: booking._id,
         reason: reason || 'Vendor declined the extra services.',
-        message: 'Vendor has rejected your request for additional services.'
+        message: 'Vendor has rejected your request for additional services.',
+        rejectedServices: userPayload.userRequestedServices.filter(s => s.status === 'rejected')
+    });
+
+    // Specific success/info event requested by user to trigger UI feedback
+    emitToUser(booking.user, 'booking_services_rejected_success', {
+        bookingId: booking._id,
+        reason: reason || 'Vendor declined the extra services.',
+        message: 'Special service request was rejected by the vendor.'
     });
 
     return {
