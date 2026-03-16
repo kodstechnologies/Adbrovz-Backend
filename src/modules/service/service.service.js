@@ -331,7 +331,6 @@ const deleteService = async (serviceId) => {
  */
 const getAllCategoriesWithSubcategories = async () => {
     const result = await Category.aggregate([
-        { $match: { isActive: true } },
         { $sort: { order: 1, name: 1 } },
         {
             $lookup: {
@@ -341,10 +340,7 @@ const getAllCategoriesWithSubcategories = async () => {
                     {
                         $match: {
                             $expr: {
-                                $and: [
-                                    { $eq: ['$category', '$$categoryId'] },
-                                    { $eq: ['$isActive', true] }
-                                ]
+                                $eq: ['$category', '$$categoryId']
                             }
                         }
                     },
@@ -357,10 +353,7 @@ const getAllCategoriesWithSubcategories = async () => {
                                 {
                                     $match: {
                                         $expr: {
-                                            $and: [
-                                                { $eq: ['$subcategory', '$$subcatId'] },
-                                                { $eq: ['$isActive', true] }
-                                            ]
+                                            $eq: ['$subcategory', '$$subcatId']
                                         }
                                     }
                                 },

@@ -44,9 +44,24 @@ const getServiceDetails = asyncHandler(async (req, res) => {
     );
 });
 
+// Helper to normalize isActive from multipart form-data
+const normalizeIsActive = (data) => {
+    if (data.hasOwnProperty('isActive')) {
+        // Handle common string representations from form-data
+        data.isActive = data.isActive === 'true' || data.isActive === true || data.isActive === '1';
+    } else {
+        // If not provided in form-data (e.g. unchecked checkbox), it should explicitly be false 
+        // IF this is an update or create where standard unchecked behavior means false.
+        // Wait, Mongoose default is true for create. We only force false if it's explicitly 'false'.
+        // Let's just normalize string 'false' and 'true' correctly.
+    }
+    return data;
+};
+
 // Admin: Category Management
 const createCategory = asyncHandler(async (req, res) => {
     const data = { ...req.body };
+    if (data.hasOwnProperty('isActive')) data.isActive = data.isActive === 'true' || data.isActive === true || data.isActive === '1';
     // Cloudinary URL is already set in req.body.icon by uploadToCloudinary middleware
     if (req.file && req.file.cloudinary) {
         data.icon = req.file.cloudinary.url;
@@ -57,6 +72,7 @@ const createCategory = asyncHandler(async (req, res) => {
 
 const updateCategory = asyncHandler(async (req, res) => {
     const data = { ...req.body };
+    if (data.hasOwnProperty('isActive')) data.isActive = data.isActive === 'true' || data.isActive === true || data.isActive === '1';
     // Cloudinary URL is already set in req.body.icon by uploadToCloudinary middleware
     if (req.file && req.file.cloudinary) {
         data.icon = req.file.cloudinary.url;
@@ -73,6 +89,7 @@ const deleteCategory = asyncHandler(async (req, res) => {
 // Admin: Subcategory Management
 const createSubcategory = asyncHandler(async (req, res) => {
     const data = { ...req.body };
+    if (data.hasOwnProperty('isActive')) data.isActive = data.isActive === 'true' || data.isActive === true || data.isActive === '1';
     // Cloudinary URL is already set in req.body.icon by uploadToCloudinary middleware
     if (req.file && req.file.cloudinary) {
         data.icon = req.file.cloudinary.url;
@@ -83,6 +100,7 @@ const createSubcategory = asyncHandler(async (req, res) => {
 
 const updateSubcategory = asyncHandler(async (req, res) => {
     const data = { ...req.body };
+    if (data.hasOwnProperty('isActive')) data.isActive = data.isActive === 'true' || data.isActive === true || data.isActive === '1';
     // Cloudinary URL is already set in req.body.icon by uploadToCloudinary middleware
     if (req.file && req.file.cloudinary) {
         data.icon = req.file.cloudinary.url;
@@ -101,6 +119,7 @@ const createService = asyncHandler(async (req, res) => {
     console.log('DEBUG: createService req.body:', req.body);
     console.log('DEBUG: createService req.file:', req.file);
     const serviceData = { ...req.body };
+    if (serviceData.hasOwnProperty('isActive')) serviceData.isActive = serviceData.isActive === 'true' || serviceData.isActive === true || serviceData.isActive === '1';
 
     // Cloudinary URL is already set in req.body.photo by uploadToCloudinary middleware
     if (req.file && req.file.cloudinary) {
@@ -113,6 +132,7 @@ const createService = asyncHandler(async (req, res) => {
 
 const updateService = asyncHandler(async (req, res) => {
     const updateData = { ...req.body };
+    if (updateData.hasOwnProperty('isActive')) updateData.isActive = updateData.isActive === 'true' || updateData.isActive === true || updateData.isActive === '1';
 
     // Cloudinary URL is already set in req.body.photo by uploadToCloudinary middleware
     if (req.file && req.file.cloudinary) {

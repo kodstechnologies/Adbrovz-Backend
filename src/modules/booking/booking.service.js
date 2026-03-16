@@ -537,12 +537,12 @@ const getBookingDetails = async (bookingId, userId, role) => {
     // Ensure statusHistory is present and formatted
     if (bookingObj.statusHistory) {
         bookingObj.statusHistory = bookingObj.statusHistory.map(h => ({
-            status: h.status,
+            status: h.status,  
             reason: h.reason,
             actor: h.actor,
             timestamp: h.timestamp,
             displayStatus: statusMap[h.status] || h.status
-        }));
+        })).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     }
 
     return bookingObj;
@@ -1064,10 +1064,12 @@ const getBookingStatusHistory = async (bookingId, userId, role) => {
     if (!booking) throw new ApiError(404, 'Booking not found');
 
     // Clean up history by removing any potential Mongoose ID fields for a cleaner response
-    const cleanHistory = (booking.statusHistory || []).map(item => ({
-        status: item.status,
-        timestamp: item.timestamp
-    }));
+    const cleanHistory = (booking.statusHistory || [])
+        .map(item => ({
+            status: item.status,
+            timestamp: item.timestamp
+        }))
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
     return cleanHistory;
 };
@@ -1113,8 +1115,10 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
         throw new ApiError(400, 'No unpriced services found to update');
     }
 
-    // Removed premature recalculation of total price.
-    // The price will be updated when the user confirms the price via `confirmBookingPrice`
+    // Recalculate total price so the user can see the proposed amount before confirming
+    const newBasePrice = booking.services.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+    booking.pricing.basePrice = newBasePrice;
+    booking.pricing.totalPrice = newBasePrice + (booking.pricing.travelCharge || 0) + (booking.pricing.additionalCharges || 0);
 
     booking.priceUpdatedOnce = true;
     booking.isPriceConfirmed = false;

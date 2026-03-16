@@ -776,24 +776,14 @@ const getVerificationStatus = async (vendorId) => {
 };
 
 /**
- * Delete vendor account (Soft delete with credential obfuscation)
+ * Delete vendor account
  */
 const deleteVendorAccount = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    const timestamp = Date.now();
-    // Obfuscate phone and email to allow re-registration with same credentials
-    vendor.phoneNumber = `deleted_${timestamp}_${vendor.phoneNumber}`;
-    if (vendor.email) {
-        vendor.email = `deleted_${timestamp}_${vendor.email}`;
-    }
-    
-    vendor.deletedAt = new Date();
-    vendor.isActive = false;
-    vendor.isOnline = false;
-    
-    await vendor.save();
+    // Optionally delete related logic here if needed, but keeping it simple for now
+    await Vendor.findByIdAndDelete(vendorId);
 
     return { message: 'Account deleted successfully' };
 };
