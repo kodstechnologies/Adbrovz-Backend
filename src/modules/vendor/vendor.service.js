@@ -782,7 +782,19 @@ const deleteVendorAccount = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    // Optionally delete related logic here if needed, but keeping it simple for now
+    const Booking = require('../../models/Booking.model');
+    const activeBookingsCount = await Booking.countDocuments({
+        vendor: vendorId,
+        status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] }
+    });
+
+    if (activeBookingsCount > 0) {
+        throw new ApiError(400, 'You cannot delete your account while you have active or pending bookings. Please complete or cancel them first.');
+    }
+
+    // Clean up related data
+    await Booking.deleteMany({ vendor: vendorId, status: { $in: ['cancelled', 'completed'] } });
+
     await Vendor.findByIdAndDelete(vendorId);
 
     return { message: 'Account deleted successfully' };
