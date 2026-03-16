@@ -501,6 +501,21 @@ const userRejectExtraServices = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * Vendor rejects user's extra service requests
+ */
+const vendorRejectExtraServices = asyncHandler(async (req, res) => {
+    const vendorId = req.user?.userId || req.user?._id;
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const result = await bookingService.vendorRejectExtraServices(vendorId, id, reason);
+
+    res.status(200).json(
+        new ApiResponse(200, result.booking, result.message)
+    );
+});
+
 module.exports = {
     // Lead flow
     requestLead,
@@ -539,6 +554,7 @@ module.exports = {
     rejectProposedServices,
     requestExtraServices,
     vendorConfirmExtraServices,
+    vendorRejectExtraServices,
     userConfirmExtraServices,
     userRejectExtraServices
 };

@@ -1898,6 +1898,51 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
     };
 }
 
+/**
+ * Vendor rejects the user's extra service requests
+ */
+async function vendorRejectExtraServices(vendorId, bookingId, reason) {
+    const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (!booking.userRequestedServices || booking.userRequestedServices.length === 0) {
+        throw new ApiError(400, 'No pending user service requests to reject');
+    }
+
+    // Clear the requests
+    booking.userRequestedServices = [];
+
+    // Log in history
+    booking.statusHistory.push({
+        status: 'extra_services_rejected_by_vendor',
+        actor: 'vendor',
+        reason: reason || 'Vendor declined to perform the requested extra services.',
+        timestamp: new Date()
+    });
+    booking.markModified('statusHistory');
+
+    await booking.save();
+
+    const { emitToUser, emitToVendor } = require('../../socket');
+    const vendorPayload = await getBookingDetails(booking._id, vendorId, 'vendor');
+    const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
+
+    emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
+    emitToUser(booking.user, 'booking_status_updated', userPayload);
+
+    // Specific event to user
+    emitToUser(booking.user, 'extra_services_rejected_by_vendor', {
+        bookingId: booking._id,
+        reason: reason || 'Vendor declined the extra services.',
+        message: 'Vendor has rejected your request for additional services.'
+    });
+
+    return {
+        booking: vendorPayload,
+        message: 'Extra service requests rejected.'
+    };
+}
+
 module.exports = {
     // Lead flow
     requestLead,
@@ -1939,6 +1984,7 @@ module.exports = {
     rejectProposedServices,
     requestExtraServices,
     vendorConfirmExtraServices,
+    vendorRejectExtraServices,
     userConfirmExtraServices,
     userRejectExtraServices
 };
