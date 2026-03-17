@@ -1894,10 +1894,11 @@ async function requestExtraServices(userId, bookingId, newServices) {
     emitToUser(userId, 'booking_status_updated', userPayload);
 
     // Specific event to vendor
+    const newlyRequestedServices = populatedBooking.userRequestedServices.slice(-newServices.length);
     emitToVendor(booking.vendor, 'extra_services_requested_by_user', {
         bookingId: booking._id,
         bookingID: booking.bookingID,
-        requestedServices: populatedBooking.userRequestedServices,
+        requestedServices: newlyRequestedServices,
         message: 'User has requested additional services. Please confirm and set prices.'
     });
 
