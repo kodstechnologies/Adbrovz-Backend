@@ -54,6 +54,12 @@ router.post('/vendor/:id/reject-extra-services', authenticate, bookingController
 router.post('/:id/user-confirm-extra-services', authenticate, bookingController.userConfirmExtraServices);
 router.post('/:id/user-reject-extra-services', authenticate, bookingController.userRejectExtraServices);
 
+// Cancelled bookings list (Common for User/Vendor/Admin based on role)
+router.get('/history/cancelled', authenticate, bookingController.getCancelledBookings);
+
+// Vendor can also cancel
+router.post('/vendor/:id/cancel', authenticate, bookingController.vendorCancelBooking);
+
 router.get('/:id', authenticate, bookingController.getBookingById);
 
 module.exports = router;

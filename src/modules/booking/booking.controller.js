@@ -70,6 +70,35 @@ const cancelBooking = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Vendor cancels booking
+ */
+const vendorCancelBooking = asyncHandler(async (req, res) => {
+    const vendorId = req.user?._id || req.user?.userId || req.body.vendorId;
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const booking = await bookingService.vendorCancelBooking(vendorId, id, reason);
+
+    res.status(200).json(
+        new ApiResponse(200, booking, 'Booking cancelled by vendor successfully')
+    );
+});
+
+/**
+ * Get cancelled bookings history
+ */
+const getCancelledBookings = asyncHandler(async (req, res) => {
+    const userId = req.user?.userId || req.user?._id;
+    const role = req.user?.role;
+
+    const bookings = await bookingService.getCancelledBookings(userId, role);
+
+    res.status(200).json(
+        new ApiResponse(200, bookings, 'Cancelled bookings retrieved successfully')
+    );
+});
+
+/**
  * Reschedule booking
  */
 const rescheduleBooking = asyncHandler(async (req, res) => {
@@ -126,6 +155,9 @@ const getMyBookings = asyncHandler(async (req, res) => {
     const enhanceBooking = (b) => {
         const obj = b.toObject ? b.toObject() : b;
         obj.displayStatus = statusMap[obj.status] || obj.status;
+        if (obj.status === 'cancelled') {
+            obj.cancelledBy = obj.cancellation?.cancelledBy || 'unknown';
+        }
         return obj;
     };
 
@@ -526,8 +558,10 @@ module.exports = {
     // Booking flow
     createBooking,
     cancelBooking,
+    vendorCancelBooking,
     rescheduleBooking,
     getMyBookings,
+    getCancelledBookings,
     getBookingById,
     getCompletedHistory,
     getVendorHistory,

@@ -461,6 +461,9 @@ const getBookingDetails = async (bookingId, userId, role) => {
         'cancelled': 'Cancelled'
     };
     bookingObj.displayStatus = statusMap[booking.status] || booking.status;
+    if (booking.status === 'cancelled') {
+        bookingObj.cancelledBy = booking.cancellation?.cancelledBy || 'unknown';
+    }
 
     // OTP visibility logic
     if (bookingObj.otp) {
@@ -946,7 +949,7 @@ const cancelBooking = async (userId, bookingId, reason) => {
     const travelChargeApplied = vendorHasArrived;
 
     booking.status = 'cancelled';
-    booking.statusHistory.push({ status: 'cancelled', timestamp: new Date() });
+    booking.statusHistory.push({ status: 'cancelled', actor: 'user', reason: reason || 'Cancelled by user', timestamp: now });
     booking.markModified('statusHistory');
     booking.cancelCount += 1;
     booking.cancellation = {
@@ -970,6 +973,51 @@ const cancelBooking = async (userId, bookingId, reason) => {
     if (booking.vendor) {
         emitToVendor(booking.vendor, 'booking_cancellation', populatedBooking);
     }
+
+    return populatedBooking || booking;
+};
+
+/**
+ * Vendor cancels booking
+ */
+const vendorCancelBooking = async (vendorId, bookingId, reason) => {
+    const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (['completed', 'cancelled'].includes(booking.status)) {
+        throw new ApiError(400, 'Cannot cancel a booking that is already completed or cancelled');
+    }
+
+    const vendorHasArrived = booking.status === 'arrived' || booking.status === 'ongoing';
+    const travelChargeApplied = vendorHasArrived;
+    const now = new Date();
+
+    booking.status = 'cancelled';
+    booking.statusHistory.push({ status: 'cancelled', actor: 'vendor', reason: reason || 'Vendor cancelled the order', timestamp: now });
+    booking.markModified('statusHistory');
+    booking.cancellation = {
+        cancelledBy: 'vendor',
+        reason: reason || 'Vendor cancelled the order',
+        cancelledAt: now,
+        travelChargeApplied
+    };
+
+    await booking.save();
+
+    const populatedBooking = await Booking.findById(booking._id)
+        .populate('services.service', 'title adminPrice photo')
+        .populate('proposedServices.service', 'title adminPrice photo')
+        .populate('userRequestedServices.service', 'title adminPrice photo')
+        .populate('vendor', 'name phoneNumber photo')
+        .populate('user', 'name phoneNumber photo');
+
+    const { emitToUser, emitToVendor } = require('../../socket');
+    emitToUser(booking.user, 'booking_status_updated', populatedBooking);
+    emitToUser(booking.user, 'booking_cancellation', {
+        ...populatedBooking.toObject(),
+        message: 'The vendor has cancelled your booking.'
+    });
+    emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
 
     return populatedBooking || booking;
 };
@@ -1164,6 +1212,32 @@ const getCompletedBookingsByUser = async (userId) => {
         .populate('userRequestedServices.service', 'title adminPrice photo')
         .populate('vendor', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
+};
+
+/**
+ * Get cancelled bookings (Admin or User/Vendor)
+ */
+const getCancelledBookings = async (userId, role) => {
+    let query = { status: 'cancelled' };
+    
+    if (role === 'vendor') {
+        query.vendor = userId;
+    } else if (role === 'user' || role === 'User') {
+        query.user = userId;
+    }
+
+    const bookings = await Booking.find(query)
+        .populate('services.service', 'title adminPrice photo')
+        .populate('vendor', 'name phoneNumber photo')
+        .populate('user', 'name phoneNumber photo')
+        .sort({ createdAt: -1 });
+
+    return bookings.map(b => {
+        const obj = b.toObject();
+        obj.displayStatus = 'Cancelled';
+        obj.cancelledBy = obj.cancellation?.cancelledBy || 'unknown';
+        return obj;
+    });
 };
 
 const retrySearchVendors = async (userId, bookingId) => {
@@ -1455,7 +1529,7 @@ const reportVendorNoShow = async (userId, bookingId) => {
     }
 
     booking.status = 'cancelled';
-    booking.statusHistory.push({ status: 'cancelled', timestamp: now });
+    booking.statusHistory.push({ status: 'cancelled', actor: 'system', reason: 'Vendor no-show — service provider did not arrive', timestamp: now });
     booking.markModified('statusHistory');
     booking.cancellation = {
         cancelledBy: 'system',
@@ -1499,7 +1573,7 @@ const gracePeriodCancel = async (userId, bookingId) => {
     }
 
     booking.status = 'cancelled';
-    booking.statusHistory.push({ status: 'cancelled', timestamp: now });
+    booking.statusHistory.push({ status: 'cancelled', actor: 'user', reason: 'Cancelled after grace period — vendor did not arrive in time', timestamp: now });
     booking.markModified('statusHistory');
     booking.cancellation = {
         cancelledBy: 'user',
@@ -2112,12 +2186,14 @@ module.exports = {
     generateBookingID,
     searchVendors,
     cancelBooking,
+    vendorCancelBooking,
     rescheduleBooking,
     findBookingByUser,
     getBookingDetails,
     getBookingsByUser,
     getBookingsByVendor,
     getCompletedBookingsByUser,
+    getCancelledBookings,
     getVendorBookingHistory,
     getVendorLaterBookings,
     retrySearchVendors,
