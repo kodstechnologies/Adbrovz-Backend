@@ -540,7 +540,7 @@ const getBookingDetails = async (bookingId, userId, role) => {
         // Priority 1: User requested extra services that are still 'pending'
         if (bookingObj.userRequestedServices && bookingObj.userRequestedServices.length > 0) {
             unpriced = bookingObj.userRequestedServices
-                .filter(s => s.status === 'pending')
+                .filter(s => ['pending', 'accepted'].includes(s.status))
                 .map(s => ({ ...s, isExtra: true }));
         }
         
@@ -562,6 +562,8 @@ const getBookingDetails = async (bookingId, userId, role) => {
             reason: h.reason,
             actor: h.actor,
             timestamp: h.timestamp,
+            // Add a clearly formatted IST time to help user distinguish from UTC
+            timestampIST: h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null,
             displayStatus: statusMap[h.status] || h.status
         })).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     }
@@ -1265,23 +1267,35 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
         throw new ApiError(404, 'Booking not found');
     }
 
-    if (booking.priceUpdatedOnce) {
+    // Block repricing of regular services (but allow if only extra services need pricing)
+    const hasPendingExtraServices = booking.userRequestedServices &&
+        booking.userRequestedServices.some(s => s.status === 'pending');
+
+    if (booking.priceUpdatedOnce && !hasPendingExtraServices) {
         throw new ApiError(400, 'Price can only be updated once per booking');
     }
 
-    if (!['pending', 'on_the_way', 'arrived'].includes(booking.status)) {
-        throw new ApiError(400, 'Price can only be updated before starting work');
+    if (!['pending', 'on_the_way', 'arrived', 'ongoing'].includes(booking.status)) {
+        throw new ApiError(400, 'Price can only be updated before work is completed');
     }
 
     console.log(`[SOCKET] Processing updated services for booking: ${bookingId}`);
     let modified = false;
     for (const update of updatedServices) {
-        let item = booking.services.find(s => s.service.toString() === update.serviceId.toString());
+        const updateIdStr = update.serviceId.toString();
+        
+        let item = booking.services.find(s => 
+            s.service.toString() === updateIdStr || 
+            (s._id && s._id.toString() === updateIdStr)
+        );
         let isExtraService = false;
 
         // If not in main services, check userRequestedServices
         if (!item && booking.userRequestedServices) {
-            item = booking.userRequestedServices.find(s => s.service.toString() === update.serviceId.toString());
+            item = booking.userRequestedServices.find(s => 
+                s.service.toString() === updateIdStr || 
+                (s._id && s._id.toString() === updateIdStr)
+            );
             isExtraService = !!item;
         }
 
@@ -1909,9 +1923,10 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
 
     // Update the pricing for the requested services without moving them
     for (const item of confirmedServices) {
-        // Find matching service in userRequestedServices
+        const itemIdStr = item.serviceId.toString();
+        // Find matching service in userRequestedServices (check both service ID and requested item _id)
         const requestItem = booking.userRequestedServices.find(
-            s => s.service.toString() === item.serviceId.toString()
+            s => s.service.toString() === itemIdStr || (s._id && s._id.toString() === itemIdStr)
         );
 
         if (requestItem) {
@@ -1960,16 +1975,70 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
         message: 'Vendor has set prices for your extra services.'
     });
 
-    // Specific success event requested by user to trigger UI feedback
-    emitToUser(booking.user, 'booking_services_confirmed_success', {
+    // Specific event to user: vendor has accepted and priced their extra service requests
+    emitToUser(booking.user, 'extra_services_accepted_by_vendor', {
         bookingId: booking._id,
         bookingID: booking.bookingID,
+        requestedServices: populatedBooking.userRequestedServices,
         message: 'Your vendor has accepted the extra services request.'
     });
 
     return {
         booking: populatedBooking,
         message: 'Prices set for extra services. Awaiting user approval.'
+    };
+}
+
+/**
+ * Vendor simply accepts all pending user-requested extra services (no price override needed)
+ * This is the simple "Accept" button flow — vendor agrees to do the services at existing prices.
+ */
+async function vendorAcceptExtraServices(vendorId, bookingId) {
+    const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (!booking.userRequestedServices || booking.userRequestedServices.length === 0) {
+        throw new ApiError(400, 'No pending user service requests to accept');
+    }
+
+    // Mark all pending services as accepted
+    let anyAccepted = false;
+    for (const item of booking.userRequestedServices) {
+        if (item.status === 'pending' || !item.status) {
+            item.status = 'accepted';
+            anyAccepted = true;
+        }
+    }
+
+    if (!anyAccepted) {
+        throw new ApiError(400, 'No pending services found to accept');
+    }
+
+    booking.markModified('userRequestedServices');
+    await booking.save();
+
+    const populatedBooking = await Booking.findById(booking._id)
+        .populate('userRequestedServices.service', 'title photo adminPrice');
+
+    const { emitToUser, emitToVendor } = require('../../socket');
+    const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
+    const vendorPayload = await getBookingDetails(booking._id, vendorId, 'vendor');
+
+    // Notify both for state sync
+    emitToUser(booking.user, 'booking_status_updated', userPayload);
+    emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
+
+    // Specific event to user: vendor accepted their extra service requests
+    emitToUser(booking.user, 'extra_services_accepted_by_vendor', {
+        bookingId: booking._id,
+        bookingID: booking.bookingID,
+        requestedServices: populatedBooking.userRequestedServices,
+        message: 'Vendor has accepted your extra service requests.'
+    });
+
+    return {
+        booking: vendorPayload,
+        message: 'Extra service requests accepted.'
     };
 }
 
@@ -2070,6 +2139,7 @@ module.exports = {
     confirmProposedServices,
     rejectProposedServices,
     requestExtraServices,
+    vendorAcceptExtraServices,
     vendorConfirmExtraServices,
     vendorRejectExtraServices,
     userConfirmExtraServices,

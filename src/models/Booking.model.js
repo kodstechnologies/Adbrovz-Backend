@@ -163,7 +163,7 @@ const bookingSchema = new mongoose.Schema(
       isPriceConfirmed: { type: Boolean, default: false },
       status: {
         type: String,
-        enum: ['pending', 'priced', 'rejected'],
+        enum: ['pending', 'priced', 'rejected', 'accepted'],
         default: 'pending'
       }
     }],
