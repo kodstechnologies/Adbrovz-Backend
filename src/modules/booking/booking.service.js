@@ -533,6 +533,27 @@ const getBookingDetails = async (bookingId, userId, role) => {
         }));
     }
 
+    // For vendors: identify which services actually need pricing
+    if (role === 'vendor' || role === ROLES.VENDOR) {
+        let unpriced = [];
+        
+        // Priority 1: User requested extra services that are still 'pending'
+        if (bookingObj.userRequestedServices && bookingObj.userRequestedServices.length > 0) {
+            unpriced = bookingObj.userRequestedServices
+                .filter(s => s.status === 'pending')
+                .map(s => ({ ...s, isExtra: true }));
+        }
+        
+        // Priority 2: If no pending extra services, check main services for unpriced items
+        if (unpriced.length === 0 && bookingObj.services) {
+            unpriced = bookingObj.services
+                .filter(s => (!s.adminPrice || s.adminPrice === 0) && (!s.vendorPrice || s.vendorPrice === 0))
+                .map(s => ({ ...s, isExtra: false }));
+        }
+        
+        bookingObj.unpricedServices = unpriced;
+    }
+
 
     // Ensure statusHistory is present and formatted
     if (bookingObj.statusHistory) {
@@ -1207,6 +1228,33 @@ const getBookingStatusHistory = async (bookingId, userId, role) => {
 };
 
 /**
+ * Helper to recalculate the basePrice and totalPrice for a booking.
+ * It includes established services, and if any extra services are priced
+ * (but not yet confirmed by the user), it includes them so the user 
+ * sees the proposed total before making a decision.
+ */
+const recalculateBookingPrice = (booking) => {
+    let basePrice = booking.services.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+
+    // Add vendor proposed services
+    if (booking.proposedServices && booking.proposedServices.length > 0) {
+        basePrice += booking.proposedServices.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+    }
+
+    // Add user requested extra services that have been priced by vendor
+    if (booking.userRequestedServices && booking.userRequestedServices.length > 0) {
+        basePrice += booking.userRequestedServices
+            .filter(s => s.status === 'priced' || s.isPriceConfirmed)
+            .reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+    }
+
+    booking.pricing = booking.pricing || {};
+    booking.pricing.basePrice = basePrice;
+    booking.pricing.totalPrice = basePrice + (booking.pricing.travelCharge || 0) + (booking.pricing.additionalCharges || 0);
+    booking.markModified('pricing');
+};
+
+/**
  * Vendor updates price for unpriced services
  */
 const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
@@ -1228,18 +1276,33 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
     console.log(`[SOCKET] Processing updated services for booking: ${bookingId}`);
     let modified = false;
     for (const update of updatedServices) {
-        const item = booking.services.find(s => s.service.toString() === update.serviceId.toString());
+        let item = booking.services.find(s => s.service.toString() === update.serviceId.toString());
+        let isExtraService = false;
+
+        // If not in main services, check userRequestedServices
+        if (!item && booking.userRequestedServices) {
+            item = booking.userRequestedServices.find(s => s.service.toString() === update.serviceId.toString());
+            isExtraService = !!item;
+        }
+
         if (item) {
-            // Check if it was unpriced in Service model
             // Check if it was unpriced in Service model or if adminPrice is 0/null
             const serviceDoc = await Service.findById(item.service);
             const isUnpriced = serviceDoc && (!serviceDoc.isAdminPriced || !serviceDoc.adminPrice || serviceDoc.adminPrice === 0);
             
-            if (isUnpriced) {
+            if (isUnpriced || isExtraService) {
                 console.log(`[SOCKET] Updating price for service: ${item.service}`);
                 item.vendorPrice = update.price;
                 item.finalPrice = update.price * (item.quantity || 1);
-                item.isPriceConfirmed = false;
+                
+                if (isExtraService) {
+                    item.status = 'priced';
+                    booking.markModified('userRequestedServices');
+                } else {
+                    item.isPriceConfirmed = false;
+                    booking.markModified('services');
+                }
+                
                 modified = true;
             }
         }
@@ -1251,9 +1314,7 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
     }
 
     // Recalculate total price so the user can see the proposed amount before confirming
-    const newBasePrice = booking.services.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
-    booking.pricing.basePrice = newBasePrice;
-    booking.pricing.totalPrice = newBasePrice + (booking.pricing.travelCharge || 0) + (booking.pricing.additionalCharges || 0);
+    recalculateBookingPrice(booking);
 
     booking.priceUpdatedOnce = true;
     booking.isPriceConfirmed = false;
@@ -1290,9 +1351,7 @@ const confirmBookingPrice = async (userId, bookingId) => {
     booking.services.forEach(s => s.isPriceConfirmed = true);
 
     // Recalculate total price now that it's confirmed
-    const newBasePrice = booking.services.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
-    booking.pricing.basePrice = newBasePrice;
-    booking.pricing.totalPrice = newBasePrice + (booking.pricing.travelCharge || 0) + (booking.pricing.additionalCharges || 0);
+    recalculateBookingPrice(booking);
 
     // Log confirmation
     booking.statusHistory.push({
@@ -1494,6 +1553,8 @@ const addServicesToBooking = async (vendorId, bookingId, newServices) => {
         });
     }
 
+    recalculateBookingPrice(booking);
+    booking.markModified('proposedServices');
     await booking.save();
 
     // Populate proposed services for the notification payload
@@ -1549,14 +1610,14 @@ const confirmProposedServices = async (userId, bookingId) => {
     }
 
     // Recalculate total
-    const newBasePrice = booking.services.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
-    booking.pricing.basePrice = newBasePrice;
-    booking.pricing.totalPrice = newBasePrice + (booking.pricing.travelCharge || 0) + (booking.pricing.additionalCharges || 0);
+    recalculateBookingPrice(booking);
 
     // Clear proposed
     booking.proposedServices = [];
     booking.isPriceConfirmed = true;
 
+    booking.markModified('services');
+    booking.markModified('proposedServices');
     await booking.save();
 
     const { emitToVendor, emitToUser } = require('../../socket');
@@ -1602,6 +1663,7 @@ const rejectProposedServices = async (userId, bookingId, reason) => {
     });
     booking.markModified('statusHistory');
 
+    recalculateBookingPrice(booking);
     await booking.save();
 
     const { emitToVendor, emitToUser } = require('../../socket');
@@ -1687,10 +1749,9 @@ async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
     booking.userRequestedServices = [];
 
     // Recalculate total price
-    const newBasePrice = booking.services.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
-    booking.pricing.basePrice = newBasePrice;
-    booking.pricing.totalPrice = newBasePrice + (booking.pricing.travelCharge || 0) + (booking.pricing.additionalCharges || 0);
+    recalculateBookingPrice(booking);
 
+    booking.markModified('services');
     await booking.save();
 
     const { emitToVendor, emitToUser } = require('../../socket');
@@ -1736,6 +1797,7 @@ async function userRejectExtraServices(userId, bookingId, reason) {
     });
     booking.markModified('statusHistory');
 
+    recalculateBookingPrice(booking);
     await booking.save();
 
     const { emitToVendor, emitToUser } = require('../../socket');
@@ -1876,6 +1938,8 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
         throw new ApiError(400, 'None of the provided services matched the user requests');
     }
 
+    recalculateBookingPrice(booking);
+    booking.markModified('userRequestedServices');
     await booking.save();
 
     const populatedBooking = await Booking.findById(booking._id)
