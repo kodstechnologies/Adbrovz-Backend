@@ -420,6 +420,8 @@ const getBookingDetails = async (bookingId) => {
   const enhancedHistory = booking.statusHistory.map(h => ({
     status: h.status,
     label: statusLabels[h.status] || h.status,
+    reason: h.reason || null,
+    actor: h.actor || null,
     timestamp: h.timestamp
   }));
 

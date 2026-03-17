@@ -851,10 +851,13 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
       };
     });
 
+    responsePayload.documentStatus = user.documentStatus || 'pending';
+    responsePayload.isMembership = !!(user.membership?.expiryDate && new Date(user.membership.expiryDate) > new Date());
+
     responsePayload.verificationStatus = {
       isVerified: user.isVerified || false,
       documentStatus: user.documentStatus || 'pending',
-      isMembership: !!(user.membership?.expiryDate && new Date(user.membership.expiryDate) > new Date()),
+      isMembership: responsePayload.isMembership,
       membership: {
         expiryDate: user.membership?.expiryDate || null,
       },

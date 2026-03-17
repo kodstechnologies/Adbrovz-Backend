@@ -1197,6 +1197,8 @@ const getBookingStatusHistory = async (bookingId, userId, role) => {
     const cleanHistory = (booking.statusHistory || [])
         .map(item => ({
             status: item.status,
+            reason: item.reason || null,
+            actor: item.actor || null,
             timestamp: item.timestamp
         }))
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
@@ -1294,7 +1296,8 @@ const confirmBookingPrice = async (userId, bookingId) => {
 
     // Log confirmation
     booking.statusHistory.push({
-        status: 'price_confirmed',
+        status: booking.status,
+        reason: 'Price confirmed by user',
         actor: 'user',
         timestamp: new Date()
     });
@@ -1331,7 +1334,7 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
     const now = new Date();
     booking.status = 'cancelled';
     booking.statusHistory.push({ 
-        status: 'price_rejected', 
+        status: 'cancelled', 
         actor: 'user',
         reason: reason || 'Price rejected by user',
         timestamp: now 
@@ -1592,7 +1595,7 @@ const rejectProposedServices = async (userId, bookingId, reason) => {
     
     // Log rejection in history
     booking.statusHistory.push({
-        status: 'proposed_services_rejected',
+        status: booking.status,
         actor: 'user',
         reason: reason || 'User rejected the additional services.',
         timestamp: new Date()
