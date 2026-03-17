@@ -393,6 +393,71 @@ const getAllCategoriesWithSubcategories = async () => {
 };
 
 /**
+ * Public: Get all subcategories with their services
+ */
+const getAllSubcategoriesWithServices = async () => {
+    const result = await Subcategory.aggregate([
+        { $sort: { order: 1, name: 1 } },
+        {
+            $lookup: {
+                from: 'services',
+                let: { subcatId: '$_id' },
+                pipeline: [
+                    {
+                        $match: {
+                            $expr: {
+                                $eq: ['$subcategory', '$$subcatId']
+                            }
+                        }
+                    },
+                    { $sort: { title: 1 } },
+                    {
+                        $project: {
+                            _id: 1,
+                            title: 1,
+                            membershipFee: {
+                                $cond: [
+                                    { $gt: ['$membershipFee', 0] },
+                                    '$membershipFee',
+                                    '$$REMOVE'
+                                ]
+                            }
+                        }
+                    }
+                ],
+                as: 'services'
+            }
+        },
+        {
+            $project: {
+                name: 1,
+                description: 1,
+                icon: 1,
+                order: 1,
+                price: 1,
+                services: 1,
+                category: 1
+            }
+        }
+    ]);
+
+    // Recursive helper to clean IDs and remove internal fields
+    const cleanDoc = (doc) => {
+        if (!doc) return doc;
+        const cleaned = { ...doc, id: doc._id?.toString() || doc.id };
+        delete cleaned._id;
+        delete cleaned.__v;
+
+        if (cleaned.services) {
+            cleaned.services = cleaned.services.map(cleanDoc);
+        }
+        return cleaned;
+    };
+
+    return result.map(cleanDoc);
+};
+
+/**
  * Public: Get flat list of all services (name and ID only)
  */
 const getServiceCatalogue = async () => {
@@ -422,5 +487,6 @@ module.exports = {
     updateService,
     deleteService,
     getAllCategoriesWithSubcategories,
+    getAllSubcategoriesWithServices,
     getServiceCatalogue
 };

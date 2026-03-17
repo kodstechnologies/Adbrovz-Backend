@@ -1211,6 +1211,7 @@ const getCompletedBookingsByUser = async (userId) => {
         .populate('proposedServices.service', 'title adminPrice photo')
         .populate('userRequestedServices.service', 'title adminPrice photo')
         .populate('vendor', 'name phoneNumber photo')
+        .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
 };
 

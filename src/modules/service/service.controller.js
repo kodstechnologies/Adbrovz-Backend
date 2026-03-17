@@ -152,6 +152,14 @@ const globalSearch = asyncHandler(async (req, res) => {
     );
 });
 
+// Get all subcategories with services
+const getSubcategoriesWithServices = asyncHandler(async (req, res) => {
+    const subcategories = await serviceService.getAllSubcategoriesWithServices();
+    res.status(200).json(
+        new ApiResponse(200, subcategories, 'Subcategories with services retrieved successfully')
+    );
+});
+
 // Get nested catalogue
 const getServiceCatalogue = asyncHandler(async (req, res) => {
     const catalogue = await serviceService.getServiceCatalogue();
@@ -177,5 +185,6 @@ module.exports = {
     updateService,
     deleteService,
     getCategoriesWithSubcategories,
+    getSubcategoriesWithServices,
     getServiceCatalogue
 };
