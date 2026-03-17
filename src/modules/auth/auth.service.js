@@ -854,6 +854,7 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
     responsePayload.verificationStatus = {
       isVerified: user.isVerified || false,
       documentStatus: user.documentStatus || 'pending',
+      isMembership: !!(user.membership?.expiryDate && new Date(user.membership.expiryDate) > new Date()),
       membership: {
         expiryDate: user.membership?.expiryDate || null,
       },
