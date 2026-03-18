@@ -797,6 +797,99 @@ const deleteVendorAccount = async (vendorId) => {
     return { message: 'Account deleted successfully' };
 };
 
+/**
+ * Get vendor dashboard metrics
+ * @param {string} vendorId
+ * @returns {Promise<Object>} Dashboard metrics
+ */
+const getDashboardMetrics = async (vendorId) => {
+    const mongoose = require('mongoose');
+    const Booking = require('../../models/Booking.model');
+    const vendorIdObj = new mongoose.Types.ObjectId(vendorId);
+
+    // Get current month start and end dates
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    // 1. Get vendor credits (coins)
+    const vendor = await Vendor.findById(vendorIdObj).select('coins');
+    const credits = vendor?.coins || 0;
+
+    // 2. Get pending jobs (Awaiting Confirmation)
+    const pendingJobs = await Booking.countDocuments({
+        vendor: vendorIdObj,
+        status: 'pending_acceptance'
+    });
+
+    // 3. Get ongoing jobs (In Progress)
+    const ongoingJobs = await Booking.countDocuments({
+        vendor: vendorIdObj,
+        status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] }
+    });
+
+    // 4. Get completed jobs THIS MONTH
+    const completedBookingsThisMonth = await Booking.find({
+        vendor: vendorIdObj,
+        status: 'completed',
+        updatedAt: { $gte: startOfMonth, $lte: endOfMonth }
+    }).select('pricing services');
+
+    const jobsCompletedThisMonth = completedBookingsThisMonth.length;
+
+    // 5. Calculate earnings THIS MONTH
+    let earningsThisMonth = 0;
+    completedBookingsThisMonth.forEach(booking => {
+        if (booking.pricing && booking.pricing.totalPrice) {
+            earningsThisMonth += booking.pricing.totalPrice;
+        } else if (booking.services && booking.services.length > 0) {
+            // Fallback to summing up service prices
+            booking.services.forEach(s => {
+                earningsThisMonth += (s.finalPrice || s.adminPrice || 0) * (s.quantity || 1);
+            });
+        }
+    });
+
+    // 6. Job Progress: (Completed This Month / Total Active Jobs This Month) * 100
+    const totalActiveBookingsThisMonth = await Booking.countDocuments({
+        vendor: vendorIdObj,
+        status: { $in: ['pending_acceptance', 'pending', 'on_the_way', 'arrived', 'ongoing', 'completed'] },
+        createdAt: { $gte: startOfMonth, $lte: endOfMonth }
+    });
+
+    let jobProgress = 0;
+    if (totalActiveBookingsThisMonth > 0) {
+        jobProgress = Math.round((jobsCompletedThisMonth / totalActiveBookingsThisMonth) * 100);
+    }
+
+    return {
+        earnings: {
+            amount: earningsThisMonth,
+            growth: "+0%" // Mock data. Can be updated to calculate real MoM growth later
+        },
+        jobsCompleted: {
+            count: jobsCompletedThisMonth,
+            growth: "This Month"
+        },
+        pendingJobs: {
+            count: pendingJobs,
+            description: "Awaiting Confirmation"
+        },
+        ongoingJobs: {
+            count: ongoingJobs,
+            description: "In Progress"
+        },
+        credits: {
+            amount: credits,
+            description: "Available for vendors"
+        },
+        jobProgress: {
+            percentage: jobProgress,
+            description: `${jobProgress}% jobs completed this month`
+        }
+    };
+};
+
 
 module.exports = {
     getAllVendors,
@@ -817,5 +910,6 @@ module.exports = {
     updateVendorProfile,
     getVerificationStatus,
     deleteVendorAccount,
+    getDashboardMetrics,
 };
 

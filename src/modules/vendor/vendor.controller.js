@@ -201,6 +201,17 @@ const deleteAccount = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * Get vendor dashboard metrics
+ */
+const getDashboardMetrics = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const metrics = await vendorService.getDashboardMetrics(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, metrics, 'Dashboard metrics retrieved successfully')
+    );
+});
+
 
 module.exports = {
     getAllVendors,
@@ -219,5 +230,6 @@ module.exports = {
     updateProfile,
     getVerificationStatus,
     deleteAccount,
+    getDashboardMetrics,
 };
 
