@@ -67,7 +67,7 @@ const requestLead = async (
         bookingID: `BK-${uuidv4().slice(0, 8).toUpperCase()}`,
         user: userId,
         status: 'pending_acceptance',
-        statusHistory: [{ status: 'pending_acceptance', timestamp: new Date() }],
+        statusHistory: [{ status: 'pending_acceptance', timestamp: new Date(), actor: 'user' }],
         scheduledDate: scheduledDate || new Date(),
         scheduledTime: scheduledTime || '00:00',
         location: { address, pincode }
@@ -155,7 +155,7 @@ const acceptLead = async (vendorId, bookingId) => {
                 ...(gracePeriodEnd && { gracePeriodEnd })
             },
             $push: {
-                statusHistory: { status: 'pending', timestamp: new Date() }
+                statusHistory: { status: 'pending', timestamp: new Date(), actor: 'vendor' }
             }
         },
         { new: true }
@@ -235,7 +235,7 @@ const markOnTheWay = async (vendorId, bookingId) => {
     }
 
     booking.status = 'on_the_way';
-    booking.statusHistory.push({ status: 'on_the_way', timestamp: new Date() });
+    booking.statusHistory.push({ status: 'on_the_way', timestamp: new Date(), actor: 'vendor' });
     booking.markModified('statusHistory');
     await booking.save();
     console.log(`[DEBUG] Status updated to On The Way: ${bookingId}, history length: ${booking.statusHistory.length}`);
@@ -263,7 +263,7 @@ const markArrived = async (vendorId, bookingId) => {
     }
 
     booking.status = 'arrived';
-    booking.statusHistory.push({ status: 'arrived', timestamp: new Date() });
+    booking.statusHistory.push({ status: 'arrived', timestamp: new Date(), actor: 'vendor' });
     booking.markModified('statusHistory');
     booking.vendorArrivedAt = new Date();
     await booking.save();
@@ -301,7 +301,7 @@ const startWork = async (vendorId, bookingId, enteredOTP) => {
     }
 
     booking.status = 'ongoing';
-    booking.statusHistory.push({ status: 'ongoing', timestamp: new Date() });
+    booking.statusHistory.push({ status: 'ongoing', timestamp: new Date(), actor: 'vendor' });
     booking.markModified('statusHistory');
     booking.workStartedAt = new Date();
     await booking.save();
@@ -376,7 +376,7 @@ const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
     }
 
     booking.status = 'completed';
-    booking.statusHistory.push({ status: 'completed', timestamp: new Date() });
+    booking.statusHistory.push({ status: 'completed', timestamp: new Date(), actor: 'vendor' });
     booking.markModified('statusHistory');
     booking.payment = {
         ...booking.payment,
@@ -463,7 +463,13 @@ const getBookingDetails = async (bookingId, userId, role) => {
     bookingObj.displayStatus = statusMap[booking.status] || booking.status;
     if (booking.status === 'cancelled') {
         bookingObj.cancelledBy = booking.cancellation?.cancelledBy || 'unknown';
+        bookingObj.cancelledAtIST = booking.cancellation?.cancelledAt ? new Date(booking.cancellation.cancelledAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null;
     }
+
+    // Role specific IST timestamps
+    bookingObj.vendorArrivedAtIST = booking.vendorArrivedAt ? new Date(booking.vendorArrivedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null;
+    bookingObj.workStartedAtIST = booking.workStartedAt ? new Date(booking.workStartedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null;
+    bookingObj.workCompletedAtIST = booking.workCompletedAt ? new Date(booking.workCompletedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null;
 
     // OTP visibility logic
     if (bookingObj.otp) {
@@ -652,7 +658,7 @@ const createBooking = async (userId, bookingData) => {
             travelCharge: baseTravelCharge 
         },
         status: 'pending_acceptance',
-        statusHistory: [{ status: 'pending_acceptance', timestamp: new Date() }]
+        statusHistory: [{ status: 'pending_acceptance', timestamp: new Date(), actor: 'user' }]
     });
 
     const searchTimeoutMins = (await adminService.getSetting('bookings.search_timeout_mins')) || 2;
@@ -1297,7 +1303,8 @@ const getBookingStatusHistory = async (bookingId, userId, role) => {
             status: item.status,
             reason: item.reason || null,
             actor: item.actor || null,
-            timestamp: item.timestamp
+            timestamp: item.timestamp,
+            timestampIST: item.timestamp ? new Date(item.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null
         }))
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
