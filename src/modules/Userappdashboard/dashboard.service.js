@@ -1,6 +1,9 @@
 const ServiceSection = require('../../models/ServiceSection.model');
 const Banner = require('../../models/Banner.model');
 const Service = require('../../models/Service.model');
+const Booking = require('../../models/Booking.model');
+const Category = require('../../models/Category.model');
+const Subcategory = require('../../models/Subcategory.model');
 const ApiError = require('../../utils/ApiError');
 
 /**
@@ -192,6 +195,104 @@ const getVendorBanners = async () => {
     return banners;
 };
 
+/**
+ * PUBLIC: Get top 4 best services based on average rating
+ */
+const getBestServices = async () => {
+    const result = await Booking.aggregate([
+        // Only completed bookings with a rating
+        { $match: { status: 'completed', 'rating.value': { $exists: true, $ne: null } } },
+        // Unwind services array to get individual service entries
+        { $unwind: '$services' },
+        // Group by service ID and calculate average rating
+        {
+            $group: {
+                _id: '$services.service',
+                avgRating: { $avg: '$rating.value' },
+                totalRatings: { $sum: 1 }
+            }
+        },
+        // Sort by average rating descending
+        { $sort: { avgRating: -1 } },
+        // Take top 4
+        { $limit: 4 },
+        // Lookup service details
+        {
+            $lookup: {
+                from: 'services',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'service'
+            }
+        },
+        { $unwind: '$service' },
+        // Lookup category
+        {
+            $lookup: {
+                from: 'categories',
+                localField: 'service.category',
+                foreignField: '_id',
+                as: 'category'
+            }
+        },
+        // Lookup subcategory
+        {
+            $lookup: {
+                from: 'subcategories',
+                localField: 'service.subcategory',
+                foreignField: '_id',
+                as: 'subcategory'
+            }
+        },
+        // Project final shape
+        {
+            $project: {
+                _id: '$service._id',
+                title: '$service.title',
+                description: '$service.description',
+                photo: '$service.photo',
+                adminPrice: '$service.adminPrice',
+                isAdminPriced: '$service.isAdminPriced',
+                approxCompletionTime: '$service.approxCompletionTime',
+                avgRating: { $round: ['$avgRating', 1] },
+                totalRatings: 1,
+                category: { $arrayElemAt: [{ $map: { input: '$category', as: 'c', in: { _id: '$$c._id', name: '$$c.name' } } }, 0] },
+                subcategory: { $arrayElemAt: [{ $map: { input: '$subcategory', as: 's', in: { _id: '$$s._id', name: '$$s.name' } } }, 0] }
+            }
+        }
+    ]);
+
+    // If there are less than 4 rated services, fetch additional services to fill the gap
+    if (result.length < 4) {
+        const excludeIds = result.map(s => s._id);
+        const limit = 4 - result.length;
+
+        const additionalServices = await Service.find({ _id: { $nin: excludeIds } })
+            .limit(limit)
+            .select('title description photo approxCompletionTime adminPrice isAdminPriced category subcategory')
+            .populate('category', '_id name')
+            .populate('subcategory', '_id name');
+
+        const formattedAdditional = additionalServices.map(s => ({
+            _id: s._id,
+            title: s.title,
+            description: s.description,
+            photo: s.photo,
+            adminPrice: s.adminPrice,
+            isAdminPriced: s.isAdminPriced,
+            approxCompletionTime: s.approxCompletionTime,
+            avgRating: 0,
+            totalRatings: 0,
+            category: s.category,
+            subcategory: s.subcategory
+        }));
+
+        result.push(...formattedAdditional);
+    }
+
+    return result;
+};
+
 module.exports = {
     getDashboardData,
     getAllServiceSections,
@@ -202,5 +303,6 @@ module.exports = {
     createBanner,
     updateBanner,
     deleteBanner,
-    getVendorBanners
+    getVendorBanners,
+    getBestServices
 };

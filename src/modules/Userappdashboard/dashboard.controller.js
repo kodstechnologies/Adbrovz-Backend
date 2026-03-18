@@ -77,6 +77,14 @@ const deleteBanner = asyncHandler(async (req, res) => {
     res.status(200).json(new ApiResponse(200, null, 'Banner deleted successfully'));
 });
 
+// USER: Get top 4 best services based on ratings
+const getBestServices = asyncHandler(async (req, res) => {
+    const services = await dashboardService.getBestServices();
+    res.status(200).json(
+        new ApiResponse(200, services, 'Best services retrieved successfully')
+    );
+});
+
 module.exports = {
     getDashboardData,
     getAllServiceSections,
@@ -87,5 +95,6 @@ module.exports = {
     createBanner,
     updateBanner,
     deleteBanner,
-    getVendorBanners
+    getVendorBanners,
+    getBestServices
 };

@@ -10,6 +10,7 @@ router.get('/', dashboardController.getDashboardData);
 router.get('/service-sections', dashboardController.getAllServiceSections);
 router.get('/banners', dashboardController.getAllBanners);
 router.get('/vendor-banners', dashboardController.getVendorBanners);
+router.get('/best-services', dashboardController.getBestServices);
 
 // ================= ADMIN ROUTES =================
 router.use(authenticate);
