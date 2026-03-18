@@ -752,6 +752,7 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
             startDate: vendor.membership.startDate,
             expiryDate: vendor.membership.expiryDate,
             durationMonths: vendor.membership.durationMonths || 3,
+            isActive: true,
         },
         payment: {
             razorpay_order_id,
