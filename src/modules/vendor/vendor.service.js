@@ -479,7 +479,7 @@ const verifyAllDocuments = async (vendorId) => {
     vendor.isVerified = true;
     vendor.documentStatus = 'approved';
     vendor.registrationStep = 'COMPLETED';
-
+ 
     // Start membership if not already started
     if (!vendor.membership.startDate) {
         const startDate = new Date();
