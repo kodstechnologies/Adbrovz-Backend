@@ -441,6 +441,7 @@ const getBookingDetails = async (bookingId, userId, role) => {
         .populate('services.service')
         .populate('proposedServices.service')
         .populate('userRequestedServices.service')
+        .populate('rejectedServices.service')
         .populate('vendor', 'name phoneNumber photo')
         .populate('user', 'name phoneNumber photo');
 
@@ -1486,23 +1487,47 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
         throw new ApiError(400, 'Cannot reject price that is already confirmed');
     }
 
+    const unconfirmedServices = booking.services.filter(s => !s.isPriceConfirmed);
+    if (unconfirmedServices.length === 0) {
+        throw new ApiError(400, 'No unconfirmed prices found to reject');
+    }
+
     const now = new Date();
-    booking.status = 'cancelled';
+    
+    // Move to rejectedServices
+    unconfirmedServices.forEach(s => {
+        booking.rejectedServices.push({
+            service: s.service,
+            quantity: s.quantity,
+            adminPrice: s.adminPrice,
+            vendorPrice: s.vendorPrice,
+            finalPrice: s.finalPrice,
+            rejectedBy: 'user',
+            rejectionType: 'proposed_price',
+            reason: reason || 'Price rejected by user',
+            rejectedAt: now
+        });
+    });
+
+    // Remove from active services
+    booking.services = booking.services.filter(s => s.isPriceConfirmed);
+    
+    // If no services left, the booking might still be valid (e.g., if there are upcoming extra services)
+    // but usually, we keep it active if at least one confirmed service remains.
+    // The user specifically said "dont touch ayt other thig", so we just remove the rejected one and keep booking active.
+    
+    booking.isPriceConfirmed = true; // Remaining ones are confirmed
     booking.statusHistory.push({ 
-        status: 'cancelled', 
+        status: booking.status, 
         actor: 'user',
-        reason: reason || 'Price rejected by user',
+        reason: reason || 'Price rejected by user for specific services',
         timestamp: now 
     });
     booking.markModified('statusHistory');
+    booking.markModified('services');
+    booking.markModified('rejectedServices');
 
-    booking.cancellation = {
-        cancelledBy: 'user',
-        reason: reason || 'Price rejected by user',
-        cancelledAt: now,
-        travelChargeApplied: false
-    };
-
+    recalculateBookingPrice(booking);
     await booking.save();
 
     const populatedBooking = await getBookingDetails(booking._id, userId, 'user');
@@ -1512,9 +1537,14 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
     emitToUser(userId, 'booking_status_updated', populatedBooking);
     if (booking.vendor) {
         emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
+        emitToVendor(booking.vendor, 'booking_price_rejected', {
+            bookingId: booking._id,
+            reason: reason || 'Price rejected by user',
+            message: 'User rejected the proposed price for some services.'
+        });
     }
 
-    return { booking: populatedBooking, message: 'Price rejected and booking cancelled' };
+    return { booking: populatedBooking, message: 'Price rejected for selected services. Booking remains active.' };
 };
 
 /**
@@ -1881,17 +1911,34 @@ async function userRejectExtraServices(userId, bookingId, reason) {
         throw new ApiError(400, 'No extra services pending rejection');
     }
 
+    // Move to rejectedServices
+    const now = new Date();
+    booking.userRequestedServices.forEach(s => {
+        booking.rejectedServices.push({
+            service: s.service,
+            quantity: s.quantity,
+            adminPrice: s.adminPrice,
+            vendorPrice: s.vendorPrice,
+            finalPrice: s.finalPrice,
+            rejectedBy: 'user',
+            rejectionType: 'extra_service',
+            reason: reason || 'User rejected their own requested services after pricing.',
+            rejectedAt: now
+        });
+    });
+
     // Clear the requests
     booking.userRequestedServices = [];
 
     // Log in history
     booking.statusHistory.push({
-        status: 'extra_services_rejected',
+        status: booking.status,
         actor: 'user',
         reason: reason || 'User rejected their own requested services after pricing.',
-        timestamp: new Date()
+        timestamp: now
     });
     booking.markModified('statusHistory');
+    booking.markModified('rejectedServices');
 
     recalculateBookingPrice(booking);
     await booking.save();
@@ -2136,21 +2183,40 @@ async function vendorRejectExtraServices(vendorId, bookingId, reason) {
         throw new ApiError(400, 'No pending user service requests to reject');
     }
 
-    // Mark as rejected instead of clearing (user can see history)
+    // Log in history
+    const now = new Date();
     booking.userRequestedServices.forEach(item => {
-        if (item.status === 'pending') {
+        if (item.status === 'pending' || item.status === 'priced') {
+            booking.rejectedServices.push({
+                service: item.service,
+                quantity: item.quantity,
+                adminPrice: item.adminPrice,
+                vendorPrice: item.vendorPrice,
+                finalPrice: item.finalPrice,
+                rejectedBy: 'vendor',
+                rejectionType: 'extra_service',
+                reason: reason || 'Vendor declined the requested extra services.',
+                rejectedAt: now
+            });
+        }
+    });
+
+    // Mark as rejected in the array (or we could clear it, but keeping it helps reference)
+    booking.userRequestedServices.forEach(item => {
+        if (item.status === 'pending' || item.status === 'priced') {
             item.status = 'rejected';
         }
     });
 
     // Log in history
     booking.statusHistory.push({
-        status: 'extra_services_rejected_by_vendor',
+        status: booking.status,
         actor: 'vendor',
         reason: reason || 'Vendor declined to perform the requested extra services.',
-        timestamp: new Date()
+        timestamp: now
     });
     booking.markModified('statusHistory');
+    booking.markModified('rejectedServices');
 
     await booking.save();
 

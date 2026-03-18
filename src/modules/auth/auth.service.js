@@ -78,6 +78,8 @@ const userSignup = async ({ phoneNumber, name, email, pin, confirmPin, acceptedP
     },
     token,
     refreshToken,
+    isVerified: user.isVerified || false,
+    isMembership: false,
     message: 'Signup successful',
   };
 };
@@ -231,6 +233,8 @@ const completeUserSignup = async ({ signupId, pin, confirmPin, acceptedPolicies 
     },
     token,
     refreshToken,
+    isVerified: user.isVerified || false,
+    isMembership: false,
     message: 'Signup completed successfully.',
   };
 };
@@ -305,9 +309,10 @@ const completeVendorSignup = async ({ signupId, pin, confirmPin, acceptedTerms, 
     phoneNumber: vendor.phoneNumber,
     token,
     refreshToken,
-    message: 'Vendor registration completed successfully. Please wait for document approval.',
     isVerified: vendor.isVerified || false,
+    isMembership: !!(vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) > new Date()),
     documentStatus: vendor.documentStatus,
+    message: 'Vendor registration completed successfully. Please wait for document approval.',
   };
 };
 
@@ -483,6 +488,8 @@ const vendorSignup = async ({
     signupId,
     vendorId: vendor._id,
     phoneNumber: vendor.phoneNumber,
+    isVerified: vendor.isVerified || false,
+    isMembership: !!(vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) > new Date()),
     message: 'Profile registered. Please set your PIN.',
   };
 };
@@ -690,6 +697,8 @@ const verifySignupOTP = async (phoneNumber, otp, role = 'user', req = null) => {
     },
     token,
     refreshToken,
+    isVerified: user.isVerified || false,
+    isMembership: false,
     message: 'Signup completed successfully.',
   };
 };

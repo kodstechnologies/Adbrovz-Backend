@@ -120,9 +120,9 @@ const vendorSignupSchema = Joi.object({
     .email()
     .optional()
     .allow('', null),
-  photo: Joi.string().optional().allow('', null),
-  idProof: Joi.string().optional().allow('', null),
-  addressProof: Joi.string().optional().allow('', null),
+  photo: Joi.string().required(),
+  idProof: Joi.string().required(),
+  addressProof: Joi.string().required(),
   workProof: Joi.string().optional().allow('', null),
   bankProof: Joi.string().optional().allow('', null),
   policeVerification: Joi.string().optional().allow('', null),
