@@ -219,7 +219,7 @@ const acceptLead = async (vendorId, bookingId) => {
         bookingId: booking._id,
         bookingID: booking.bookingID,
         booking: vendorPayload,
-        message: 'Lead accepted successfully'
+        message: 'Booking accepted successfully'
     };
 };
 
