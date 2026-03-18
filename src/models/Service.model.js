@@ -74,7 +74,7 @@ serviceSchema.pre('save', function (next) {
     this.isAdminPriced = true;
   } else {
     this.isAdminPriced = false;
-    this.adminPrice = null; // Normalize to null if not priced
+    this.adminPrice = 0; // Normalize to 0 if not priced
   }
   next();
 });

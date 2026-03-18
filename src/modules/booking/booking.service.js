@@ -757,16 +757,30 @@ const searchVendors = async (booking, broadcast = false) => {
             let broadcastCount = 0;
 
             const populatedBooking = await Booking.findById(booking._id)
-                .populate('services.service', 'title photo adminPrice')
-                .populate('proposedServices.service', 'title photo adminPrice')
-                .populate('userRequestedServices.service', 'title photo adminPrice')
+                .populate('services.service', 'title photo adminPrice approxCompletionTime')
+                .populate('proposedServices.service', 'title photo adminPrice approxCompletionTime')
+                .populate('userRequestedServices.service', 'title photo adminPrice approxCompletionTime')
                 .populate('user', 'name phoneNumber photo');
+
+            // Calculate total estimated duration by summing all services' approxCompletionTime * quantity
+            let totalDurationMins = 0;
+            if (populatedBooking && populatedBooking.services) {
+                populatedBooking.services.forEach(item => {
+                    const duration = item.service?.approxCompletionTime || 0;
+                    totalDurationMins += duration * (item.quantity || 1);
+                });
+            }
+
+            const bookingPayload = {
+                ...populatedBooking.toObject(),
+                totalDurationMins,
+            };
 
             vendors.forEach(v => {
                 const socketIds = getVendorSockets(v._id);
                 if (socketIds && socketIds.length > 0) {
                     socketIds.forEach(socketId => {
-                        io.to(socketId).emit('new_booking_request', populatedBooking);
+                        io.to(socketId).emit('new_booking_request', bookingPayload);
                     });
                     broadcastCount++;
                 }
