@@ -167,6 +167,17 @@ const bookingSchema = new mongoose.Schema(
         default: 'pending'
       }
     }],
+    rejectedServices: [{
+      service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service' },
+      quantity: { type: Number, default: 1 },
+      adminPrice: { type: Number },
+      vendorPrice: { type: Number },
+      finalPrice: { type: Number },
+      rejectedBy: { type: String, enum: ['user', 'vendor'] },
+      rejectionType: { type: String, enum: ['extra_service', 'proposed_price'] },
+      reason: { type: String },
+      rejectedAt: { type: Date, default: Date.now }
+    }],
   },
   {
     timestamps: true,
