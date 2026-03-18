@@ -894,9 +894,10 @@ const getVendorBookingHistory = async (vendorId) => {
     // 1. Pending (Accepted by vendor but not started)
     // 2. Ongoing (started)
     // 3. Completed
+    // 4. Cancelled
     const activeAndHistoryBookings = await Booking.find({
         vendor: vendorIdObj,
-        status: { $in: ['pending', 'ongoing', 'completed', 'on_the_way', 'arrived'] }
+        status: { $in: ['pending', 'ongoing', 'completed', 'on_the_way', 'arrived', 'cancelled'] }
     })
         .select('-rejectedVendors -laterVendors')
         .populate('services.service', 'title adminPrice photo')
@@ -906,7 +907,12 @@ const getVendorBookingHistory = async (vendorId) => {
     const categorized = {
         pending: activeAndHistoryBookings.filter(b => ['pending', 'on_the_way', 'arrived'].includes(b.status)),
         ongoing: activeAndHistoryBookings.filter(b => b.status === 'ongoing'),
-        completed: activeAndHistoryBookings.filter(b => b.status === 'completed')
+        completed: activeAndHistoryBookings.filter(b => b.status === 'completed'),
+        cancelled: activeAndHistoryBookings.filter(b => b.status === 'cancelled').map(b => {
+            const obj = b.toObject();
+            obj.cancelledBy = obj.cancellation?.cancelledBy || 'unknown';
+            return obj;
+        })
     };
 
     return categorized;
