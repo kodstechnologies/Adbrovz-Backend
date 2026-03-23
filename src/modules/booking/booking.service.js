@@ -1467,6 +1467,17 @@ const confirmBookingPrice = async (userId, bookingId) => {
     booking.isPriceConfirmed = true;
     booking.services.forEach(s => s.isPriceConfirmed = true);
 
+    // Also confirm any user-requested extra services that were priced
+    if (booking.userRequestedServices && booking.userRequestedServices.length > 0) {
+        booking.userRequestedServices.forEach(s => {
+            if (s.status === 'priced') {
+                s.isPriceConfirmed = true;
+                s.status = 'accepted';
+            }
+        });
+        booking.markModified('userRequestedServices');
+    }
+
     // Recalculate total price now that it's confirmed
     recalculateBookingPrice(booking);
 

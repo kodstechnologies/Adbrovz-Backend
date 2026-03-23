@@ -418,15 +418,17 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
         vendor.isVerified = true;
         vendor.documentStatus = 'approved';
 
-        // Set registrationStep and startDate ONLY if already paid
-        if (vendor.registrationStep === 'MEMBERSHIP_PAID') {
+        // Set registrationStep and startDate IF already paid or moved past selection
+        const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'SERVICES_SELECTED'].includes(vendor.registrationStep) || vendor.membership?.expiryDate;
+        
+        if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
             const startDate = new Date();
             const durationMonths = vendor.membership.durationMonths || 3;
             const expiryDate = new Date();
             expiryDate.setMonth(expiryDate.getMonth() + durationMonths);
 
-            vendor.membership.startDate = startDate;
-            vendor.membership.expiryDate = expiryDate;
+            vendor.membership.startDate = vendor.membership.startDate || startDate;
+            vendor.membership.expiryDate = vendor.membership.expiryDate || expiryDate;
             vendor.registrationStep = 'COMPLETED';
         }
     } else if (status === 'rejected') {
@@ -481,15 +483,17 @@ const verifyAllDocuments = async (vendorId) => {
     vendor.isVerified = true;
     vendor.documentStatus = 'approved';
  
-    // Set registrationStep and startDate ONLY if already paid
-    if (vendor.registrationStep === 'MEMBERSHIP_PAID') {
+    // Set registrationStep and startDate IF already paid or moved past selection
+    const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'SERVICES_SELECTED'].includes(vendor.registrationStep) || vendor.membership?.expiryDate;
+
+    if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
         const startDate = new Date();
         const durationMonths = vendor.membership.durationMonths || 3;
         const expiryDate = new Date();
         expiryDate.setMonth(expiryDate.getMonth() + durationMonths);
 
-        vendor.membership.startDate = startDate;
-        vendor.membership.expiryDate = expiryDate;
+        vendor.membership.startDate = vendor.membership.startDate || startDate;
+        vendor.membership.expiryDate = vendor.membership.expiryDate || expiryDate;
         vendor.registrationStep = 'COMPLETED';
     }
 
