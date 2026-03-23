@@ -199,6 +199,12 @@ const vendorSchema = new mongoose.Schema(
         const stringId = ret._id ? ret._id.toString() : (doc._id ? doc._id.toString() : null);
         ret.id = stringId;
         ret._id = stringId;
+
+        // Add isActive to membership based on expiryDate
+        if (ret.membership) {
+          ret.membership.isActive = !!(ret.membership.expiryDate && new Date(ret.membership.expiryDate) > new Date());
+        }
+
         delete ret.__v;
         return ret;
       }
