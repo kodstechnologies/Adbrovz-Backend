@@ -338,6 +338,28 @@ const purchaseMembership = async (vendorId) => {
         vendor.registrationStep = 'MEMBERSHIP_PAID';
     }
 
+    // Ensure membership metadata is populated if missing
+    if (!vendor.membership.fee || !vendor.membership.category) {
+        try {
+            const memDetails = await getVendorMembershipDetails(vendorId);
+            if (!vendor.membership.fee) vendor.membership.fee = memDetails.totalFee;
+            if (!vendor.membership.category && memDetails.services.length > 0) {
+                const Service = require('../../models/Service.model');
+                const Subcategory = require('../../models/Subcategory.model');
+                const firstItem = memDetails.services[0];
+                if (firstItem.type === 'subcategory') {
+                    const sub = await Subcategory.findById(firstItem.id).select('category');
+                    vendor.membership.category = sub?.category;
+                } else {
+                    const svc = await Service.findById(firstItem.id).select('category');
+                    vendor.membership.category = svc?.category;
+                }
+            }
+        } catch (err) {
+            console.error('Error auto-populating membership metadata:', err.message);
+        }
+    }
+
     await vendor.save();
 
     return { message: vendor.isVerified 
@@ -726,6 +748,28 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         vendor.registrationStep = 'COMPLETED';
     } else {
         vendor.registrationStep = 'MEMBERSHIP_PAID';
+    }
+
+    // Ensure membership metadata is populated if missing
+    if (!vendor.membership.fee || !vendor.membership.category) {
+        try {
+            const memDetails = await getVendorMembershipDetails(vendor._id);
+            if (!vendor.membership.fee) vendor.membership.fee = memDetails.totalFee;
+            if (!vendor.membership.category && memDetails.services.length > 0) {
+                const Service = require('../../models/Service.model');
+                const Subcategory = require('../../models/Subcategory.model');
+                const firstItem = memDetails.services[0];
+                if (firstItem.type === 'subcategory') {
+                    const sub = await Subcategory.findById(firstItem.id).select('category');
+                    vendor.membership.category = sub?.category;
+                } else {
+                    const svc = await Service.findById(firstItem.id).select('category');
+                    vendor.membership.category = svc?.category;
+                }
+            }
+        } catch (err) {
+            console.error('Error auto-populating membership metadata:', err.message);
+        }
     }
 
     await vendor.save();
