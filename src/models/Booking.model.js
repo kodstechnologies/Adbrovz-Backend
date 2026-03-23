@@ -24,6 +24,10 @@ const bookingSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Vendor',
     }],
+    notifiedVendors: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Vendor',
+    }],
     services: [{
       service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service', required: true },
       quantity: { type: Number, default: 1 },
