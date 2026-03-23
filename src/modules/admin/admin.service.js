@@ -372,8 +372,37 @@ const getAllBookings = async (query = {}) => {
     Booking.countDocuments(filter),
   ]);
 
+  // Enhance each booking with computed extra service amounts
+  const enhancedBookings = bookings.map(b => {
+    const obj = b.toObject ? b.toObject() : b;
+    const baseServicesTotal = (obj.services || []).reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+    const extraServicesTotal = (obj.userRequestedServices || [])
+      .filter(s => ['priced', 'accepted'].includes(s.status) || s.isPriceConfirmed)
+      .reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+    const proposedServicesTotal = (obj.proposedServices || []).reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+    const travelCharge = obj.pricing?.travelCharge || 0;
+    const additionalCharges = obj.pricing?.additionalCharges || 0;
+
+    // Format status history for IST
+    if (obj.statusHistory) {
+      const istOpts = { 
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+        day: '2-digit', month: '2-digit', year: 'numeric'
+      };
+      obj.statusHistory = obj.statusHistory.map(h => ({
+        ...h,
+        timestampIST: h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', istOpts) : null
+      }));
+    }
+
+    obj.extraServicesAmount = extraServicesTotal;
+    obj.computedTotal = baseServicesTotal + extraServicesTotal + proposedServicesTotal + travelCharge + additionalCharges;
+    return obj;
+  });
+
   return {
-    bookings,
+    bookings: enhancedBookings,
     total,
     limit: parseInt(limit),
     skip: parseInt(skip),
@@ -435,20 +464,42 @@ const getBookingDetails = async (bookingId) => {
     year: 'numeric'
   };
 
-  const enhancedHistory = booking.statusHistory.map(h => ({
+  const enhancedHistory = (booking.statusHistory || []).map(h => ({
     status: h.status,
     label: statusLabels[h.status] || h.status,
     reason: h.reason || null,
     actor: h.actor || null,
     timestamp: h.timestamp,
     timestampIST: h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', istOptions) : null
-  }));
+  })).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+  // Compute pricing breakdown including extra services
+  const baseServicesTotal = (booking.services || []).reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+  const extraServicesTotal = (booking.userRequestedServices || [])
+    .filter(s => ['priced', 'accepted'].includes(s.status) || s.isPriceConfirmed)
+    .reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+  const proposedServicesTotal = (booking.proposedServices || []).reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+  const travelCharge = booking.pricing?.travelCharge || 0;
+  const additionalCharges = booking.pricing?.additionalCharges || 0;
+  const computedTotal = baseServicesTotal + extraServicesTotal + proposedServicesTotal + travelCharge + additionalCharges;
+
+  const pricingBreakdown = {
+    baseServicesTotal,
+    extraServicesTotal,
+    proposedServicesTotal,
+    travelCharge,
+    additionalCharges,
+    computedTotal,
+    storedTotal: booking.pricing?.totalPrice || 0
+  };
 
   return {
     booking: {
       ...booking.toJSON(),
       statusLabel: statusLabels[booking.status] || booking.status,
-      enhancedHistory
+      statusHistory: enhancedHistory, // Overwrite original statusHistory with enhanced one for the frontend
+      enhancedHistory, // Keep as separate field too just in case
+      pricingBreakdown
     },
     feedback,
     disputes
@@ -468,7 +519,10 @@ const exportBookingsCSV = async (query = {}) => {
     { label: 'User Phone', value: 'user.phoneNumber' },
     { label: 'Vendor Name', value: 'vendor.name' },
     { label: 'Vendor Phone', value: 'vendor.phoneNumber' },
-    { label: 'Total Price', value: 'pricing.totalPrice' },
+    { label: 'Base Price', value: 'pricing.basePrice' },
+    { label: 'Extra Services Amount', value: 'extraServicesAmount' },
+    { label: 'Travel Charge', value: 'pricing.travelCharge' },
+    { label: 'Total Price', value: 'computedTotal' },
     { label: 'Payment Method', value: (row) => row.payment?.method || 'N/A' },
     { label: 'Created At', value: (row) => new Date(row.createdAt).toLocaleString('en-IN', {
       timeZone: 'Asia/Kolkata',
