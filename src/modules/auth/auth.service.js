@@ -947,13 +947,15 @@ const resetPIN = async (phoneNumber, otp, newPin, confirmPin, role = 'user', req
   // Audit log - PIN reset
   if (req) {
     const { ip, userAgent } = auditService.getRequestInfo(req);
+    const actor = userProfile || vendorProfile;
     await auditService.createAuditLog({
       action: 'profile_updated',
-      userId: user._id,
-      userModel: role === 'vendor' ? 'Vendor' : 'User',
+      userId: actor._id,
+      userModel: userProfile ? 'User' : 'Vendor',
       details: {
         updateType: 'PIN_RESET',
         resetMethod: 'DIRECT',
+        roleReset: role
       },
       ip,
       userAgent,
@@ -1045,6 +1047,23 @@ const completeResetPIN = async ({ resetId, newPin, confirmPin, acceptedPolicies 
   }
 
   await Promise.all(updatePromises);
+
+  // Audit log - PIN reset
+  if (req) {
+    const { ip, userAgent } = auditService.getRequestInfo(req);
+    const actor = userProfile || vendorProfile;
+    await auditService.createAuditLog({
+      action: 'profile_updated',
+      userId: actor._id,
+      userModel: userProfile ? 'User' : 'Vendor',
+      details: {
+        updateType: 'PIN_RESET',
+        resetMethod: 'OTP_VERIFIED',
+      },
+      ip,
+      userAgent,
+    });
+  }
 
   // Success! Delete session
   await cacheService.del(resetKey);
