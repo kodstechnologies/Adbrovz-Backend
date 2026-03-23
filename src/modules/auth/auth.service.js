@@ -909,36 +909,36 @@ const resetPIN = async (phoneNumber, otp, newPin, confirmPin, role = 'user', req
     throw new ApiError(400, MESSAGES.AUTH.PIN_MISMATCH);
   }
 
-  let user;
+  // Update BOTH User and Vendor profiles if they exist to ensure full account unlock
+  const [userProfile, vendorProfile] = await Promise.all([
+    User.findOne({ phoneNumber }),
+    Vendor.findOne({ phoneNumber })
+  ]);
 
-  // Try finding in the specified role first
-  if (role === 'vendor') {
-    user = await Vendor.findOne({ phoneNumber });
-  } else {
-    user = await User.findOne({ phoneNumber });
+  const hashedPIN = await hashPIN(newPin);
+  const updatePromises = [];
+
+  if (userProfile) {
+    userProfile.pin = hashedPIN;
+    userProfile.failedAttempts = 0;
+    userProfile.isLocked = false;
+    userProfile.lockUntil = null;
+    updatePromises.push(userProfile.save());
   }
 
-  // Fallback: If not found in primary role, check the other role
-  if (!user) {
-    if (role === 'user') {
-      user = await Vendor.findOne({ phoneNumber });
-      if (user) role = 'vendor';
-    } else {
-      user = await User.findOne({ phoneNumber });
-      if (user) role = 'user';
-    }
+  if (vendorProfile) {
+    vendorProfile.pin = hashedPIN;
+    vendorProfile.failedAttempts = 0;
+    vendorProfile.isLocked = false;
+    vendorProfile.lockUntil = null;
+    updatePromises.push(vendorProfile.save());
   }
 
-  if (!user) {
+  if (updatePromises.length === 0) {
     throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
   }
 
-  // Update PIN - OTP Bypassed as per user request
-  user.pin = await hashPIN(newPin);
-  user.failedAttempts = 0;
-  user.isLocked = false;
-  user.lockUntil = undefined;
-  await user.save();
+  await Promise.all(updatePromises);
 
   // Delete OTP if it exists in cache
   const otpKey = `otp:reset:${phoneNumber}`;
@@ -967,7 +967,7 @@ const resetPIN = async (phoneNumber, otp, newPin, confirmPin, role = 'user', req
  * Step 2: Verify Reset OTP
  * - Verifies OTP and returns a resetId if valid
  */
-const verifyResetPINOTP = async ({ phoneNumber, otp }) => {
+const verifyResetPINOTP = async ({ phoneNumber, otp, role }) => {
   // Verify OTP - Bypassed for future use
   const otpKey = `otp:reset:${phoneNumber}`;
   /*
@@ -983,7 +983,7 @@ const verifyResetPINOTP = async ({ phoneNumber, otp }) => {
   const resetKey = `reset:session:${resetId}`;
   const resetExpiry = 600; // 10 minutes session for setting PIN
 
-  await cacheService.set(resetKey, JSON.stringify({ phoneNumber, role: 'user' }), resetExpiry);
+  await cacheService.set(resetKey, JSON.stringify({ phoneNumber, role: role || 'user' }), resetExpiry);
 
   // Mark OTP as verified by deleting it
   await cacheService.del(otpKey);
@@ -1011,23 +1011,40 @@ const completeResetPIN = async ({ resetId, newPin, confirmPin, acceptedPolicies 
     throw new ApiError(401, 'Reset session expired or invalid. Please start again.');
   }
 
-  const { phoneNumber, role } = JSON.parse(sessionDataStr);
+  const { phoneNumber } = JSON.parse(sessionDataStr);
 
-  // Find user
-  const user = await User.findOne({ phoneNumber });
-  if (!user) throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
+  // Update BOTH User and Vendor profiles if they exist to ensure full account unlock
+  const [userProfile, vendorProfile] = await Promise.all([
+    User.findOne({ phoneNumber }),
+    Vendor.findOne({ phoneNumber })
+  ]);
 
-  // Update PIN and policies
-  user.pin = await hashPIN(newPin);
-  user.acceptedPolicies = acceptedPolicies;
-  user.policiesAcceptedAt = new Date();
+  const hashedPIN = await hashPIN(newPin);
+  const updatePromises = [];
 
-  // Unlock account
-  user.failedAttempts = 0;
-  user.isLocked = false;
-  user.lockUntil = undefined;
+  if (userProfile) {
+    userProfile.pin = hashedPIN;
+    userProfile.acceptedPolicies = acceptedPolicies;
+    userProfile.policiesAcceptedAt = new Date();
+    userProfile.failedAttempts = 0;
+    userProfile.isLocked = false;
+    userProfile.lockUntil = null;
+    updatePromises.push(userProfile.save());
+  }
 
-  await user.save();
+  if (vendorProfile) {
+    vendorProfile.pin = hashedPIN;
+    vendorProfile.failedAttempts = 0;
+    vendorProfile.isLocked = false;
+    vendorProfile.lockUntil = null;
+    updatePromises.push(vendorProfile.save());
+  }
+
+  if (updatePromises.length === 0) {
+    throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
+  }
+
+  await Promise.all(updatePromises);
 
   // Success! Delete session
   await cacheService.del(resetKey);
