@@ -455,6 +455,13 @@ const getBookingDetails = async (bookingId, userId, role) => {
     const statusMap = {
         'pending_acceptance': 'Pending Acceptance',
         'pending': 'Accepted',
+        'price_proposed': 'Price Proposed',
+        'price_confirmed': 'Price Confirmed',
+        'rescheduled': 'Rescheduled',
+        'extra_services_requested': 'Extra Services Requested',
+        'extra_services_priced': 'Extra Services Priced',
+        'extra_services_accepted': 'Extra Services Accepted',
+        'extra_services_rejected': 'Extra Services Rejected',
         'on_the_way': 'Vendor on the Way',
         'arrived': 'Vendor Arrived',
         'ongoing': 'Working',
@@ -464,13 +471,32 @@ const getBookingDetails = async (bookingId, userId, role) => {
     bookingObj.displayStatus = statusMap[booking.status] || booking.status;
     if (booking.status === 'cancelled') {
         bookingObj.cancelledBy = booking.cancellation?.cancelledBy || 'unknown';
-        bookingObj.cancelledAtIST = booking.cancellation?.cancelledAt ? new Date(booking.cancellation.cancelledAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null;
+        bookingObj.cancelledAtIST = booking.cancellation?.cancelledAt ? new Date(booking.cancellation.cancelledAt).toLocaleString('en-IN', { 
+            timeZone: 'Asia/Kolkata',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true,
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+        }) : null;
     }
 
     // Role specific IST timestamps
-    bookingObj.vendorArrivedAtIST = booking.vendorArrivedAt ? new Date(booking.vendorArrivedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null;
-    bookingObj.workStartedAtIST = booking.workStartedAt ? new Date(booking.workStartedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null;
-    bookingObj.workCompletedAtIST = booking.workCompletedAt ? new Date(booking.workCompletedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null;
+    const istOptions = { 
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true,
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    };
+    bookingObj.vendorArrivedAtIST = booking.vendorArrivedAt ? new Date(booking.vendorArrivedAt).toLocaleString('en-IN', istOptions) : null;
+    bookingObj.workStartedAtIST = booking.workStartedAt ? new Date(booking.workStartedAt).toLocaleString('en-IN', istOptions) : null;
+    bookingObj.workCompletedAtIST = booking.workCompletedAt ? new Date(booking.workCompletedAt).toLocaleString('en-IN', istOptions) : null;
 
     // OTP visibility logic
     if (bookingObj.otp) {
@@ -567,13 +593,23 @@ const getBookingDetails = async (bookingId, userId, role) => {
 
     // Ensure statusHistory is present and formatted
     if (bookingObj.statusHistory) {
+        const istOptions = { 
+            timeZone: 'Asia/Kolkata',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true,
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+        };
         bookingObj.statusHistory = bookingObj.statusHistory.map(h => ({
             status: h.status,  
             reason: h.reason,
             actor: h.actor,
             timestamp: h.timestamp,
             // Add a clearly formatted IST time to help user distinguish from UTC
-            timestampIST: h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null,
+            timestampIST: h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', istOptions) : null,
             displayStatus: statusMap[h.status] || h.status
         })).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     }
@@ -1176,7 +1212,7 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
     booking.scheduledTime = time;
     booking.rescheduleCount += 1;
     booking.statusHistory.push({
-        status: booking.status,
+        status: 'rescheduled',
         reason: `Rescheduled to ${date} ${time}`,
         actor: 'user',
         timestamp: new Date()
@@ -1319,13 +1355,23 @@ const getBookingStatusHistory = async (bookingId, userId, role) => {
     if (!booking) throw new ApiError(404, 'Booking not found');
 
     // Clean up history by removing any potential Mongoose ID fields for a cleaner response
+    const istOptions = { 
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true,
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    };
     const cleanHistory = (booking.statusHistory || [])
         .map(item => ({
             status: item.status,
             reason: item.reason || null,
             actor: item.actor || null,
             timestamp: item.timestamp,
-            timestampIST: item.timestamp ? new Date(item.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null
+            timestampIST: item.timestamp ? new Date(item.timestamp).toLocaleString('en-IN', istOptions) : null
         }))
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
@@ -1349,7 +1395,7 @@ const recalculateBookingPrice = (booking) => {
     // Add user requested extra services that have been priced by vendor
     if (booking.userRequestedServices && booking.userRequestedServices.length > 0) {
         basePrice += booking.userRequestedServices
-            .filter(s => s.status === 'priced' || s.isPriceConfirmed)
+            .filter(s => s.status === 'priced' || s.status === 'accepted' || s.isPriceConfirmed)
             .reduce((sum, s) => sum + (s.finalPrice || 0), 0);
     }
 
@@ -1435,6 +1481,13 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
 
     booking.priceUpdatedOnce = true;
     booking.isPriceConfirmed = false;
+    booking.statusHistory.push({
+        status: 'price_proposed',
+        reason: 'Vendor proposed new price for services',
+        actor: 'vendor',
+        timestamp: new Date()
+    });
+    booking.markModified('statusHistory');
     booking.priceConfirmationTimeout = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
 
     console.log(`[SOCKET] Saving booking with updated price: ${bookingId}`);
@@ -1483,7 +1536,7 @@ const confirmBookingPrice = async (userId, bookingId) => {
 
     // Log confirmation
     booking.statusHistory.push({
-        status: booking.status,
+        status: 'price_confirmed',
         reason: 'Price confirmed by user',
         actor: 'user',
         timestamp: new Date()
@@ -1963,7 +2016,7 @@ async function userRejectExtraServices(userId, bookingId, reason) {
 
     // Log in history
     booking.statusHistory.push({
-        status: booking.status,
+        status: 'extra_services_rejected',
         actor: 'user',
         reason: reason || 'User rejected their own requested services after pricing.',
         timestamp: now
@@ -2038,6 +2091,14 @@ async function requestExtraServices(userId, bookingId, newServices) {
             isPriceConfirmed: false // Always false until user approves the total change
         });
     }
+
+    booking.statusHistory.push({
+        status: 'extra_services_requested',
+        reason: 'User requested additional services',
+        actor: 'user',
+        timestamp: new Date()
+    });
+    booking.markModified('statusHistory');
 
     await booking.save();
 
@@ -2115,6 +2176,13 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
     }
 
     recalculateBookingPrice(booking);
+    booking.statusHistory.push({
+        status: 'extra_services_priced',
+        reason: 'Vendor priced the requested extra services',
+        actor: 'vendor',
+        timestamp: new Date()
+    });
+    booking.markModified('statusHistory');
     booking.markModified('userRequestedServices');
     await booking.save();
 
@@ -2176,6 +2244,18 @@ async function vendorAcceptExtraServices(vendorId, bookingId) {
     }
 
     booking.markModified('userRequestedServices');
+    
+    // Recalculate total price to include newly accepted services
+    recalculateBookingPrice(booking);
+
+    booking.statusHistory.push({
+        status: 'extra_services_accepted',
+        reason: 'Vendor accepted the requested extra services',
+        actor: 'vendor',
+        timestamp: new Date()
+    });
+    booking.markModified('statusHistory');
+    
     await booking.save();
 
     const populatedBooking = await Booking.findById(booking._id)
@@ -2241,7 +2321,7 @@ async function vendorRejectExtraServices(vendorId, bookingId, reason) {
 
     // Log in history
     booking.statusHistory.push({
-        status: booking.status,
+        status: 'extra_services_rejected',
         actor: 'vendor',
         reason: reason || 'Vendor declined to perform the requested extra services.',
         timestamp: now

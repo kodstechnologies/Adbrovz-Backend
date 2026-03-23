@@ -410,6 +410,13 @@ const getBookingDetails = async (bookingId) => {
   const statusLabels = {
     'pending_acceptance': 'Waiting for Vendor',
     'pending': 'Accepted by Vendor',
+    'price_proposed': 'Price Proposed',
+    'price_confirmed': 'Price Confirmed',
+    'rescheduled': 'Rescheduled',
+    'extra_services_requested': 'Extra Services Requested',
+    'extra_services_priced': 'Extra Services Priced',
+    'extra_services_accepted': 'Extra Services Accepted',
+    'extra_services_rejected': 'Extra Services Rejected',
     'on_the_way': 'Vendor on the Way',
     'arrived': 'Vendor Arrived',
     'ongoing': 'Work in Progress',
@@ -417,12 +424,24 @@ const getBookingDetails = async (bookingId) => {
     'cancelled': 'Cancelled'
   };
 
+  const istOptions = { 
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  };
+
   const enhancedHistory = booking.statusHistory.map(h => ({
     status: h.status,
     label: statusLabels[h.status] || h.status,
     reason: h.reason || null,
     actor: h.actor || null,
-    timestamp: h.timestamp
+    timestamp: h.timestamp,
+    timestampIST: h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', istOptions) : null
   }));
 
   return {
@@ -451,7 +470,16 @@ const exportBookingsCSV = async (query = {}) => {
     { label: 'Vendor Phone', value: 'vendor.phoneNumber' },
     { label: 'Total Price', value: 'pricing.totalPrice' },
     { label: 'Payment Method', value: (row) => row.payment?.method || 'N/A' },
-    { label: 'Created At', value: (row) => new Date(row.createdAt).toLocaleString() }
+    { label: 'Created At', value: (row) => new Date(row.createdAt).toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    }) }
   ];
 
   return parse(bookings, { fields });
