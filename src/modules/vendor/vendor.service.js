@@ -323,25 +323,27 @@ const purchaseMembership = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    if (vendor.registrationStep !== 'SERVICES_SELECTED') {
+    if (vendor.registrationStep !== 'SERVICES_SELECTED' && vendor.registrationStep !== 'PENDING') {
         throw new ApiError(400, 'Please select services before purchasing membership');
     }
 
-
-    vendor.membership.startDate = new Date();
-    const expiryDate = new Date();
-    expiryDate.setMonth(expiryDate.getMonth() + (vendor.membership.durationMonths || 3));
-    vendor.membership.expiryDate = expiryDate;
-
-    // Transition to completed registration after membership, allows home screen access.
-    // However, lead calls are still blocked until Admin verification and Plan purchase.
-    vendor.isVerified = false;
-    vendor.documentStatus = 'pending';
-    vendor.registrationStep = 'COMPLETED';
+    if (vendor.isVerified) {
+        vendor.membership.startDate = new Date();
+        const durationMonths = vendor.membership.durationMonths || 3;
+        const expiryDate = new Date();
+        expiryDate.setMonth(expiryDate.getMonth() + durationMonths);
+        vendor.membership.expiryDate = expiryDate;
+        vendor.registrationStep = 'COMPLETED';
+    } else {
+        vendor.registrationStep = 'MEMBERSHIP_PAID';
+    }
 
     await vendor.save();
 
-    return { message: 'Membership payment successful. Your account is now being reviewed by Admin.' };
+    return { message: vendor.isVerified 
+        ? 'Membership payment successful. Your plan is now active.' 
+        : 'Membership payment successful. Your account is being reviewed by Admin. Plan will start once verified.' 
+    };
 };
 
 /**
@@ -415,10 +417,9 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
     if (allVerified) {
         vendor.isVerified = true;
         vendor.documentStatus = 'approved';
-        vendor.registrationStep = 'COMPLETED';
 
-        // Start membership if not already started
-        if (!vendor.membership.startDate) {
+        // Set registrationStep and startDate ONLY if already paid
+        if (vendor.registrationStep === 'MEMBERSHIP_PAID') {
             const startDate = new Date();
             const durationMonths = vendor.membership.durationMonths || 3;
             const expiryDate = new Date();
@@ -426,6 +427,7 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
 
             vendor.membership.startDate = startDate;
             vendor.membership.expiryDate = expiryDate;
+            vendor.registrationStep = 'COMPLETED';
         }
     } else if (status === 'rejected') {
         vendor.isVerified = false;
@@ -478,10 +480,9 @@ const verifyAllDocuments = async (vendorId) => {
 
     vendor.isVerified = true;
     vendor.documentStatus = 'approved';
-    vendor.registrationStep = 'COMPLETED';
  
-    // Start membership if not already started
-    if (!vendor.membership.startDate) {
+    // Set registrationStep and startDate ONLY if already paid
+    if (vendor.registrationStep === 'MEMBERSHIP_PAID') {
         const startDate = new Date();
         const durationMonths = vendor.membership.durationMonths || 3;
         const expiryDate = new Date();
@@ -489,6 +490,7 @@ const verifyAllDocuments = async (vendorId) => {
 
         vendor.membership.startDate = startDate;
         vendor.membership.expiryDate = expiryDate;
+        vendor.registrationStep = 'COMPLETED';
     }
 
     await vendor.save();
@@ -712,11 +714,15 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
 
-    vendor.membership.startDate = new Date();
-    const expiryDate = new Date();
-    expiryDate.setMonth(expiryDate.getMonth() + (vendor.membership.durationMonths || 3));
-    vendor.membership.expiryDate = expiryDate;
-    vendor.registrationStep = 'COMPLETED';
+    if (vendor.isVerified) {
+        vendor.membership.startDate = new Date();
+        const expiryDate = new Date();
+        expiryDate.setMonth(expiryDate.getMonth() + (vendor.membership.durationMonths || 3));
+        vendor.membership.expiryDate = expiryDate;
+        vendor.registrationStep = 'COMPLETED';
+    } else {
+        vendor.registrationStep = 'MEMBERSHIP_PAID';
+    }
 
     await vendor.save();
 
