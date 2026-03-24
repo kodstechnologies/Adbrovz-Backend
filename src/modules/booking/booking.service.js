@@ -453,8 +453,15 @@ const _formatBooking = (bookingDoc, role) => {
         day: '2-digit', month: '2-digit', year: 'numeric'
     };
 
-    bookingObj.createdAtIST = bookingObj.createdAt ? new Date(bookingObj.createdAt).toLocaleString('en-IN', istOptions) : null;
-    bookingObj.updatedAtIST = bookingObj.updatedAt ? new Date(bookingObj.updatedAt).toLocaleString('en-IN', istOptions) : null;
+    const createdAtIST = bookingObj.createdAt ? new Date(bookingObj.createdAt).toLocaleString('en-IN', istOptions) : null;
+    const updatedAtIST = bookingObj.updatedAt ? new Date(bookingObj.updatedAt).toLocaleString('en-IN', istOptions) : null;
+    
+    bookingObj.createdAtIST = createdAtIST;
+    bookingObj.updatedAtIST = updatedAtIST;
+    
+    // Replace the main attributes with IST strings as well for consistency across all response consumers
+    if (createdAtIST) bookingObj.createdAt = createdAtIST;
+    if (updatedAtIST) bookingObj.updatedAt = updatedAtIST;
 
     if (bookingObj.status === 'cancelled') {
         bookingObj.cancelledBy = bookingObj.cancellation?.cancelledBy || 'unknown';
@@ -1326,7 +1333,10 @@ const getBookingStatusHistory = async (bookingId, userId, role) => {
     }
 
     const booking = await Booking.findOne(query);
-    return booking ? (booking.statusHistory || []) : [];
+    if (!booking) return [];
+    
+    const formatted = _formatBooking(booking, role);
+    return formatted.statusHistory || [];
 };
 
 const recalculateBookingPrice = (booking) => {
