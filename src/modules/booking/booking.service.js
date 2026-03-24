@@ -1320,6 +1320,18 @@ const getBookingStatusHistory = async (bookingId, userId, role) => {
             query._id = bookingId;
         } else {
             query.$or = [{ _id: bookingId }, { bookingID: bookingId }];
+        }
+    } else {
+        query.bookingID = bookingId;
+    }
+
+    const booking = await Booking.findOne(query);
+    return booking ? (booking.statusHistory || []) : [];
+};
+
+const recalculateBookingPrice = (booking) => {
+    let basePrice = booking.services.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+
     // Add vendor proposed services
     if (booking.proposedServices && booking.proposedServices.length > 0) {
         basePrice += booking.proposedServices.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
