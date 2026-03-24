@@ -390,10 +390,14 @@ const getAllBookings = async (query = {}) => {
         hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
         day: '2-digit', month: '2-digit', year: 'numeric'
       };
-      obj.statusHistory = obj.statusHistory.map(h => ({
-        ...h,
-        timestampIST: h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', istOpts) : null
-      }));
+      obj.statusHistory = (obj.statusHistory || []).map(h => {
+        const istTime = h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', istOpts) : null;
+        return {
+          ...h,
+          timestamp: istTime || h.timestamp,
+          timestampIST: istTime
+        };
+      });
     }
 
     obj.extraServicesAmount = extraServicesTotal;
@@ -464,14 +468,19 @@ const getBookingDetails = async (bookingId) => {
     year: 'numeric'
   };
 
-  const enhancedHistory = (booking.statusHistory || []).map(h => ({
-    status: h.status,
-    label: statusLabels[h.status] || h.status,
-    reason: h.reason || null,
-    actor: h.actor || null,
-    timestamp: h.timestamp,
-    timestampIST: h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', istOptions) : null
-  })).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  const enhancedHistory = [...(booking.statusHistory || [])]
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    .map(h => {
+      const istTime = h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', istOptions) : null;
+      return {
+        status: h.status,
+        label: statusLabels[h.status] || h.status,
+        reason: h.reason || null,
+        actor: h.actor || null,
+        timestamp: istTime || h.timestamp,
+        timestampIST: istTime
+      };
+    });
 
   // Compute pricing breakdown including extra services
   const baseServicesTotal = (booking.services || []).reduce((sum, s) => sum + (s.finalPrice || 0), 0);

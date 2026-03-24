@@ -524,9 +524,9 @@ const userConfirmExtraServices = asyncHandler(async (req, res) => {
 const userRejectExtraServices = asyncHandler(async (req, res) => {
     const userId = req.user?.userId || req.user?._id;
     const { id } = req.params;
-    const { reason } = req.body;
+    const { reason, rejectedServiceIds } = req.body;
 
-    const result = await bookingService.userRejectExtraServices(userId, id, reason);
+    const result = await bookingService.userRejectExtraServices(userId, id, rejectedServiceIds, reason);
 
     res.status(200).json(
         new ApiResponse(200, result.booking, result.message)
@@ -539,9 +539,9 @@ const userRejectExtraServices = asyncHandler(async (req, res) => {
 const vendorRejectExtraServices = asyncHandler(async (req, res) => {
     const vendorId = req.user?.userId || req.user?._id;
     const { id } = req.params;
-    const { reason } = req.body;
+    const { reason, rejectedServiceIds } = req.body;
 
-    const result = await bookingService.vendorRejectExtraServices(vendorId, id, reason);
+    const result = await bookingService.vendorRejectExtraServices(vendorId, id, rejectedServiceIds, reason);
 
     res.status(200).json(
         new ApiResponse(200, result.booking, result.message)

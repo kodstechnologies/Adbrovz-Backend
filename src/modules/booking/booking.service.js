@@ -414,6 +414,139 @@ const findBookingByUser = async (bookingId, userId) => {
 /**
  * Get full booking details with population
  */
+
+/**
+ * Helper to consistently format a booking object (convert to IST, handle OTP visibility, etc.)
+ */
+const _formatBooking = (bookingDoc, role) => {
+    let bookingObj;
+    if (bookingDoc && typeof bookingDoc.toObject === 'function') {
+        bookingObj = bookingDoc.toObject();
+    } else if (bookingDoc && typeof bookingDoc.toJSON === 'function') {
+        bookingObj = bookingDoc.toJSON();
+    } else {
+        bookingObj = JSON.parse(JSON.stringify(bookingDoc));
+    }
+
+    // User friendly status mapping
+    const statusMap = {
+        'pending_acceptance': 'Pending Acceptance',
+        'pending': 'Accepted',
+        'price_proposed': 'Price Proposed',
+        'price_confirmed': 'Price Confirmed',
+        'rescheduled': 'Rescheduled',
+        'extra_services_requested': 'Extra Services Requested',
+        'extra_services_priced': 'Extra Services Priced',
+        'extra_services_accepted': 'Extra Services Accepted',
+        'extra_services_rejected': 'Extra Services Rejected',
+        'on_the_way': 'Vendor on the Way',
+        'arrived': 'Vendor Arrived',
+        'ongoing': 'Working',
+        'completed': 'Completed',
+        'cancelled': 'Cancelled'
+    };
+    bookingObj.displayStatus = statusMap[bookingObj.status] || bookingObj.status;
+
+    const istOptions = { 
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+        day: '2-digit', month: '2-digit', year: 'numeric'
+    };
+
+    bookingObj.createdAtIST = bookingObj.createdAt ? new Date(bookingObj.createdAt).toLocaleString('en-IN', istOptions) : null;
+    bookingObj.updatedAtIST = bookingObj.updatedAt ? new Date(bookingObj.updatedAt).toLocaleString('en-IN', istOptions) : null;
+
+    if (bookingObj.status === 'cancelled') {
+        bookingObj.cancelledBy = bookingObj.cancellation?.cancelledBy || 'unknown';
+        bookingObj.cancelledAtIST = bookingObj.cancellation?.cancelledAt ? new Date(bookingObj.cancellation.cancelledAt).toLocaleString('en-IN', istOptions) : null;
+    }
+
+    // Role specific IST timestamps
+    bookingObj.vendorArrivedAtIST = bookingObj.vendorArrivedAt ? new Date(bookingObj.vendorArrivedAt).toLocaleString('en-IN', istOptions) : null;
+    bookingObj.workStartedAtIST = bookingObj.workStartedAt ? new Date(bookingObj.workStartedAt).toLocaleString('en-IN', istOptions) : null;
+    bookingObj.workCompletedAtIST = bookingObj.workCompletedAt ? new Date(bookingObj.workCompletedAt).toLocaleString('en-IN', istOptions) : null;
+
+    // OTP visibility logic
+    if (bookingObj.otp) {
+        const isUserRole = role === 'user' || role === 'User';
+        const isVendorRole = role === 'vendor' || role === 'Vendor';
+
+        if (isUserRole) {
+            const startOTPCode = bookingObj.otp.startOTP || '1234';
+            const completionOTPCode = bookingObj.otp.completionOTP || null;
+
+            bookingObj.currentOTP = {
+                startOTP: { label: 'Start OTP', code: startOTPCode, instruction: 'Give this to the vendor to Start Work' },
+                completionOTP: {
+                    label: 'Completion OTP',
+                    code: completionOTPCode ? completionOTPCode : 'Hidden',
+                    status: completionOTPCode ? 'available' : 'pending',
+                    instruction: completionOTPCode ? 'Give this to the vendor to Complete Work' : 'Will be visible once vendor requests completion'
+                }
+            };
+
+            if (['pending', 'on_the_way', 'arrived'].includes(bookingObj.status)) {
+                if (bookingObj.isPriceConfirmed) {
+                    bookingObj.activeOTP = bookingObj.currentOTP.startOTP;
+                } else {
+                    bookingObj.activeOTP = { label: 'Start OTP', code: 'Locked', instruction: 'Visible once price is confirmed' };
+                    bookingObj.currentOTP.startOTP.code = 'Locked';
+                    bookingObj.currentOTP.startOTP.instruction = 'Price confirmation pending';
+                }
+            } else if (bookingObj.status === 'ongoing') {
+                bookingObj.activeOTP = bookingObj.currentOTP.completionOTP;
+            }
+
+            if (!bookingObj.isPriceConfirmed) bookingObj.otp.startOTP = 'Locked (Price Pending)';
+            if (!completionOTPCode) bookingObj.otp.completionOTP = 'Hidden (Pending)';
+        } else if (isVendorRole) {
+            delete bookingObj.otp;
+            delete bookingObj.currentOTP;
+            delete bookingObj.activeOTP;
+        }
+    }
+
+    // Ensure extra services arrays always have pricing fields
+    if (bookingObj.userRequestedServices) {
+        bookingObj.userRequestedServices = bookingObj.userRequestedServices.map(item => ({
+            ...item,
+            adminPrice: item.adminPrice, vendorPrice: item.vendorPrice, finalPrice: item.finalPrice, isPriceConfirmed: item.isPriceConfirmed ?? false
+        }));
+    }
+
+    // For vendors: identify which services actually need pricing
+    if (role === 'vendor' || role === 'Vendor') {
+        let unpriced = [];
+        if (bookingObj.userRequestedServices && bookingObj.userRequestedServices.length > 0) {
+            unpriced = bookingObj.userRequestedServices.filter(s => ['pending', 'accepted'].includes(s.status)).map(s => ({ ...s, isExtra: true }));
+        }
+        if (unpriced.length === 0 && bookingObj.services) {
+            unpriced = bookingObj.services.filter(s => (!s.adminPrice || s.adminPrice === 0) && (!s.vendorPrice || s.vendorPrice === 0)).map(s => ({ ...s, isExtra: false }));
+        }
+        bookingObj.unpricedServices = unpriced;
+    }
+
+    // Ensure statusHistory is present and formatted
+    if (bookingObj.statusHistory) {
+        bookingObj.statusHistory = [...bookingObj.statusHistory]
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .map(h => {
+                const istTime = h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', istOptions) : null;
+                return {
+                    status: h.status, reason: h.reason, actor: h.actor, 
+                    timestamp: istTime || h.timestamp,
+                    timestampIST: istTime,
+                    displayStatus: statusMap[h.status] || h.status
+                };
+            });
+    }
+
+    return bookingObj;
+};
+
+/**
+ * Get full booking details with population
+ */
 const getBookingDetails = async (bookingId, userId, role) => {
     let query = {};
     const isAdmin = role === 'admin' || role === 'super_admin';
@@ -449,173 +582,9 @@ const getBookingDetails = async (bookingId, userId, role) => {
         throw new ApiError(404, 'Booking not found');
     }
 
-    const bookingObj = booking.toObject();
-
-    // User friendly status mapping
-    const statusMap = {
-        'pending_acceptance': 'Pending Acceptance',
-        'pending': 'Accepted',
-        'price_proposed': 'Price Proposed',
-        'price_confirmed': 'Price Confirmed',
-        'rescheduled': 'Rescheduled',
-        'extra_services_requested': 'Extra Services Requested',
-        'extra_services_priced': 'Extra Services Priced',
-        'extra_services_accepted': 'Extra Services Accepted',
-        'extra_services_rejected': 'Extra Services Rejected',
-        'on_the_way': 'Vendor on the Way',
-        'arrived': 'Vendor Arrived',
-        'ongoing': 'Working',
-        'completed': 'Completed',
-        'cancelled': 'Cancelled'
-    };
-    bookingObj.displayStatus = statusMap[booking.status] || booking.status;
-    if (booking.status === 'cancelled') {
-        bookingObj.cancelledBy = booking.cancellation?.cancelledBy || 'unknown';
-        bookingObj.cancelledAtIST = booking.cancellation?.cancelledAt ? new Date(booking.cancellation.cancelledAt).toLocaleString('en-IN', { 
-            timeZone: 'Asia/Kolkata',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: true,
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-        }) : null;
-    }
-
-    // Role specific IST timestamps
-    const istOptions = { 
-        timeZone: 'Asia/Kolkata',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: true,
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-    };
-    bookingObj.vendorArrivedAtIST = booking.vendorArrivedAt ? new Date(booking.vendorArrivedAt).toLocaleString('en-IN', istOptions) : null;
-    bookingObj.workStartedAtIST = booking.workStartedAt ? new Date(booking.workStartedAt).toLocaleString('en-IN', istOptions) : null;
-    bookingObj.workCompletedAtIST = booking.workCompletedAt ? new Date(booking.workCompletedAt).toLocaleString('en-IN', istOptions) : null;
-
-    // OTP visibility logic
-    if (bookingObj.otp) {
-        const isUserRole = role === 'user' || role === ROLES.USER;
-        const isVendorRole = role === 'vendor' || role === ROLES.VENDOR;
-
-        if (isUserRole) {
-            // User sees everything, but we provide helpers for current state
-            // and hide completion OTP until it's ready.
-            const startOTPCode = bookingObj.otp.startOTP || '1234';
-            const completionOTPCode = bookingObj.otp.completionOTP || null;
-
-            bookingObj.currentOTP = {
-                startOTP: {
-                    label: 'Start OTP',
-                    code: startOTPCode,
-                    instruction: 'Give this to the vendor to Start Work'
-                },
-                completionOTP: {
-                    label: 'Completion OTP',
-                    code: completionOTPCode ? completionOTPCode : 'Hidden',
-                    status: completionOTPCode ? 'available' : 'pending',
-                    instruction: completionOTPCode
-                        ? 'Give this to the vendor to Complete Work'
-                        : 'Will be visible once vendor requests completion'
-                }
-            };
-
-            // Maintain status specific convenience field if needed
-            if (['pending', 'on_the_way', 'arrived'].includes(bookingObj.status)) {
-                if (bookingObj.isPriceConfirmed) {
-                    bookingObj.activeOTP = bookingObj.currentOTP.startOTP;
-                } else {
-                    bookingObj.activeOTP = {
-                        label: 'Start OTP',
-                        code: 'Locked',
-                        instruction: 'Visible once price is confirmed'
-                    };
-                    bookingObj.currentOTP.startOTP.code = 'Locked';
-                    bookingObj.currentOTP.startOTP.instruction = 'Price confirmation pending';
-                }
-            } else if (bookingObj.status === 'ongoing') {
-                bookingObj.activeOTP = bookingObj.currentOTP.completionOTP;
-            }
-
-            // Expose the raw otp object but sanitize based on readiness
-            if (!bookingObj.isPriceConfirmed) {
-                bookingObj.otp.startOTP = 'Locked (Price Pending)';
-            }
-            if (!completionOTPCode) {
-                bookingObj.otp.completionOTP = 'Hidden (Pending)';
-            }
-        } else if (isVendorRole) {
-            // Vendors never see the OTP codes directly
-            delete bookingObj.otp;
-            delete bookingObj.currentOTP;
-            delete bookingObj.activeOTP;
-        }
-        // If role is undefined (internal use), we keep the OTP as is
-    }
-
-    // Ensure extra services arrays always have pricing fields (for older documents)
-    if (bookingObj.userRequestedServices) {
-        bookingObj.userRequestedServices = bookingObj.userRequestedServices.map(item => ({
-            ...item,
-            adminPrice: item.adminPrice,
-            vendorPrice: item.vendorPrice,
-            finalPrice: item.finalPrice,
-            isPriceConfirmed: item.isPriceConfirmed ?? false
-        }));
-    }
-
-    // For vendors: identify which services actually need pricing
-    if (role === 'vendor' || role === ROLES.VENDOR) {
-        let unpriced = [];
-        
-        // Priority 1: User requested extra services that are still 'pending'
-        if (bookingObj.userRequestedServices && bookingObj.userRequestedServices.length > 0) {
-            unpriced = bookingObj.userRequestedServices
-                .filter(s => ['pending', 'accepted'].includes(s.status))
-                .map(s => ({ ...s, isExtra: true }));
-        }
-        
-        // Priority 2: If no pending extra services, check main services for unpriced items
-        if (unpriced.length === 0 && bookingObj.services) {
-            unpriced = bookingObj.services
-                .filter(s => (!s.adminPrice || s.adminPrice === 0) && (!s.vendorPrice || s.vendorPrice === 0))
-                .map(s => ({ ...s, isExtra: false }));
-        }
-        
-        bookingObj.unpricedServices = unpriced;
-    }
-
-
-    // Ensure statusHistory is present and formatted
-    if (bookingObj.statusHistory) {
-        const istOptions = { 
-            timeZone: 'Asia/Kolkata',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: true,
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-        };
-        bookingObj.statusHistory = bookingObj.statusHistory.map(h => ({
-            status: h.status,  
-            reason: h.reason,
-            actor: h.actor,
-            timestamp: h.timestamp,
-            // Add a clearly formatted IST time to help user distinguish from UTC
-            timestampIST: h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', istOptions) : null,
-            displayStatus: statusMap[h.status] || h.status
-        })).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    }
-
-    return bookingObj;
+    return _formatBooking(booking, role);
 };
+
 
 /**
  * Generate unique booking ID
@@ -704,7 +673,7 @@ const createBooking = async (userId, bookingData) => {
         searchVendors(booking, true).catch(console.error);
     }
 
-    return { booking, searchTimeoutMins };
+    return { booking: _formatBooking(booking, 'user'), searchTimeoutMins };
 };
 
 /**
@@ -1244,29 +1213,33 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
     return userPayload;
 };
 
-const getBookingsByUser = async (userId) =>
-    Booking.find({ user: userId })
+const getBookingsByUser = async (userId) => {
+    const bookings = await Booking.find({ user: userId })
         .populate('services.service', 'title adminPrice photo')
         .populate('proposedServices.service', 'title adminPrice photo')
         .populate('userRequestedServices.service', 'title adminPrice photo')
         .populate('vendor', 'name phoneNumber photo')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
+    return bookings.map(b => _formatBooking(b, 'user'));
+};
 
-const getBookingsByVendor = async (vendorId) =>
-    Booking.find({ vendor: vendorId })
+const getBookingsByVendor = async (vendorId) => {
+    const bookings = await Booking.find({ vendor: vendorId })
         .populate('services.service', 'title adminPrice photo')
         .populate('proposedServices.service', 'title adminPrice photo')
         .populate('userRequestedServices.service', 'title adminPrice photo')
         .populate('user', 'name phoneNumber photo')
         .populate('vendor', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
+    return bookings.map(b => _formatBooking(b, 'vendor'));
+};
 
 /**
  * Get completed bookings for a user
  */
 const getCompletedBookingsByUser = async (userId) => {
-    return Booking.find({
+    const bookings = await Booking.find({
         user: userId,
         status: 'completed'
     })
@@ -1276,6 +1249,7 @@ const getCompletedBookingsByUser = async (userId) => {
         .populate('vendor', 'name phoneNumber photo')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
+    return bookings.map(b => _formatBooking(b, 'user'));
 };
 
 /**
@@ -1297,7 +1271,7 @@ const getCancelledBookings = async (userId, role) => {
         .sort({ createdAt: -1 });
 
     return bookings.map(b => {
-        const obj = b.toObject();
+        const obj = _formatBooking(b, role);
         obj.displayStatus = 'Cancelled';
         obj.cancelledBy = obj.cancellation?.cancelledBy || 'unknown';
         return obj;
@@ -1346,47 +1320,6 @@ const getBookingStatusHistory = async (bookingId, userId, role) => {
             query._id = bookingId;
         } else {
             query.$or = [{ _id: bookingId }, { bookingID: bookingId }];
-        }
-    } else {
-        query.bookingID = bookingId;
-    }
-
-    const booking = await Booking.findOne(query).select('statusHistory displayStatus status');
-    if (!booking) throw new ApiError(404, 'Booking not found');
-
-    // Clean up history by removing any potential Mongoose ID fields for a cleaner response
-    const istOptions = { 
-        timeZone: 'Asia/Kolkata',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: true,
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-    };
-    const cleanHistory = (booking.statusHistory || [])
-        .map(item => ({
-            status: item.status,
-            reason: item.reason || null,
-            actor: item.actor || null,
-            timestamp: item.timestamp,
-            timestampIST: item.timestamp ? new Date(item.timestamp).toLocaleString('en-IN', istOptions) : null
-        }))
-        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-    return cleanHistory;
-};
-
-/**
- * Helper to recalculate the basePrice and totalPrice for a booking.
- * It includes established services, and if any extra services are priced
- * (but not yet confirmed by the user), it includes them so the user 
- * sees the proposed total before making a decision.
- */
-const recalculateBookingPrice = (booking) => {
-    let basePrice = booking.services.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
-
     // Add vendor proposed services
     if (booking.proposedServices && booking.proposedServices.length > 0) {
         basePrice += booking.proposedServices.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
@@ -1571,14 +1504,21 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
         throw new ApiError(400, 'Cannot reject price that is already confirmed');
     }
 
+    // Identify unconfirmed services in main services array
     const unconfirmedServices = booking.services.filter(s => !s.isPriceConfirmed);
-    if (unconfirmedServices.length === 0) {
+    
+    // Identify unconfirmed extra services (those priced by vendor but not yet accepted by user)
+    const unconfirmedExtraServices = (booking.userRequestedServices || []).filter(
+        s => s.status === 'priced' && !s.isPriceConfirmed
+    );
+
+    if (unconfirmedServices.length === 0 && unconfirmedExtraServices.length === 0) {
         throw new ApiError(400, 'No unconfirmed prices found to reject');
     }
 
     const now = new Date();
     
-    // Move to rejectedServices
+    // Move unconfirmed main services to rejectedServices
     unconfirmedServices.forEach(s => {
         booking.rejectedServices.push({
             service: s.service,
@@ -1593,22 +1533,52 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
         });
     });
 
-    // Remove from active services
+    // Move unconfirmed extra services to rejectedServices
+    unconfirmedExtraServices.forEach(s => {
+        booking.rejectedServices.push({
+            service: s.service,
+            quantity: s.quantity,
+            adminPrice: s.adminPrice,
+            vendorPrice: s.vendorPrice,
+            finalPrice: s.finalPrice,
+            rejectedBy: 'user',
+            rejectionType: 'extra_service',
+            reason: reason || 'Extra service price rejected by user',
+            rejectedAt: now
+        });
+    });
+
+    // Remove rejected services from both arrays
     booking.services = booking.services.filter(s => s.isPriceConfirmed);
     
-    // If no services left, the booking might still be valid (e.g., if there are upcoming extra services)
-    // but usually, we keep it active if at least one confirmed service remains.
-    // The user specifically said "dont touch ayt other thig", so we just remove the rejected one and keep booking active.
+    if (booking.userRequestedServices) {
+        booking.userRequestedServices = booking.userRequestedServices.filter(
+            s => !(s.status === 'priced' && !s.isPriceConfirmed)
+        );
+    }
+
+    // If no main services left, the booking should be cancelled
+    if (booking.services.length === 0) {
+        booking.status = 'cancelled';
+        booking.cancellation = {
+            cancelledBy: 'user',
+            reason: reason || 'Booking cancelled because user rejected proposed prices and no services remain.',
+            cancelledAt: now,
+            travelChargeApplied: false
+        };
+    }
     
     booking.isPriceConfirmed = true; // Remaining ones are confirmed
     booking.statusHistory.push({ 
         status: booking.status, 
         actor: 'user',
-        reason: reason || 'Price rejected by user for specific services',
+        reason: reason || (booking.status === 'cancelled' ? 'Booking cancelled - all prices rejected' : 'Price rejected by user for specific services'),
         timestamp: now 
     });
+    
     booking.markModified('statusHistory');
     booking.markModified('services');
+    booking.markModified('userRequestedServices');
     booking.markModified('rejectedServices');
 
     recalculateBookingPrice(booking);
@@ -1624,11 +1594,18 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
         emitToVendor(booking.vendor, 'booking_price_rejected', {
             bookingId: booking._id,
             reason: reason || 'Price rejected by user',
-            message: 'User rejected the proposed price for some services.'
+            message: booking.status === 'cancelled' 
+                ? 'User rejected the price and the booking was cancelled.'
+                : 'User rejected the proposed price for some services.'
         });
     }
 
-    return { booking: populatedBooking, message: 'Price rejected for selected services. Booking remains active.' };
+    return { 
+        booking: populatedBooking, 
+        message: booking.status === 'cancelled'
+            ? 'Price rejected. Booking cancelled as no services remain.'
+            : 'Price rejected for selected services. Booking remains active.' 
+    };
 };
 
 /**
@@ -1975,6 +1952,7 @@ async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
     emitToVendor(booking.vendor, 'extra_services_confirmed_by_user', {
         bookingId: booking._id,
         newTotal: booking.pricing.totalPrice,
+        acceptedServiceIds: acceptedServiceIds,
         message: 'User has confirmed the extra services and the new price.'
     });
 
@@ -1987,7 +1965,7 @@ async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
 /**
  * User rejects the priced extra service requests
  */
-async function userRejectExtraServices(userId, bookingId, reason) {
+async function userRejectExtraServices(userId, bookingId, rejectedServiceIds, reason) {
     const booking = await findBookingByUser(bookingId, userId);
     if (!booking) throw new ApiError(404, 'Booking not found');
 
@@ -1995,24 +1973,43 @@ async function userRejectExtraServices(userId, bookingId, reason) {
         throw new ApiError(400, 'No extra services pending rejection');
     }
 
-    // Move to rejectedServices
     const now = new Date();
+    let hasRejected = false;
+    let actualRejectedIds = [];
+
+    const rejectIds = rejectedServiceIds && rejectedServiceIds.length > 0 
+        ? rejectedServiceIds.map(id => id.toString()) 
+        : null;
+
+    const remainingRequests = [];
+
     booking.userRequestedServices.forEach(s => {
-        booking.rejectedServices.push({
-            service: s.service,
-            quantity: s.quantity,
-            adminPrice: s.adminPrice,
-            vendorPrice: s.vendorPrice,
-            finalPrice: s.finalPrice,
-            rejectedBy: 'user',
-            rejectionType: 'extra_service',
-            reason: reason || 'User rejected their own requested services after pricing.',
-            rejectedAt: now
-        });
+        const sid = s.service.toString();
+        if (!rejectIds || rejectIds.includes(sid)) {
+            booking.rejectedServices.push({
+                service: s.service,
+                quantity: s.quantity,
+                adminPrice: s.adminPrice,
+                vendorPrice: s.vendorPrice,
+                finalPrice: s.finalPrice,
+                rejectedBy: 'user',
+                rejectionType: 'extra_service',
+                reason: reason || 'User rejected their own requested services after pricing.',
+                rejectedAt: now
+            });
+            actualRejectedIds.push(sid);
+            hasRejected = true;
+        } else {
+            remainingRequests.push(s);
+        }
     });
 
-    // Clear the requests
-    booking.userRequestedServices = [];
+    if (!hasRejected) {
+        throw new ApiError(400, 'Could not reject any services. Ensure valid service IDs were provided.');
+    }
+
+    // Update the requests to only have the remaining ones
+    booking.userRequestedServices = remainingRequests;
 
     // Log in history
     booking.statusHistory.push({
@@ -2023,6 +2020,7 @@ async function userRejectExtraServices(userId, bookingId, reason) {
     });
     booking.markModified('statusHistory');
     booking.markModified('rejectedServices');
+    booking.markModified('userRequestedServices');
 
     recalculateBookingPrice(booking);
     await booking.save();
@@ -2038,7 +2036,8 @@ async function userRejectExtraServices(userId, bookingId, reason) {
     emitToVendor(booking.vendor, 'extra_services_rejected_by_user', {
         bookingId: booking._id,
         reason: reason || 'User rejected the services.',
-        message: 'User rejected the priced extra services.'
+        message: 'User rejected the priced extra services.',
+        rejectedServiceIds: actualRejectedIds
     });
 
     return {
@@ -2205,10 +2204,12 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
     });
 
     // Specific event to user: vendor has accepted and priced their extra service requests
+    const acceptedServiceIds = confirmedServices.map(s => s.serviceId.toString());
     emitToUser(booking.user, 'extra_services_accepted_by_vendor', {
         bookingId: booking._id,
         bookingID: booking.bookingID,
         requestedServices: populatedBooking.userRequestedServices,
+        acceptedServiceIds: acceptedServiceIds,
         message: 'Your vendor has accepted the extra services request.'
     });
 
@@ -2286,7 +2287,7 @@ async function vendorAcceptExtraServices(vendorId, bookingId) {
 /**
  * Vendor rejects the user's extra service requests
  */
-async function vendorRejectExtraServices(vendorId, bookingId, reason) {
+async function vendorRejectExtraServices(vendorId, bookingId, rejectedServiceIds, reason) {
     const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
     if (!booking) throw new ApiError(404, 'Booking not found');
 
@@ -2294,10 +2295,17 @@ async function vendorRejectExtraServices(vendorId, bookingId, reason) {
         throw new ApiError(400, 'No pending user service requests to reject');
     }
 
-    // Log in history
     const now = new Date();
+    let hasRejected = false;
+    let actualRejectedIds = [];
+
+    const rejectIds = rejectedServiceIds && rejectedServiceIds.length > 0 
+        ? rejectedServiceIds.map(id => id.toString()) 
+        : null;
+
     booking.userRequestedServices.forEach(item => {
-        if (item.status === 'pending' || item.status === 'priced') {
+        const sid = item.service.toString();
+        if ((item.status === 'pending' || item.status === 'priced') && (!rejectIds || rejectIds.includes(sid))) {
             booking.rejectedServices.push({
                 service: item.service,
                 quantity: item.quantity,
@@ -2309,15 +2317,15 @@ async function vendorRejectExtraServices(vendorId, bookingId, reason) {
                 reason: reason || 'Vendor declined the requested extra services.',
                 rejectedAt: now
             });
+            item.status = 'rejected';
+            actualRejectedIds.push(sid);
+            hasRejected = true;
         }
     });
 
-    // Mark as rejected in the array (or we could clear it, but keeping it helps reference)
-    booking.userRequestedServices.forEach(item => {
-        if (item.status === 'pending' || item.status === 'priced') {
-            item.status = 'rejected';
-        }
-    });
+    if (!hasRejected) {
+        throw new ApiError(400, 'Could not reject any services. Ensure valid service IDs were provided.');
+    }
 
     // Log in history
     booking.statusHistory.push({
@@ -2328,6 +2336,7 @@ async function vendorRejectExtraServices(vendorId, bookingId, reason) {
     });
     booking.markModified('statusHistory');
     booking.markModified('rejectedServices');
+    booking.markModified('userRequestedServices');
 
     await booking.save();
 
@@ -2343,14 +2352,16 @@ async function vendorRejectExtraServices(vendorId, bookingId, reason) {
         bookingId: booking._id,
         reason: reason || 'Vendor declined the extra services.',
         message: 'Vendor has rejected your request for additional services.',
-        rejectedServices: userPayload.userRequestedServices.filter(s => s.status === 'rejected')
+        rejectedServices: userPayload.userRequestedServices.filter(s => s.status === 'rejected'),
+        rejectedServiceIds: actualRejectedIds
     });
 
     // Specific success/info event requested by user to trigger UI feedback
     emitToUser(booking.user, 'booking_services_rejected_success', {
         bookingId: booking._id,
         reason: reason || 'Vendor declined the extra services.',
-        message: 'Special service request was rejected by the vendor.'
+        message: 'Special service request was rejected by the vendor.',
+        rejectedServiceIds: actualRejectedIds
     });
 
     return {
