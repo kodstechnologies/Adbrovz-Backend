@@ -15,6 +15,10 @@ const categorySchema = new mongoose.Schema(
     icon: {
       type: String,
     },
+    defaultFreeCredits: {
+      type: Number,
+      default: 0,
+    },
     order: {
       type: Number,
       default: 0,
