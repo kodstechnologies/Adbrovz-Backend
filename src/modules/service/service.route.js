@@ -28,6 +28,7 @@ router.put('/admin/services/:serviceId', upload.single('photo'), uploadToCloudin
 router.delete('/admin/services/:serviceId', serviceController.deleteService);
 
 // ================= PUBLIC ROUTES =================
+router.get('/all', serviceController.getAllServices);
 router.get('/catalogue', serviceController.getServiceCatalogue);
 router.get('/search', serviceController.globalSearch);
 router.get('/categories', serviceController.getCategories);

@@ -46,6 +46,14 @@ const getServiceDetails = asyncHandler(async (req, res) => {
 
 
 
+// Get all services with details
+const getAllServices = asyncHandler(async (req, res) => {
+    const services = await serviceService.getAllServices();
+    res.status(200).json(
+        new ApiResponse(200, services, 'All services retrieved successfully')
+    );
+});
+
 // Admin: Category Management
 const createCategory = asyncHandler(async (req, res) => {
     const data = { ...req.body };
@@ -181,6 +189,7 @@ module.exports = {
     createSubcategory,
     updateSubcategory,
     deleteSubcategory,
+    getAllServices,
     createService,
     updateService,
     deleteService,

@@ -117,6 +117,24 @@ const globalSearch = async (query) => {
 };
 
 /**
+ * Public: Get all services with details
+ */
+const getAllServices = async () => {
+    let services = await Service.find({ isActive: { $ne: false } })
+        .populate('category', 'name')
+        .populate('subcategory', 'name')
+        .sort({ title: 1 });
+        
+    return services.map(s => {
+        const doc = s.toJSON ? s.toJSON() : s;
+        if (doc.isActive === undefined) {
+            doc.isActive = true;
+        }
+        return doc;
+    });
+};
+
+/**
  * =========================
  * ADMIN APIs
  * =========================
@@ -477,6 +495,7 @@ module.exports = {
     getServicesBySubcategoryId,
     getServiceById,
     globalSearch,
+    getAllServices,
     createCategory,
     updateCategory,
     deleteCategory,
