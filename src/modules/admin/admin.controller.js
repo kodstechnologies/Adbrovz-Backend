@@ -70,6 +70,19 @@ const updateUserStatus = asyncHandler(async (req, res) => {
   );
 });
 
+// Delete user
+const deleteUser = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const { userId } = req.params;
+  const adminId = req.user.id;
+
+  const user = await adminService.deleteUser(userId, adminId);
+
+  res.status(200).json(
+    new ApiResponse(200, user, 'User deleted successfully')
+  );
+});
+
 const adminService = require('./admin.service');
 
 // ... existing code ...
@@ -215,6 +228,7 @@ module.exports = {
   getDashboard,
   getUsers,
   updateUserStatus,
+  deleteUser,
   getUserAuditLogs,
   getAuditLogsByAction,
   createCreditPlan,

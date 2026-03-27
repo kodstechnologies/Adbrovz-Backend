@@ -216,6 +216,33 @@ const updateUserStatus = async (userId, status, adminId) => {
   return user;
 };
 
+const deleteUser = async (userId, adminId) => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  user.deletedAt = new Date();
+  user.status = 'SUSPENDED';
+  await user.save();
+
+  try {
+    await AuditLog.create({
+      user: adminId,
+      userModel: 'Admin',
+      action: 'user_deleted',
+      details: {
+        targetUser: userId,
+        reason: 'Admin deleted user'
+      }
+    });
+  } catch (logError) {
+    console.error('Audit logging failed:', logError.message);
+  }
+
+  return user;
+};
+
 const CreditPlan = require('../../models/CreditPlan.model');
 
 // ... existing code ...
@@ -575,6 +602,7 @@ module.exports = {
   getDashboardStats,
   getAllUsers,
   updateUserStatus,
+  deleteUser,
   createCreditPlan,
   getCreditPlans,
   updateCreditPlan,

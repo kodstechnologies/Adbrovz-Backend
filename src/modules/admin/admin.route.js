@@ -18,6 +18,7 @@ router.use(authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN));
 router.get('/dashboard', adminController.getDashboard);
 router.get('/users', adminController.getUsers);
 router.patch('/users/:userId/status', adminController.updateUserStatus);
+router.delete('/users/:userId', adminController.deleteUser);
 
 // Audit log routes
 router.get('/audit-logs/user/:userId', adminController.getUserAuditLogs);
