@@ -392,7 +392,7 @@ const getAllBookings = async (query = {}) => {
       .limit(parseInt(limit))
       .skip(parseInt(skip))
       .populate('user', 'name phoneNumber email')
-      .populate('vendor', 'name phoneNumber')
+      .populate('vendor', 'name phoneNumber isVerified isSuspended isBlocked documentStatus registrationStep status')
       .populate('services.service', 'title')
       .populate('proposedServices.service', 'title')
       .populate('userRequestedServices.service', 'title'),
@@ -446,7 +446,7 @@ const getBookingDetails = async (bookingId) => {
 
   const booking = await Booking.findById(bookingId)
     .populate('user', 'name phoneNumber email profileImage status')
-    .populate('vendor', 'name phoneNumber email profileImage specialization rating status isSuspended adminSuspended')
+    .populate('vendor', 'name phoneNumber email profileImage specialization rating status isSuspended isBlocked isVerified documentStatus registrationStep adminSuspended')
     .populate('services.service', 'title description adminPrice duration photo')
     .populate('proposedServices.service', 'title description adminPrice duration photo')
     .populate('userRequestedServices.service', 'title description adminPrice duration photo')
