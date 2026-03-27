@@ -423,13 +423,11 @@ const getAllBookings = async (query = {}) => {
         }
       };
 
-      obj.statusHistory = (obj.statusHistory || [])
-        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-        .map(h => {
+      obj.statusHistory = (obj.statusHistory || []).map(h => {
         const istTime = formatToLocalISOString(h.timestamp);
         return {
           ...h,
-          timestamp: h.timestamp,
+          timestamp: istTime || h.timestamp,
           timestampIST: istTime
         };
       });
@@ -504,7 +502,7 @@ const getBookingDetails = async (bookingId) => {
   };
 
   const enhancedHistory = [...(booking.statusHistory || [])]
-    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
     .map(h => {
       const istTime = h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', istOptions) : null;
       return {
@@ -512,7 +510,7 @@ const getBookingDetails = async (bookingId) => {
         label: statusLabels[h.status] || h.status,
         reason: h.reason || null,
         actor: h.actor || null,
-        timestamp: h.timestamp,
+        timestamp: istTime || h.timestamp,
         timestampIST: istTime
       };
     });
