@@ -452,7 +452,7 @@ const _formatBooking = (bookingDoc, role) => {
         try {
             const d = new Date(new Date(date).toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
             const pad = (n) => n.toString().padStart(2, '0');
-            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}+05:30`;
         } catch (e) {
             return date;
         }
@@ -477,6 +477,11 @@ const _formatBooking = (bookingDoc, role) => {
     bookingObj.vendorArrivedAtIST = formatToLocalISOString(bookingObj.vendorArrivedAt);
     bookingObj.workStartedAtIST = formatToLocalISOString(bookingObj.workStartedAt);
     bookingObj.workCompletedAtIST = formatToLocalISOString(bookingObj.workCompletedAt);
+
+    // Replace tracking attributes with IST strings for consistency across response consumers
+    if (bookingObj.vendorArrivedAtIST) bookingObj.vendorArrivedAt = bookingObj.vendorArrivedAtIST;
+    if (bookingObj.workStartedAtIST) bookingObj.workStartedAt = bookingObj.workStartedAtIST;
+    if (bookingObj.workCompletedAtIST) bookingObj.workCompletedAt = bookingObj.workCompletedAtIST;
 
     // OTP visibility logic
     if (bookingObj.otp) {
