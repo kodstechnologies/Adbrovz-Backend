@@ -470,7 +470,7 @@ const _formatBooking = (bookingDoc, role) => {
 
     if (bookingObj.status === 'cancelled') {
         bookingObj.cancelledBy = bookingObj.cancellation?.cancelledBy || 'unknown';
-        bookingObj.cancelledAtIST = bookingObj.cancellation?.cancelledAt ? new Date(bookingObj.cancellation.cancelledAt).toLocaleString('en-IN', istOptions) : null;
+        bookingObj.cancelledAtIST = bookingObj.cancellation?.cancelledAt ? new Date(bookingObj.cancellation.cancelledAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null;
     }
 
     // Role specific IST timestamps
