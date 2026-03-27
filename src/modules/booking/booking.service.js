@@ -541,12 +541,12 @@ const _formatBooking = (bookingDoc, role) => {
     // Ensure statusHistory is present and formatted
     if (bookingObj.statusHistory) {
         bookingObj.statusHistory = [...bookingObj.statusHistory]
-            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
             .map(h => {
                 const istTime = formatToLocalISOString(h.timestamp);
                 return {
                     status: h.status, reason: h.reason, actor: h.actor, 
-                    timestamp: istTime || h.timestamp,
+                    timestamp: h.timestamp,
                     timestampIST: istTime,
                     displayStatus: statusMap[h.status] || h.status
                 };
