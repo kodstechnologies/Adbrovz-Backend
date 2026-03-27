@@ -447,14 +447,19 @@ const _formatBooking = (bookingDoc, role) => {
     };
     bookingObj.displayStatus = statusMap[bookingObj.status] || bookingObj.status;
 
-    const istOptions = { 
-        timeZone: 'Asia/Kolkata',
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
-        day: '2-digit', month: '2-digit', year: 'numeric'
+    const formatToLocalISOString = (date) => {
+        if (!date) return null;
+        try {
+            const d = new Date(new Date(date).toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+            const pad = (n) => n.toString().padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        } catch (e) {
+            return date;
+        }
     };
 
-    const createdAtIST = bookingObj.createdAt ? new Date(bookingObj.createdAt).toLocaleString('en-IN', istOptions) : null;
-    const updatedAtIST = bookingObj.updatedAt ? new Date(bookingObj.updatedAt).toLocaleString('en-IN', istOptions) : null;
+    const createdAtIST = formatToLocalISOString(bookingObj.createdAt);
+    const updatedAtIST = formatToLocalISOString(bookingObj.updatedAt);
     
     bookingObj.createdAtIST = createdAtIST;
     bookingObj.updatedAtIST = updatedAtIST;
@@ -469,9 +474,9 @@ const _formatBooking = (bookingDoc, role) => {
     }
 
     // Role specific IST timestamps
-    bookingObj.vendorArrivedAtIST = bookingObj.vendorArrivedAt ? new Date(bookingObj.vendorArrivedAt).toLocaleString('en-IN', istOptions) : null;
-    bookingObj.workStartedAtIST = bookingObj.workStartedAt ? new Date(bookingObj.workStartedAt).toLocaleString('en-IN', istOptions) : null;
-    bookingObj.workCompletedAtIST = bookingObj.workCompletedAt ? new Date(bookingObj.workCompletedAt).toLocaleString('en-IN', istOptions) : null;
+    bookingObj.vendorArrivedAtIST = formatToLocalISOString(bookingObj.vendorArrivedAt);
+    bookingObj.workStartedAtIST = formatToLocalISOString(bookingObj.workStartedAt);
+    bookingObj.workCompletedAtIST = formatToLocalISOString(bookingObj.workCompletedAt);
 
     // OTP visibility logic
     if (bookingObj.otp) {
@@ -538,7 +543,7 @@ const _formatBooking = (bookingDoc, role) => {
         bookingObj.statusHistory = [...bookingObj.statusHistory]
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
             .map(h => {
-                const istTime = h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', istOptions) : null;
+                const istTime = formatToLocalISOString(h.timestamp);
                 return {
                     status: h.status, reason: h.reason, actor: h.actor, 
                     timestamp: istTime || h.timestamp,

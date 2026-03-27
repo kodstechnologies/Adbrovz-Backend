@@ -412,13 +412,19 @@ const getAllBookings = async (query = {}) => {
 
     // Format status history for IST
     if (obj.statusHistory) {
-      const istOpts = { 
-        timeZone: 'Asia/Kolkata',
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
-        day: '2-digit', month: '2-digit', year: 'numeric'
+      const formatToLocalISOString = (date) => {
+        if (!date) return null;
+        try {
+            const d = new Date(new Date(date).toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+            const pad = (n) => n.toString().padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        } catch (e) {
+            return date;
+        }
       };
+
       obj.statusHistory = (obj.statusHistory || []).map(h => {
-        const istTime = h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', istOpts) : null;
+        const istTime = formatToLocalISOString(h.timestamp);
         return {
           ...h,
           timestamp: istTime || h.timestamp,
