@@ -412,13 +412,19 @@ const vendorSignup = async ({
   phoneNumber, name, email,
   photo, idProof, addressProof, workProof, bankProof, policeVerification,
   workState, workCity, workPincodes,
-  selectedCategories, selectedSubcategories, selectedServices
+  selectedCategories, selectedSubcategories, selectedServices,
+  categoryId
 }) => {
   // Parse array inputs
   const parsedWorkPincodes = parseArrayInput(workPincodes);
-  const parsedCategories = parseArrayInput(selectedCategories);
+  let parsedCategories = parseArrayInput(selectedCategories);
   const parsedSubcategories = parseArrayInput(selectedSubcategories);
   const parsedServices = parseArrayInput(selectedServices);
+
+  // If a single categoryId is provided, ensure it's in the parsedCategories array
+  if (categoryId && !parsedCategories.includes(categoryId)) {
+    parsedCategories.push(categoryId);
+  }
 
   // Check if vendor already exists
   const existingVendor = await Vendor.findOne({ phoneNumber });

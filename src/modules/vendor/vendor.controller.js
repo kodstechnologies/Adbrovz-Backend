@@ -50,6 +50,9 @@ const getVendorMembership = asyncHandler(async (req, res) => {
             ? req.query.subcategoryIds
             : req.query.subcategoryIds.split(',');
     }
+    if (req.query.categoryId) {
+        overrides.categoryId = req.query.categoryId;
+    }
 
     const result = await vendorService.getVendorMembershipDetails(vendorId, overrides);
     res.status(200).json(

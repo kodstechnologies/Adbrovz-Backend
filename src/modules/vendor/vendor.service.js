@@ -59,22 +59,29 @@ const getAllVendors = async () => {
 /**
  * Get membership info for registration
  */
-const getMembershipInfo = async ({ serviceIds, subcategoryIds, vendorId }) => {
+const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, vendorId }) => {
     let itemList = [];
     let isSubcategory = false;
+    let category = null;
 
     const parsedServiceIds = parseArrayInput(serviceIds);
     const parsedSubcategoryIds = parseArrayInput(subcategoryIds);
 
-    // 1. Priorities: Explicit subcategoryIds > Explicit serviceIds > Vendor's saved data
+    // 1. Priorities: Explicit subcategoryIds > Explicit categoryId > Explicit serviceIds > Vendor's saved data
     if (parsedSubcategoryIds.length > 0) {
-        itemList = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } });
+        itemList = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).populate('category');
         isSubcategory = true;
+        if (itemList.length > 0) category = itemList[0].category;
+    } else if (categoryId) {
+        category = await Category.findById(categoryId);
+        if (!category) throw new ApiError(404, 'Category not found');
     } else if (parsedServiceIds.length > 0) {
-        itemList = await Service.find({ _id: { $in: parsedServiceIds } });
+        itemList = await Service.find({ _id: { $in: parsedServiceIds } }).populate('category');
+        if (itemList.length > 0) category = itemList[0].category;
     } else if (vendorId) {
-        const vendor = await Vendor.findById(vendorId).populate('selectedServices').populate('selectedSubcategories');
+        const vendor = await Vendor.findById(vendorId).populate('selectedServices').populate('selectedSubcategories').populate('membership.category');
         if (vendor) {
+            category = vendor.membership?.category;
             if (vendor.selectedSubcategories && vendor.selectedSubcategories.length > 0) {
                 itemList = vendor.selectedSubcategories;
                 isSubcategory = true;
@@ -85,16 +92,16 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, vendorId }) => {
             // Fallback for string IDs if populate failed or wasn't used correctly
             if (itemList.length > 0 && typeof itemList[0] === 'string') {
                 if (isSubcategory) {
-                    itemList = await Subcategory.find({ _id: { $in: itemList } });
+                    itemList = await Subcategory.find({ _id: { $in: itemList } }).populate('category');
                 } else {
-                    itemList = await Service.find({ _id: { $in: itemList } });
+                    itemList = await Service.find({ _id: { $in: itemList } }).populate('category');
                 }
             }
         }
     }
 
-    if (itemList.length === 0) {
-        throw new ApiError(400, 'No valid services/subcategories selected or found for vendor');
+    if (itemList.length === 0 && !category) {
+        throw new ApiError(400, 'No valid services/subcategories or category selected or found for vendor');
     }
 
     // Fetch global base membership fee
@@ -125,22 +132,29 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, vendorId }) => {
  * Get membership details for a specific vendor based on their saved selectedServices
  */
 const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
-    const vendor = await Vendor.findById(vendorId).populate('selectedServices').populate('selectedSubcategories');
+    const vendor = await Vendor.findById(vendorId).populate('selectedServices').populate('selectedSubcategories').populate('membership.category');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     let itemList = [];
     let isSubcategory = false;
+    let category = null;
 
     const parsedServiceIds = parseArrayInput(overrides.serviceIds);
     const parsedSubcategoryIds = parseArrayInput(overrides.subcategoryIds);
+    const categoryId = overrides.categoryId;
 
-    // Priority: Query overrides > Saved subcategories > Saved services
+    // Priority: Query overrides > Saved data
     if (parsedSubcategoryIds.length > 0) {
-        itemList = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } });
+        itemList = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).populate('category');
         isSubcategory = true;
+        if (itemList.length > 0) category = itemList[0].category;
+    } else if (categoryId) {
+        category = await Category.findById(categoryId);
     } else if (parsedServiceIds.length > 0) {
-        itemList = await Service.find({ _id: { $in: parsedServiceIds } });
+        itemList = await Service.find({ _id: { $in: parsedServiceIds } }).populate('category');
+        if (itemList.length > 0) category = itemList[0].category;
     } else {
+        category = vendor.membership?.category;
         if (vendor.selectedSubcategories && vendor.selectedSubcategories.length > 0) {
             itemList = vendor.selectedSubcategories;
             isSubcategory = true;
@@ -151,9 +165,9 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         // Fallback for string IDs if populate failed
         if (itemList.length > 0 && typeof itemList[0] === 'string') {
             if (isSubcategory) {
-                itemList = await Subcategory.find({ _id: { $in: itemList } });
+                itemList = await Subcategory.find({ _id: { $in: itemList } }).populate('category');
             } else {
-                itemList = await Service.find({ _id: { $in: itemList } });
+                itemList = await Service.find({ _id: { $in: itemList } }).populate('category');
             }
         }
     }
@@ -189,7 +203,10 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
  * vendorId is extracted from token (req.user), NOT from URL
  */
 const createMembershipOrder = async (vendorId) => {
-    const vendor = await Vendor.findById(vendorId).populate('selectedServices').populate('selectedSubcategories');
+    const vendor = await Vendor.findById(vendorId)
+        .populate('selectedServices')
+        .populate('selectedSubcategories')
+        .populate('membership.category');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     let itemList = [];
@@ -271,7 +288,7 @@ const createMembershipOrder = async (vendorId) => {
 /**
  * Step 2: Select services and calculate membership fee
  */
-const selectServices = async (vendorId, { subcategoryIds, durationMonths }) => {
+const selectServices = async (vendorId, { categoryId, subcategoryIds, durationMonths }) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
@@ -279,12 +296,31 @@ const selectServices = async (vendorId, { subcategoryIds, durationMonths }) => {
         throw new ApiError(400, 'Duration must be in multiples of 3 months');
     }
 
-    const parsedSubcategoryIds = parseArrayInput(subcategoryIds);
+    let subcategories = [];
+    let category = null;
 
-    // Fetch subcategories to get prices and categories
-    const subcategories = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).populate('category', 'name');
-    if (subcategories.length === 0) {
-        throw new ApiError(400, 'No valid subcategories selected');
+    if (subcategoryIds) {
+        const parsedSubcategoryIds = parseArrayInput(subcategoryIds);
+        // Fetch subcategories to get prices and categories
+        subcategories = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).populate('category', 'name');
+        if (subcategories.length > 0) {
+            category = subcategories[0].category;
+            vendor.selectedSubcategories = parsedSubcategoryIds;
+        }
+    }
+
+    if (!category && categoryId) {
+        category = await Category.findById(categoryId);
+        if (!category) throw new ApiError(404, 'Category not found');
+        
+        // Ensure category is also in selectedCategories
+        if (!vendor.selectedCategories.includes(category._id)) {
+            vendor.selectedCategories.push(category._id);
+        }
+    }
+
+    if (!category && subcategories.length === 0) {
+        throw new ApiError(400, 'No valid category or subcategories selected');
     }
 
     // Fetch global base membership fee
@@ -296,8 +332,7 @@ const selectServices = async (vendorId, { subcategoryIds, durationMonths }) => {
     const totalPrice = (basePrice + baseFeeSetting) * (durationMonths / 3);
 
     // Update vendor
-    vendor.selectedSubcategories = parsedSubcategoryIds;
-    vendor.membership.category = subcategories[0].category; // Set primary category for dashboard
+    vendor.membership.category = category._id; // Set primary category for dashboard
     vendor.membership.fee = totalPrice;
     vendor.membership.durationMonths = durationMonths;
     vendor.registrationStep = 'SERVICES_SELECTED';
