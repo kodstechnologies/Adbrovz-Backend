@@ -43,9 +43,21 @@ const DEFAULT_SETTINGS = {
         value: 500,
         description: 'Global fee added to membership for multi-task capability.',
     },
-    'pricing.vendor_base_membership_fee': {
+    'pricing.membership_base_fee_3': {
         value: 1000,
-        description: 'Base global membership fee for vendors.',
+        description: 'Base membership fee for 3 months duration.',
+    },
+    'pricing.membership_base_fee_6': {
+        value: 2000,
+        description: 'Base membership fee for 6 months duration.',
+    },
+    'pricing.membership_base_fee_12': {
+        value: 4000,
+        description: 'Base membership fee for 12 months duration.',
+    },
+    'pricing.membership_gst_percent': {
+        value: 18,
+        description: 'GST percentage for vendor membership fee.',
     },
     'pricing.travel_charge': {
         value: 50,

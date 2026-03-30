@@ -15,6 +15,7 @@ router.use((req, res, next) => {
 
 // Registration utility routes (Can be called during registration flow)
 router.post('/get-membership', vendorController.getMembership);
+router.get('/membership-plans', vendorController.getMembershipPlans);
 router.get('/membership-detail', authenticate, authorize(ROLES.VENDOR), vendorController.getVendorMembership);
 router.get('/membership-details', authenticate, authorize(ROLES.VENDOR), vendorController.getVendorMembership);
 router.get('/:vendorId/membership-detail', authenticate, authorize(ROLES.ADMIN), vendorController.getVendorMembership);

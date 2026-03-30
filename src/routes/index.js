@@ -12,6 +12,7 @@ const mediaRoutes = require('../modules/media/media.route');
 const bookingRoutes = require('../modules/booking/booking.route');
 const disputeRoutes = require('../modules/dispute/dispute.route');
 const feedbackRoutes = require('../modules/feedback/feedback.route');
+const vendorController = require('../modules/vendor/vendor.controller');
 
 // Health check
 router.get('/health', (req, res) => {
@@ -20,6 +21,9 @@ router.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+// Registration data (All Categories -> Subcategories -> Services)
+router.get('/registration-category-data', vendorController.getCategoryRegistrationData);
 
 // Welcome message
 router.get('/', (req, res) => {

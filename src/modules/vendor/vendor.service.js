@@ -59,7 +59,7 @@ const getAllVendors = async () => {
 /**
  * Get membership info for registration
  */
-const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, vendorId }) => {
+const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durationMonths, vendorId }) => {
     let itemList = [];
     let isSubcategory = false;
     let category = null;
@@ -104,19 +104,22 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, vendo
         throw new ApiError(400, 'No valid services/subcategories or category selected or found for vendor');
     }
 
-    // Fetch global base membership fee
+    // Fetch global base membership fee based on duration
     const adminService = require('../admin/admin.service');
-    const baseFeeSetting = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
-
-    const durationMonths = Number(overrides?.durationMonths || 3);
-    const multiplier = durationMonths / 3;
+    const selectedDuration = Number(durationMonths || 3);
+    const baseFee = await adminService.getSetting(`pricing.membership_base_fee_${selectedDuration}`) || 0;
+    const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
 
     const itemsFee = itemList.reduce((sum, item) => sum + (isSubcategory ? (item.price || 0) : (item.membershipFee || 0)), 0);
-    const totalFee = (itemsFee + baseFeeSetting) * multiplier;
+    const subtotal = baseFee + itemsFee;
+    const gstAmount = Math.round(subtotal * (gstPercent / 100));
+    const totalFee = subtotal + gstAmount;
 
     return {
+        subtotal,
+        gstAmount,
         totalFee,
-        vendorBaseMembershipFee: baseFeeSetting,
+        vendorBaseMembershipFee: baseFee,
         duration: `${durationMonths} months`,
         durationMonths,
         services: itemList.map(item => ({
@@ -172,20 +175,23 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         }
     }
 
-    // Fetch global base membership fee
+    // Fetch global base membership fee based on duration
     const adminService = require('../admin/admin.service');
-    const baseFeeSetting = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
-
     const durationMonths = Number(overrides.durationMonths || vendor.membership.durationMonths || 3);
-    const multiplier = durationMonths / 3;
+    const baseFee = await adminService.getSetting(`pricing.membership_base_fee_${durationMonths}`) || 0;
+    const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
 
     const itemsFee = itemList.reduce((sum, item) => sum + (isSubcategory ? (item.price || 0) : (item.membershipFee || 0)), 0);
-    const totalFee = (itemsFee + baseFeeSetting) * multiplier;
+    const subtotal = baseFee + itemsFee;
+    const gstAmount = Math.round(subtotal * (gstPercent / 100));
+    const totalFee = subtotal + gstAmount;
 
     return {
         vendorId: vendor._id,
+        subtotal,
+        gstAmount,
         totalFee,
-        vendorBaseMembershipFee: baseFeeSetting,
+        vendorBaseMembershipFee: baseFee,
         duration: `${durationMonths} months`,
         durationMonths,
         razorpayKeyId: config.RAZORPAY_KEY_ID,
@@ -229,13 +235,14 @@ const createMembershipOrder = async (vendorId) => {
     }
 
     const adminService = require('../admin/admin.service');
-    const baseFeeSetting = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
-    
     const durationMonths = Number(vendor.membership.durationMonths || 3);
-    const multiplier = durationMonths / 3;
-
+    const baseFee = await adminService.getSetting(`pricing.membership_base_fee_${durationMonths}`) || 0;
+    const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
+    
     const itemsFee = itemList.reduce((sum, item) => sum + (isSubcategory ? (item.price || 0) : (item.membershipFee || 0)), 0);
-    const totalFee = (itemsFee + baseFeeSetting) * multiplier;
+    const subtotal = baseFee + itemsFee;
+    const gstAmount = Math.round(subtotal * (gstPercent / 100));
+    const totalFee = subtotal + gstAmount;
 
     if (totalFee <= 0) {
         throw new ApiError(400, 'Membership fee must be greater than 0');
@@ -323,18 +330,23 @@ const selectServices = async (vendorId, { categoryId, subcategoryIds, durationMo
         throw new ApiError(400, 'No valid category or subcategories selected');
     }
 
-    // Fetch global base membership fee
+    // Fetch global base membership fee based on duration
     const adminService = require('../admin/admin.service');
-    const baseFeeSetting = await adminService.getSetting('pricing.vendor_base_membership_fee') || 0;
+    const baseFee = await adminService.getSetting(`pricing.membership_base_fee_${durationMonths}`) || 0;
+    const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
 
-    // Calculate total price: (Sum of subcategory prices + base fee) * (durationMonths / 3)
-    const basePrice = subcategories.reduce((sum, sub) => sum + (sub.price || 0), 0);
-    const totalPrice = (basePrice + baseFeeSetting) * (durationMonths / 3);
+    // Calculate subtotal: Sum of subcategory prices + duration-based base fee
+    const itemsPrice = subcategories.reduce((sum, sub) => sum + (sub.price || 0), 0);
+    const subtotal = itemsPrice + baseFee;
+    const gstAmount = Math.round(subtotal * (gstPercent / 100));
+    const totalPrice = subtotal + gstAmount;
 
     // Update vendor
     vendor.membership.category = category._id; // Set primary category for dashboard
     vendor.membership.fee = totalPrice;
     vendor.membership.durationMonths = durationMonths;
+    vendor.membership.subtotal = subtotal; // Optional: store subtotal
+    vendor.membership.gstAmount = gstAmount; // Optional: store GST
     vendor.registrationStep = 'SERVICES_SELECTED';
 
     await vendor.save();
@@ -401,6 +413,77 @@ const purchaseMembership = async (vendorId) => {
         ? 'Membership payment successful. Your plan is now active.' 
         : 'Membership payment successful. Your account is being reviewed by Admin. Plan will start once verified.' 
     };
+};
+
+/**
+ * Get available membership plans (3, 6, 12 months) from settings
+ */
+const getMembershipPlans = async () => {
+    const adminService = require('../admin/admin.service');
+    const plans = [3, 6, 12];
+    const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
+
+    const result = [];
+    for (const duration of plans) {
+        const baseFee = await adminService.getSetting(`pricing.membership_base_fee_${duration}`) || 0;
+        const gstAmount = Math.round(baseFee * (gstPercent / 100));
+        result.push({
+            durationMonths: duration,
+            label: `${duration} Months`,
+            baseFee,
+            gstAmount,
+            totalFee: baseFee + gstAmount,
+            gstPercent
+        });
+    }
+
+    return result;
+};
+
+/**
+ * Get all categories with subcategories and services (Registration Menu)
+ */
+const getCategoryRegistrationData = async () => {
+    const categories = await Category.find().lean();
+    const subcategories = await Subcategory.find().lean();
+    const services = await Service.find().lean();
+
+    return categories.map(cat => {
+        const catSubcategories = subcategories
+            .filter(sub => sub.category && sub.category.toString() === cat._id.toString())
+            .map(sub => {
+                const subServices = services
+                    .filter(svc => svc.subcategory && svc.subcategory.toString() === sub._id.toString())
+                    .map(svc => ({
+                        id: svc._id,
+                        name: svc.title,
+                        membershipFee: svc.membershipFee || 0
+                    }));
+                
+                return {
+                    id: sub._id,
+                    name: sub.name,
+                    membershipFee: sub.price || 0,
+                    services: subServices
+                };
+            });
+
+        const catServices = services
+            .filter(svc => svc.category && svc.category.toString() === cat._id.toString() && !svc.subcategory)
+            .map(svc => ({
+                id: svc._id,
+                name: svc.title,
+                membershipFee: svc.membershipFee || 0
+            }));
+
+        return {
+            id: cat._id,
+            name: cat.name,
+            membershipFee: 0,
+            subcategories: catSubcategories,
+            services: catServices
+        };
+    });
 };
 
 /**
@@ -1000,5 +1083,7 @@ module.exports = {
     getVerificationStatus,
     deleteVendorAccount,
     getDashboardMetrics,
+    getMembershipPlans,
+    getCategoryRegistrationData,
 };
 

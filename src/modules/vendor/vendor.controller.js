@@ -215,6 +215,26 @@ const getDashboardMetrics = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * Get available membership plans
+ */
+const getMembershipPlans = asyncHandler(async (req, res) => {
+    const plans = await vendorService.getMembershipPlans();
+    res.status(200).json(
+        new ApiResponse(200, plans, 'Membership plans retrieved successfully')
+    );
+});
+
+/**
+ * Get all categories with subcategories and services for registration
+ */
+const getCategoryRegistrationData = asyncHandler(async (req, res) => {
+    const data = await vendorService.getCategoryRegistrationData();
+    res.status(200).json(
+        new ApiResponse(200, data, 'Registration category data retrieved successfully')
+    );
+});
+
 
 module.exports = {
     getAllVendors,
@@ -234,5 +254,7 @@ module.exports = {
     getVerificationStatus,
     deleteAccount,
     getDashboardMetrics,
+    getMembershipPlans,
+    getCategoryRegistrationData,
 };
 

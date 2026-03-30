@@ -129,6 +129,8 @@ const vendorSchema = new mongoose.Schema(
     membership: {
       category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
       fee: { type: Number },
+      subtotal: { type: Number },
+      gstAmount: { type: Number },
       durationMonths: { type: Number, default: 3 },
       startDate: { type: Date },
       expiryDate: { type: Date },
