@@ -261,11 +261,15 @@ const updateCreditPlan = async (planId, updateData) => {
     plan = await CreditPlan.findByIdAndUpdate(planId, updateData, { new: true });
   } else {
     // Try by name (case-insensitive) if not an ID
-    plan = await CreditPlan.findOneAndUpdate(
-      { name: new RegExp(`^${planId}$`, 'i') },
-      updateData,
-      { new: true, upsert: true }
-    );
+    plan = await CreditPlan.findOne({ name: new RegExp(`^${planId}$`, 'i') });
+    if (plan) {
+      plan = await CreditPlan.findByIdAndUpdate(plan._id, updateData, { new: true });
+    } else {
+      // Create if it doesn't exist
+      // Make sure the name is capitalized appropriately or just use the passed string
+      const capName = planId.charAt(0).toUpperCase() + planId.slice(1).toLowerCase();
+      plan = await CreditPlan.create({ name: capName, ...updateData });
+    }
   }
 
   if (!plan) {
@@ -378,23 +382,46 @@ const getMembershipPricing = async () => {
     const gstPercent = await getSetting('pricing.membership_gst_percent');
 
     return {
+        // Original keys
         fee3Months: Number(fee3Months) || 0,
         fee6Months: Number(fee6Months) || 0,
         fee12Months: Number(fee12Months) || 0,
-        gstPercent: Number(gstPercent) || 0
+        gstPercent: Number(gstPercent) || 0,
+
+        // UI-friendly keys for Basic/Pro/Elite mapping
+        basicPrice: Number(fee3Months) || 0,
+        proPrice: Number(fee6Months) || 0,
+        elitePrice: Number(fee12Months) || 0,
+
+        // Validity days (3, 6, 12 months)
+        basicValidity: 90,
+        proValidity: 180,
+        eliteValidity: 360
     };
 };
 
 const updateMembershipPricing = async (data, adminId) => {
-    const { fee3Months, fee6Months, fee12Months, gstPercent } = data;
+    const { 
+        fee3Months, fee6Months, fee12Months, 
+        basicPrice, proPrice, elitePrice,
+        gstPercent 
+    } = data;
+    
     const settings = {};
 
-    if (fee3Months !== undefined) settings['pricing.membership_base_fee_3'] = Number(fee3Months);
-    if (fee6Months !== undefined) settings['pricing.membership_base_fee_6'] = Number(fee6Months);
-    if (fee12Months !== undefined) settings['pricing.membership_base_fee_12'] = Number(fee12Months);
+    // Handle both direct naming (fee3Months) and UI naming (basicPrice)
+    const finalFee3 = basicPrice !== undefined ? basicPrice : fee3Months;
+    const finalFee6 = proPrice !== undefined ? proPrice : fee6Months;
+    const finalFee12 = elitePrice !== undefined ? elitePrice : fee12Months;
+
+    if (finalFee3 !== undefined) settings['pricing.membership_base_fee_3'] = Number(finalFee3);
+    if (finalFee6 !== undefined) settings['pricing.membership_base_fee_6'] = Number(finalFee6);
+    if (finalFee12 !== undefined) settings['pricing.membership_base_fee_12'] = Number(finalFee12);
     if (gstPercent !== undefined) settings['pricing.membership_gst_percent'] = Number(gstPercent);
 
-    await updateGlobalSettings(settings, adminId);
+    if (Object.keys(settings).length > 0) {
+        await updateGlobalSettings(settings, adminId);
+    }
     
     return await getMembershipPricing();
 };

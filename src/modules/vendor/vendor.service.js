@@ -121,7 +121,6 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
         subtotal,
         gstAmount,
         totalFee,
-        vendorBaseMembershipFee: baseFee,
         duration: `${durationMonths} months`,
         durationMonths,
         plans,
@@ -196,7 +195,6 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         subtotal,
         gstAmount,
         totalFee,
-        vendorBaseMembershipFee: baseFee,
         duration: `${durationMonths} months`,
         durationMonths,
         razorpayKeyId: config.RAZORPAY_KEY_ID,
@@ -277,7 +275,6 @@ const createMembershipOrder = async (vendorId) => {
         vendorId: vendor._id,
         vendorName: vendor.name,
         totalFee,
-        vendorBaseMembershipFee: baseFee,
         duration: '3 months',
         status: razorpayOrder.status,  // 'created'
         razorpayKeyId: config.RAZORPAY_KEY_ID,
