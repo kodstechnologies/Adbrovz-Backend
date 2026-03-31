@@ -19,9 +19,11 @@ const authenticate = asyncHandler(async (req, res, next) => {
 
   // Attach user info to request
   req.user = decoded;
+  req.user.id = decoded.userId || decoded.id || decoded._id;
+  
   console.log('DEBUG: Authenticated User:', {
     role: req.user.role,
-    userId: req.user.userId || req.user.id || req.user._id
+    userId: req.user.id
   });
   next();
 });
@@ -54,6 +56,7 @@ const optionalAuth = asyncHandler(async (req, res, next) => {
       const token = authHeader.substring(7);
       const decoded = verifyToken(token);
       req.user = decoded;
+      req.user.id = decoded.userId || decoded.id || decoded._id;
     } catch (error) {
       // Ignore error for optional auth
     }

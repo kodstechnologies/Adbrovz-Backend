@@ -115,6 +115,8 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
     const totalFee = subtotal + gstAmount;
 
+    const plans = await getMembershipPlans();
+
     return {
         subtotal,
         gstAmount,
@@ -122,6 +124,7 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
         vendorBaseMembershipFee: baseFee,
         duration: `${durationMonths} months`,
         durationMonths,
+        plans,
         services: itemList.map(item => ({
             id: item._id,
             title: isSubcategory ? item.name : item.title,
@@ -186,6 +189,8 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
     const totalFee = subtotal + gstAmount;
 
+    const plans = await getMembershipPlans();
+
     return {
         vendorId: vendor._id,
         subtotal,
@@ -195,6 +200,7 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         duration: `${durationMonths} months`,
         durationMonths,
         razorpayKeyId: config.RAZORPAY_KEY_ID,
+        plans,
         services: itemList.map(item => ({
             id: item._id,
             title: isSubcategory ? item.name : item.title,
@@ -271,7 +277,7 @@ const createMembershipOrder = async (vendorId) => {
         vendorId: vendor._id,
         vendorName: vendor.name,
         totalFee,
-        vendorBaseMembershipFee: baseFeeSetting,
+        vendorBaseMembershipFee: baseFee,
         duration: '3 months',
         status: razorpayOrder.status,  // 'created'
         razorpayKeyId: config.RAZORPAY_KEY_ID,

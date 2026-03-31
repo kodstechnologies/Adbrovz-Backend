@@ -103,6 +103,10 @@ const DEFAULT_SETTINGS = {
         value: 0,
         description: 'Entry fee charged to vendors.',
     },
+    'pricing.credit_restore_rule': {
+        value: 'manual',
+        description: 'How credits are restored during booking cancellations (manual, auto, prorated).',
+    },
 };
 
 module.exports = {

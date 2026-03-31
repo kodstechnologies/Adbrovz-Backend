@@ -189,6 +189,24 @@ const updateGlobalSettings = asyncHandler(async (req, res) => {
   );
 });
 
+// Membership Pricing Management
+const getMembershipPricing = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const pricing = await adminService.getMembershipPricing();
+  res.status(200).json(
+    new ApiResponse(200, pricing, 'Membership pricing retrieved successfully')
+  );
+});
+
+const updateMembershipPricing = asyncHandler(async (req, res) => {
+  const adminId = req.user.id;
+  const adminService = require('./admin.service');
+  const pricing = await adminService.updateMembershipPricing(req.body, adminId);
+  res.status(200).json(
+    new ApiResponse(200, pricing, 'Membership pricing updated successfully')
+  );
+});
+
 // Get all bookings
 const getAllBookings = asyncHandler(async (req, res) => {
   const adminService = require('./admin.service');
@@ -243,6 +261,8 @@ module.exports = {
   getEligibleVendors,
   getGlobalSettings,
   updateGlobalSettings,
+  getMembershipPricing,
+  updateMembershipPricing,
   getAllBookings,
   getBookingDetails,
   exportBookings,

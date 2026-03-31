@@ -42,6 +42,10 @@ router.get('/vendors/eligible', adminController.getEligibleVendors);
 router.get('/settings', adminController.getGlobalSettings);
 router.patch('/settings', adminController.updateGlobalSettings);
 
+// Membership Pricing management
+router.get('/membership-pricing', adminController.getMembershipPricing);
+router.patch('/membership-pricing', adminController.updateMembershipPricing);
+
 // Bookings management
 router.get('/bookings/export', adminController.exportBookings);
 router.get('/audit-logs/export', adminController.exportAuditLogs);

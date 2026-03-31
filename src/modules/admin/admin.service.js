@@ -256,7 +256,18 @@ const getCreditPlans = async () => {
 };
 
 const updateCreditPlan = async (planId, updateData) => {
-  const plan = await CreditPlan.findByIdAndUpdate(planId, updateData, { new: true });
+  let plan;
+  if (/^[0-9a-fA-F]{24}$/.test(planId)) {
+    plan = await CreditPlan.findByIdAndUpdate(planId, updateData, { new: true });
+  } else {
+    // Try by name (case-insensitive) if not an ID
+    plan = await CreditPlan.findOneAndUpdate(
+      { name: new RegExp(`^${planId}$`, 'i') },
+      updateData,
+      { new: true, upsert: true }
+    );
+  }
+
   if (!plan) {
     throw new Error('Credit plan not found');
   }
@@ -339,9 +350,12 @@ const updateGlobalSettings = async (settings, adminId) => {
     const setting = await GlobalConfig.findOneAndUpdate(
       { key },
       {
-        value,
-        lastUpdatedBy: adminId,
-        description: DEFAULT_SETTINGS[key]?.description || ''
+        $set: {
+          value,
+          lastUpdatedBy: adminId,
+          description: DEFAULT_SETTINGS[key]?.description || ''
+        },
+        $setOnInsert: { key }
       },
       { upsert: true, new: true }
     );
@@ -355,6 +369,34 @@ const getSetting = async (key) => {
   const setting = await GlobalConfig.findOne({ key });
   if (setting) return setting.value;
   return DEFAULT_SETTINGS[key]?.value;
+};
+
+const getMembershipPricing = async () => {
+    const fee3Months = await getSetting('pricing.membership_base_fee_3');
+    const fee6Months = await getSetting('pricing.membership_base_fee_6');
+    const fee12Months = await getSetting('pricing.membership_base_fee_12');
+    const gstPercent = await getSetting('pricing.membership_gst_percent');
+
+    return {
+        fee3Months: Number(fee3Months) || 0,
+        fee6Months: Number(fee6Months) || 0,
+        fee12Months: Number(fee12Months) || 0,
+        gstPercent: Number(gstPercent) || 0
+    };
+};
+
+const updateMembershipPricing = async (data, adminId) => {
+    const { fee3Months, fee6Months, fee12Months, gstPercent } = data;
+    const settings = {};
+
+    if (fee3Months !== undefined) settings['pricing.membership_base_fee_3'] = Number(fee3Months);
+    if (fee6Months !== undefined) settings['pricing.membership_base_fee_6'] = Number(fee6Months);
+    if (fee12Months !== undefined) settings['pricing.membership_base_fee_12'] = Number(fee12Months);
+    if (gstPercent !== undefined) settings['pricing.membership_gst_percent'] = Number(gstPercent);
+
+    await updateGlobalSettings(settings, adminId);
+    
+    return await getMembershipPricing();
 };
 
 const getAllBookings = async (query = {}) => {
@@ -622,6 +664,8 @@ module.exports = {
   getGlobalSettings,
   updateGlobalSettings,
   getSetting,
+  getMembershipPricing,
+  updateMembershipPricing,
   getAllBookings,
   getBookingDetails,
   exportBookingsCSV,
