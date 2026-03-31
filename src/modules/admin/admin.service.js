@@ -379,24 +379,30 @@ const getMembershipPricing = async () => {
     const fee3Months = await getSetting('pricing.membership_base_fee_3');
     const fee6Months = await getSetting('pricing.membership_base_fee_6');
     const fee12Months = await getSetting('pricing.membership_base_fee_12');
+    
+    // Custom Validity Days (Default to 90, 180, 360 if not set)
+    const val3Months = await getSetting('pricing.membership_validity_3');
+    const val6Months = await getSetting('pricing.membership_validity_6');
+    const val12Months = await getSetting('pricing.membership_validity_12');
+    
     const gstPercent = await getSetting('pricing.membership_gst_percent');
 
     return {
         // Original keys
-        fee3Months: Number(fee3Months) || 0,
-        fee6Months: Number(fee6Months) || 0,
-        fee12Months: Number(fee12Months) || 0,
-        gstPercent: Number(gstPercent) || 0,
+        fee3Months: Number(fee3Months) || 1000,
+        fee6Months: Number(fee6Months) || 2000,
+        fee12Months: Number(fee12Months) || 4000,
+        gstPercent: Number(gstPercent) || 18,
 
         // UI-friendly keys for Basic/Pro/Elite mapping
-        basicPrice: Number(fee3Months) || 0,
-        proPrice: Number(fee6Months) || 0,
-        elitePrice: Number(fee12Months) || 0,
+        basicPrice: Number(fee3Months) || 1000,
+        proPrice: Number(fee6Months) || 2000,
+        elitePrice: Number(fee12Months) || 4000,
 
-        // Validity days (3, 6, 12 months)
-        basicValidity: 90,
-        proValidity: 180,
-        eliteValidity: 360
+        // Custom Validity Days
+        basicValidity: Number(val3Months) || 90,
+        proValidity: Number(val6Months) || 180,
+        eliteValidity: Number(val12Months) || 360
     };
 };
 
@@ -404,12 +410,13 @@ const updateMembershipPricing = async (data, adminId) => {
     const { 
         fee3Months, fee6Months, fee12Months, 
         basicPrice, proPrice, elitePrice,
+        basicValidity, proValidity, eliteValidity,
         gstPercent 
     } = data;
     
     const settings = {};
 
-    // Handle both direct naming (fee3Months) and UI naming (basicPrice)
+    // Map tier-based UI names to duration-based backend keys
     const finalFee3 = basicPrice !== undefined ? basicPrice : fee3Months;
     const finalFee6 = proPrice !== undefined ? proPrice : fee6Months;
     const finalFee12 = elitePrice !== undefined ? elitePrice : fee12Months;
@@ -417,6 +424,12 @@ const updateMembershipPricing = async (data, adminId) => {
     if (finalFee3 !== undefined) settings['pricing.membership_base_fee_3'] = Number(finalFee3);
     if (finalFee6 !== undefined) settings['pricing.membership_base_fee_6'] = Number(finalFee6);
     if (finalFee12 !== undefined) settings['pricing.membership_base_fee_12'] = Number(finalFee12);
+    
+    // Custom Validity
+    if (basicValidity !== undefined) settings['pricing.membership_validity_3'] = Number(basicValidity);
+    if (proValidity !== undefined) settings['pricing.membership_validity_6'] = Number(proValidity);
+    if (eliteValidity !== undefined) settings['pricing.membership_validity_12'] = Number(eliteValidity);
+
     if (gstPercent !== undefined) settings['pricing.membership_gst_percent'] = Number(gstPercent);
 
     if (Object.keys(settings).length > 0) {

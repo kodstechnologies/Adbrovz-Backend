@@ -110,25 +110,25 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
     const baseFee = await adminService.getSetting(`pricing.membership_base_fee_${selectedDuration}`) || 0;
     const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
 
-    const itemsFee = itemList.reduce((sum, item) => sum + (isSubcategory ? (item.price || 0) : (item.membershipFee || 0)), 0);
-    const subtotal = baseFee + itemsFee;
+    const subtotal = baseFee; // Membership cost is strictly the base plan fee
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
     const totalFee = subtotal + gstAmount;
 
+    const validityDays = await adminService.getSetting(`pricing.membership_validity_${selectedDuration}`) || (selectedDuration * 30);
     const plans = await getMembershipPlans();
 
     return {
         subtotal,
         gstAmount,
         totalFee,
-        duration: `${durationMonths} months`,
-        durationMonths,
+        duration: `${validityDays} days`,
+        durationMonths: selectedDuration,
         plans,
         services: itemList.map(item => ({
             id: item._id,
             title: isSubcategory ? item.name : item.title,
             type: isSubcategory ? 'subcategory' : 'service',
-            membershipFee: isSubcategory ? (item.price || 0) : (item.membershipFee || 0)
+            membershipFee: 0 // Service fees are no longer added individually
         }))
     };
 };
@@ -183,11 +183,11 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     const baseFee = await adminService.getSetting(`pricing.membership_base_fee_${durationMonths}`) || 0;
     const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
 
-    const itemsFee = itemList.reduce((sum, item) => sum + (isSubcategory ? (item.price || 0) : (item.membershipFee || 0)), 0);
-    const subtotal = baseFee + itemsFee;
+    const subtotal = baseFee; // Membership cost is strictly the base plan fee
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
     const totalFee = subtotal + gstAmount;
 
+    const validityDays = await adminService.getSetting(`pricing.membership_validity_${durationMonths}`) || (durationMonths * 30);
     const plans = await getMembershipPlans();
 
     return {
@@ -195,7 +195,7 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         subtotal,
         gstAmount,
         totalFee,
-        duration: `${durationMonths} months`,
+        duration: `${validityDays} days`,
         durationMonths,
         razorpayKeyId: config.RAZORPAY_KEY_ID,
         plans,
@@ -203,7 +203,7 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
             id: item._id,
             title: isSubcategory ? item.name : item.title,
             type: isSubcategory ? 'subcategory' : 'service',
-            membershipFee: isSubcategory ? (item.price || 0) : (item.membershipFee || 0)
+            membershipFee: 0 // Service fees are no longer added individually
         }))
     };
 };
@@ -243,8 +243,7 @@ const createMembershipOrder = async (vendorId) => {
     const baseFee = await adminService.getSetting(`pricing.membership_base_fee_${durationMonths}`) || 0;
     const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
     
-    const itemsFee = itemList.reduce((sum, item) => sum + (isSubcategory ? (item.price || 0) : (item.membershipFee || 0)), 0);
-    const subtotal = baseFee + itemsFee;
+    const subtotal = baseFee;
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
     const totalFee = subtotal + gstAmount;
 
@@ -271,11 +270,13 @@ const createMembershipOrder = async (vendorId) => {
         throw new ApiError(400, `Payment Error: ${errorMsg}`);
     }
 
+    const validityDays = await adminService.getSetting(`pricing.membership_validity_${durationMonths}`) || (durationMonths * 30);
+    
     return {
         vendorId: vendor._id,
         vendorName: vendor.name,
         totalFee,
-        duration: '3 months',
+        duration: `${validityDays} days`,
         status: razorpayOrder.status,  // 'created'
         razorpayKeyId: config.RAZORPAY_KEY_ID,
         razorpayOrder: {
@@ -289,7 +290,7 @@ const createMembershipOrder = async (vendorId) => {
         services: itemList.map(item => ({
             id: item._id,
             title: isSubcategory ? item.name : item.title,
-            membershipFee: isSubcategory ? (item.price || 0) : (item.membershipFee || 0),
+            membershipFee: 0,
             type: isSubcategory ? 'subcategory' : 'service'
         })),
     };
@@ -338,9 +339,8 @@ const selectServices = async (vendorId, { categoryId, subcategoryIds, durationMo
     const baseFee = await adminService.getSetting(`pricing.membership_base_fee_${durationMonths}`) || 0;
     const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
 
-    // Calculate subtotal: Sum of subcategory prices + duration-based base fee
-    const itemsPrice = subcategories.reduce((sum, sub) => sum + (sub.price || 0), 0);
-    const subtotal = itemsPrice + baseFee;
+    // Subtotal is strictly the duration-based base fee (items are included in plan)
+    const subtotal = baseFee;
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
     const totalPrice = subtotal + gstAmount;
 
@@ -360,7 +360,7 @@ const selectServices = async (vendorId, { categoryId, subcategoryIds, durationMo
         subcategories: subcategories.map(s => ({
             id: s._id,
             name: s.name,
-            price: s.price,
+            price: 0,
             category: s.category?.name || 'Unknown Category'
         })),
     };
@@ -379,9 +379,12 @@ const purchaseMembership = async (vendorId) => {
 
     if (vendor.isVerified) {
         vendor.membership.startDate = new Date();
+        const adminService = require('../admin/admin.service');
         const durationMonths = vendor.membership.durationMonths || 3;
+        const validityDays = await adminService.getSetting(`pricing.membership_validity_${durationMonths}`) || (durationMonths * 30);
+        
         const expiryDate = new Date();
-        expiryDate.setMonth(expiryDate.getMonth() + durationMonths);
+        expiryDate.setDate(expiryDate.getDate() + Number(validityDays));
         vendor.membership.expiryDate = expiryDate;
         vendor.registrationStep = 'COMPLETED';
     } else {
@@ -423,17 +426,24 @@ const purchaseMembership = async (vendorId) => {
  */
 const getMembershipPlans = async () => {
     const adminService = require('../admin/admin.service');
-    const plans = [3, 6, 12];
+    const plans = [
+        { duration: 3, labelKey: 'Basic' },
+        { duration: 6, labelKey: 'Pro' },
+        { duration: 12, labelKey: 'Elite' }
+    ];
     const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
 
     const result = [];
-    for (const duration of plans) {
-        const baseFee = await adminService.getSetting(`pricing.membership_base_fee_${duration}`) || 0;
+    for (const plan of plans) {
+        const baseFee = await adminService.getSetting(`pricing.membership_base_fee_${plan.duration}`) || 0;
+        const validityDays = await adminService.getSetting(`pricing.membership_validity_${plan.duration}`) || (plan.duration * 30);
+        
         const gstAmount = Math.round(baseFee * (gstPercent / 100));
         result.push({
-            durationMonths: duration,
-            label: `${duration} Months`,
+            durationMonths: plan.duration,
+            label: `${plan.labelKey} (${validityDays} Days)`,
             baseFee,
+            validityDays: Number(validityDays),
             gstAmount,
             totalFee: baseFee + gstAmount,
             gstPercent
