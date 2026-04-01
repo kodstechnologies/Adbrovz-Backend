@@ -205,6 +205,8 @@ const vendorSchema = new mongoose.Schema(
         // Add isActive to membership based on expiryDate
         if (ret.membership) {
           ret.membership.isActive = !!(ret.membership.expiryDate && new Date(ret.membership.expiryDate) > new Date());
+          // Also set planStatus for nested transform results if needed
+          ret.membership.planStatus = (ret.membership.expiryDate && new Date(ret.membership.expiryDate) > new Date()) ? 'PAID' : (ret.membership.expiryDate ? 'EXPIRED' : 'UNPAID');
         }
 
         delete ret.__v;
@@ -215,15 +217,30 @@ const vendorSchema = new mongoose.Schema(
   }
 );
 
-// Consolidated status virtual
+// Consolidated status virtual for UI consistency
 vendorSchema.virtual('status').get(function () {
   if (this.isSuspended) return 'SUSPENDED';
   if (this.isBlocked) return 'BLOCKED';
-  if (this.isVerified) return 'ACTIVE';
+  if (this.isVerified) return 'VERIFIED';
+  
   const docStatus = (this.documentStatus || '').toLowerCase();
   if (docStatus === 'rejected' || docStatus === 'reject') return 'REJECTED';
-  if (['COMPLETED', 'SIGNUP_COMPLETED'].includes(this.registrationStep) && !this.isVerified) return 'PENDING_VERIFICATION';
-  return 'PENDING_DOCS';
+  
+  // If they have completed signup but not verified, they are in pending state
+  if (['COMPLETED', 'SIGNUP_COMPLETED', 'MEMBERSHIP_PAID', 'PLAN_PAID'].includes(this.registrationStep)) {
+    return 'PENDING';
+  }
+  
+  return 'PENDING'; // Default to a clean PENDING status
+});
+
+// Subscription/Plan status virtual
+vendorSchema.virtual('planStatus').get(function () {
+  if (!this.membership || !this.membership.expiryDate) return 'UNPAID';
+  const now = new Date();
+  const expiry = new Date(this.membership.expiryDate);
+  if (now > expiry) return 'EXPIRED';
+  return 'PAID';
 });
 
 // Indexes
