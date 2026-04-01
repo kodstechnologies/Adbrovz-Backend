@@ -13,6 +13,9 @@ const bookingRoutes = require('../modules/booking/booking.route');
 const disputeRoutes = require('../modules/dispute/dispute.route');
 const feedbackRoutes = require('../modules/feedback/feedback.route');
 const vendorController = require('../modules/vendor/vendor.controller');
+const { authenticate, authorize } = require('../middlewares/auth.middleware');
+const { ROLES } = require('../constants/roles');
+const { uploadVendorDocs, processVendorDocs } = require('../middlewares/vendorUpload.middleware');
 
 // Health check
 router.get('/health', (req, res) => {
@@ -45,6 +48,9 @@ router.use('/media', mediaRoutes);
 router.use('/bookings', bookingRoutes);
 router.use('/disputes', disputeRoutes);
 router.use('/feedback', feedbackRoutes);
+
+// Document specific routes
+router.put('/documents/reupload', authenticate, authorize(ROLES.VENDOR), uploadVendorDocs, processVendorDocs, vendorController.reuploadDocuments);
 
 module.exports = router;
 

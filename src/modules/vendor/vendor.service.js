@@ -745,22 +745,25 @@ const rejectVendorAccount = async (vendorId, { reason }) => {
     vendor.isVerified = false;
     vendor.documentStatus = 'rejected';
 
-    // Migrate ALL documents to object structure if they are strings (Database Cleanup)
     const docTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+
+    // Always set ALL document slots to rejected (whether they have URLs or not)
+    // This ensures the status virtual correctly returns 'REJECTED' regardless of upload state
     docTypes.forEach(type => {
         const val = vendor.documents[type];
-        if (typeof val === 'string' && val !== undefined) {
-            vendor.set(`documents.${type}`, { url: val, status: 'pending' });
-        }
-    });
+        let existingUrl = '';
 
-    // Mark all available documents as rejected too for account-level rejection
-    docTypes.forEach(doc => {
-        const d = vendor.documents[doc];
-        if (d && typeof d === 'object') {
-            vendor.set(`documents.${doc}.status`, 'rejected');
-            vendor.set(`documents.${doc}.reason`, reason || 'Account rejected by admin');
+        if (typeof val === 'string') {
+            existingUrl = val || '';
+        } else if (val && typeof val === 'object') {
+            existingUrl = val.url || '';
         }
+
+        vendor.set(`documents.${type}`, {
+            url: existingUrl,
+            status: 'rejected',
+            reason: reason || 'Account rejected by admin'
+        });
     });
 
     vendor.markModified('documents');
