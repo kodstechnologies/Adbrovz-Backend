@@ -206,7 +206,28 @@ const vendorSchema = new mongoose.Schema(
         if (ret.membership) {
           ret.membership.isActive = !!(ret.membership.expiryDate && new Date(ret.membership.expiryDate) > new Date());
           // Also set planStatus for nested transform results if needed
-          ret.membership.planStatus = (ret.membership.expiryDate && new Date(ret.membership.expiryDate) > new Date()) ? 'PAID' : (ret.membership.expiryDate ? 'EXPIRED' : 'UNPAID');
+          const now = new Date();
+          const exp = ret.membership.expiryDate ? new Date(ret.membership.expiryDate) : null;
+          ret.membership.planStatus = exp > now ? 'PAID' : (exp ? 'EXPIRED' : 'UNPAID');
+
+          if (exp) {
+            const diff = exp - now;
+            const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+            ret.membership.validity = days > 0 ? `${days}d remaining` : 'Expired';
+          } else {
+            ret.membership.validity = 'UNPAID';
+          }
+        }
+
+        // Add top-level planValidity for table columns
+        const exp = ret.membership?.expiryDate ? new Date(ret.membership.expiryDate) : null;
+        const now = new Date();
+        if (exp) {
+            const diff = exp - now;
+            const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+            ret.planValidity = days > 0 ? `${days}d remaining` : 'Expired';
+        } else {
+            ret.planValidity = 'UNPAID';
         }
 
         delete ret.__v;
@@ -217,16 +238,24 @@ const vendorSchema = new mongoose.Schema(
   }
 );
 
-// Consolidated status virtual for UI consistency
+// Consolidated status virtual for UI consistency (very robust)
 vendorSchema.virtual('status').get(function () {
   if (this.isSuspended) return 'SUSPENDED';
   if (this.isBlocked) return 'BLOCKED';
   if (this.isVerified) return 'VERIFIED';
   
-  const docStatus = (this.documentStatus || '').toLowerCase();
-  if (docStatus === 'rejected' || docStatus === 'reject') return 'REJECTED';
+  // High Priority: Check if ANY document is rejected (handles all case variations)
+  const docTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+  const hasOneRejected = docTypes.some(type => {
+      const d = this.documents?.[type];
+      const s = (d && typeof d === 'object') ? (d.status || '').toLowerCase() : String(d || '').toLowerCase();
+      return s.trim().startsWith('reject');
+  });
+
+  const topLevelRejection = (this.documentStatus || '').toLowerCase().startsWith('reject');
+  if (hasOneRejected || topLevelRejection) return 'REJECTED';
   
-  // If they have completed signup but not verified, they are in pending state
+  // If they have completed signup but not verified/rejected, they are in pending state
   if (['COMPLETED', 'SIGNUP_COMPLETED', 'MEMBERSHIP_PAID', 'PLAN_PAID'].includes(this.registrationStep)) {
     return 'PENDING';
   }

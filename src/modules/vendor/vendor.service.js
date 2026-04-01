@@ -602,8 +602,8 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
     const allDocTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
     const hasRejectedDocs = allDocTypes.some(doc => {
         const d = vendor.documents[doc];
-        // Must check if object exists, and if status is explicitly rejected
-        return d && typeof d === 'object' && d.status === 'rejected';
+        // Use canonicalizeStatus to handle variations like 'Reject', 'rejected', etc.
+        return d && typeof d === 'object' && canonicalizeStatus(d.status) === 'rejected';
     });
 
     // Check if all required documents (photo, idProof, addressProof) are verified or approved
