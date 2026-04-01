@@ -45,6 +45,17 @@ const parseArrayInput = (input) => {
     return cleaned.split(',').filter(s => s.length > 0);
 };
 
+/**
+ * Helper to canonicalize status strings (e.g. "Reject", "reject", "Verified") to match schema enums
+ */
+const canonicalizeStatus = (status) => {
+    if (!status) return 'pending';
+    const s = String(status).toLowerCase().trim();
+    if (s.startsWith('reject')) return 'rejected';
+    if (s.startsWith('approve') || s.startsWith('verify') || s === 'verified') return 'approved';
+    return s;
+};
+
 // Lazy init — avoids crash on startup when RAZORPAY keys are not set
 const getRazorpay = () => {
     if (!config.RAZORPAY_KEY_ID || !config.RAZORPAY_KEY_SECRET) {
@@ -569,10 +580,10 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
     });
 
     // Apply the specific verification update (normalized to lowercase)
-    const lowerStatus = status?.toLowerCase();
+    const lowerStatus = canonicalizeStatus(status);
     const currentDoc = vendor.documents[docType]; // Now guaranteed to be object or migrated
     // Map 'approved' to 'verified' for internal consistency if needed
-    const isApprovedOrVerified = lowerStatus === 'verified' || lowerStatus === 'approved';
+    const isApprovedOrVerified = lowerStatus === 'approved';
     const newReason = isApprovedOrVerified ? null : (reason || (vendor.documents[docType]?.reason) || null);
 
     const url = (currentDoc && typeof currentDoc === 'object' ? currentDoc.url : (typeof currentDoc === 'string' ? currentDoc : '')) || '';
@@ -1135,11 +1146,20 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
     const docTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
     let updated = false;
 
+    // Normalize keys (mobile might send "Photo" vs "photo")
+    const normalizedUploadedDocs = {};
+    Object.keys(uploadedDocs).forEach(key => {
+        normalizedUploadedDocs[key.toLowerCase()] = uploadedDocs[key];
+    });
+
     docTypes.forEach(doc => {
-        if (uploadedDocs[doc]) {
+        // Use lowercase check for uploadedDocs keys
+        const incomingUrl = normalizedUploadedDocs[doc.toLowerCase()];
+        
+        if (incomingUrl) {
             // Update the document URL and change status back to 'pending'
             vendor.set(`documents.${doc}`, { 
-                url: uploadedDocs[doc], 
+                url: incomingUrl, 
                 status: 'pending',
                 reason: null
             });
@@ -1153,7 +1173,7 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
         // If there are still rejected documents, keep status rejected, else pending
         const hasRejectedDocs = docTypes.some(type => {
             const d = vendor.documents[type];
-            return d && typeof d === 'object' && d.status === 'rejected';
+            return d && typeof d === 'object' && canonicalizeStatus(d.status) === 'rejected';
         });
 
         if (hasRejectedDocs) {

@@ -220,7 +220,8 @@ vendorSchema.virtual('status').get(function () {
   if (this.isSuspended) return 'SUSPENDED';
   if (this.isBlocked) return 'BLOCKED';
   if (this.isVerified) return 'ACTIVE';
-  if (this.documentStatus === 'rejected') return 'REJECTED';
+  const docStatus = (this.documentStatus || '').toLowerCase();
+  if (docStatus === 'rejected' || docStatus === 'reject') return 'REJECTED';
   if (['COMPLETED', 'SIGNUP_COMPLETED'].includes(this.registrationStep) && !this.isVerified) return 'PENDING_VERIFICATION';
   return 'PENDING_DOCS';
 });
