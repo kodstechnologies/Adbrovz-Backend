@@ -254,12 +254,18 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
  * Create Razorpay order for membership payment
  * vendorId is extracted from token (req.user), NOT from URL
  */
-const createMembershipOrder = async (vendorId) => {
+const createMembershipOrder = async (vendorId, { durationMonths, amount } = {}) => {
     const vendor = await Vendor.findById(vendorId)
         .populate('selectedServices')
         .populate('selectedSubcategories')
         .populate('membership.category');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    // Update durationMonths if provided
+    if (durationMonths) {
+        vendor.membership.durationMonths = Number(durationMonths);
+        await vendor.save();
+    }
 
     let itemList = [];
     let isSubcategory = false;
@@ -281,9 +287,11 @@ const createMembershipOrder = async (vendorId) => {
     }
 
     const adminService = require('../admin/admin.service');
-    const durationMonths = Number(vendor.membership.durationMonths || 3);
-    const plan = await getPlanByDuration(durationMonths);
-    const baseFee = Number(plan.price || 0);
+    const effectiveDuration = Number(durationMonths || vendor.membership.durationMonths || 3);
+    const plan = await getPlanByDuration(effectiveDuration);
+    
+    // Use provided amount if present, otherwise use plan price from DB
+    const baseFee = amount ? Number(amount) : Number(plan.price || 0);
     const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
     
     const subtotal = baseFee;

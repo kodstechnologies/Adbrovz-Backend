@@ -77,7 +77,7 @@ const selectServices = asyncHandler(async (req, res) => {
  */
 const createMembershipOrder = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const result = await vendorService.createMembershipOrder(vendorId);
+    const result = await vendorService.createMembershipOrder(vendorId, req.body);
     res.status(200).json(
         new ApiResponse(200, result, 'Membership order created successfully')
     );
