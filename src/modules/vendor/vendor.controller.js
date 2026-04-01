@@ -235,6 +235,20 @@ const getCategoryRegistrationData = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * Reupload rejected documents
+ */
+const reuploadDocuments = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    
+    // Cloudinary middleware (uploadToCloudinary/processVendorDocs) places the URLs directly into req.body
+    const result = await vendorService.reuploadDocuments(vendorId, req.body);
+    
+    res.status(200).json(
+        new ApiResponse(200, result, 'Documents reuploaded successfully')
+    );
+});
+
 
 module.exports = {
     getAllVendors,
@@ -256,5 +270,6 @@ module.exports = {
     getDashboardMetrics,
     getMembershipPlans,
     getCategoryRegistrationData,
+    reuploadDocuments,
 };
 

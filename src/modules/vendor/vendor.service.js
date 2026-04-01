@@ -586,18 +586,37 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
     // CRITICAL: Ensure Mongoose detects the change in the nested 'documents' object
     vendor.markModified('documents');
 
+    // Check if any document is explicitly rejected
+    const allDocTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+    const hasRejectedDocs = allDocTypes.some(doc => {
+        const d = vendor.documents[doc];
+        // Must check if object exists, and if status is explicitly rejected
+        return d && typeof d === 'object' && d.status === 'rejected';
+    });
+
     // Check if all required documents (photo, idProof, addressProof) are verified or approved
     const requiredDocs = ['photo', 'idProof', 'addressProof'];
-    const allVerified = requiredDocs.every(doc => {
+    const allRequiredVerified = requiredDocs.every(doc => {
         const d = vendor.documents[doc];
         return d && typeof d === 'object' && (d.status === 'verified' || d.status === 'approved');
     });
 
-    console.log(`DEBUG Check: Vendor ${vendorId} - Doc: ${docType} -> ${status}. All Req Verified: ${allVerified}`);
+    console.log(`DEBUG Check: Vendor ${vendorId} - Doc: ${docType} -> ${status}. All Req Verified: ${allRequiredVerified}, Has Rejections: ${hasRejectedDocs}`);
 
-    if (allVerified) {
+    let message;
+
+    if (status === 'rejected') {
+        vendor.isVerified = false;
+        vendor.documentStatus = 'rejected';
+        message = `Your ${docType} has been rejected. Reason: ${reason || 'Please provide a valid document.'}`;
+    } else if (hasRejectedDocs) {
+        vendor.isVerified = false;
+        vendor.documentStatus = 'rejected';
+        message = `Your ${docType} has been ${status}.`;
+    } else if (allRequiredVerified) {
         vendor.isVerified = true;
         vendor.documentStatus = 'approved';
+        message = "Congratulations! Your account is now fully verified.";
 
         // Set registrationStep and startDate IF already paid or moved past selection
         const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'SERVICES_SELECTED'].includes(vendor.registrationStep) || vendor.membership?.expiryDate;
@@ -612,22 +631,14 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
             vendor.membership.expiryDate = vendor.membership.expiryDate || expiryDate;
             vendor.registrationStep = 'COMPLETED';
         }
-    } else if (status === 'rejected') {
-        vendor.isVerified = false;
-        vendor.documentStatus = 'rejected';
     } else {
         vendor.isVerified = false;
         // Keep as pending if not all required docs are approved/verified
         vendor.documentStatus = 'pending';
+        message = `Your ${docType} has been ${status}.`;
     }
 
     await vendor.save();
-
-    const message = allVerified 
-        ? "Congratulations! Your account is now fully verified." 
-        : (status === 'rejected' 
-            ? `Your ${docType} has been rejected. Reason: ${reason || 'Please provide a valid document.'}` 
-            : `Your ${docType} has been ${status}.`);
 
     const payload = _getVerificationPayload(vendor);
     payload.message = message;
@@ -1104,6 +1115,54 @@ const getDashboardMetrics = async (vendorId) => {
 };
 
 
+/**
+ * Vendor: Reupload rejected documents
+ */
+const reuploadDocuments = async (vendorId, uploadedDocs) => {
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const docTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+    let updated = false;
+
+    docTypes.forEach(doc => {
+        if (uploadedDocs[doc]) {
+            // Update the document URL and change status back to 'pending'
+            vendor.set(`documents.${doc}`, { 
+                url: uploadedDocs[doc], 
+                status: 'pending',
+                reason: null
+            });
+            updated = true;
+        }
+    });
+
+    if (updated) {
+        vendor.markModified('documents');
+        
+        // If there are still rejected documents, keep status rejected, else pending
+        const hasRejectedDocs = docTypes.some(type => {
+            const d = vendor.documents[type];
+            return d && typeof d === 'object' && d.status === 'rejected';
+        });
+
+        if (hasRejectedDocs) {
+            vendor.documentStatus = 'rejected';
+        } else {
+            vendor.documentStatus = 'pending';
+        }
+        
+        await vendor.save();
+    }
+
+    const payload = _getVerificationPayload(vendor);
+    payload.message = "Documents uploaded successfully and are pending verification.";
+
+    emitToVendor(vendor._id, 'verification_status_response', payload);
+
+    return { vendor, isVerified: vendor.isVerified, payload };
+};
+
 module.exports = {
     getAllVendors,
     getMembershipInfo,
@@ -1126,5 +1185,6 @@ module.exports = {
     getDashboardMetrics,
     getMembershipPlans,
     getCategoryRegistrationData,
+    reuploadDocuments,
 };
 

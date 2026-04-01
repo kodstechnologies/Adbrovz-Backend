@@ -4,6 +4,7 @@ const vendorController = require('./vendor.controller');
 const { authenticate, authorize } = require('../../middlewares/auth.middleware');
 const { ROLES } = require('../../constants/roles');
 const { upload, uploadToCloudinary } = require('../../middlewares/cloudinary.middleware');
+const { uploadVendorDocs, processVendorDocs } = require('../../middlewares/vendorUpload.middleware');
 
 // Debugging middleware
 router.use((req, res, next) => {
@@ -43,6 +44,7 @@ router.get('/profile', authenticate, authorize(ROLES.VENDOR), vendorController.g
 router.get('/dashboard/metrics', authenticate, authorize(ROLES.VENDOR), vendorController.getDashboardMetrics);
 router.get('/coins', authenticate, authorize(ROLES.VENDOR), vendorController.getCoins);
 router.put('/profile', authenticate, authorize(ROLES.VENDOR), upload.single('image'), uploadToCloudinary('vendors'), vendorController.updateProfile);
+router.post('/documents/reupload', authenticate, authorize(ROLES.VENDOR), uploadVendorDocs, processVendorDocs, vendorController.reuploadDocuments);
 router.get('/verification-status', authenticate, authorize(ROLES.VENDOR), vendorController.getVerificationStatus);
 router.delete('/account', authenticate, authorize(ROLES.VENDOR), vendorController.deleteAccount);
 
