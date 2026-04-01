@@ -13,13 +13,28 @@ const { emitToVendor } = require('../../socket');
  * Helper to map duration (3, 6, 12 months) to CreditPlan names
  */
 const getPlanByDuration = async (months) => {
-    let planName = 'Basic';
-    if (months === 6) planName = 'Pro';
-    if (months === 12) planName = 'Elite';
+    const targetDays = months * 30;
     
-    return await CreditPlan.findOne({ name: planName }).lean() || { 
-        price: months === 3 ? 1000 : (months === 6 ? 2000 : 4000), 
-        validityDays: months * 30 
+    // 1. Try to find by explicit validity days (most accurate)
+    let plan = await CreditPlan.findOne({ validityDays: targetDays }).lean();
+    
+    // 2. Fallback to name-based lookup if duration-based fails
+    if (!plan) {
+        let planName = 'Basic';
+        if (months === 6) planName = 'Pro';
+        if (months === 12) planName = 'Elite';
+        plan = await CreditPlan.findOne({ name: planName }).lean();
+    }
+    
+    if (!plan) {
+        // Since we're removing static values, we must throw an error if not found in DB
+        const ApiError = require('../../utils/ApiError');
+        throw new ApiError(400, `Membership plan for ${months} months is not configured in the Admin Panel. Please contact support.`);
+    }
+    
+    return { 
+        price: Number(plan.price), 
+        validityDays: Number(plan.validityDays) 
     };
 };
 
@@ -133,12 +148,12 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
     const adminService = require('../admin/admin.service');
     const selectedDuration = Number(durationMonths || 3);
     const plan = await getPlanByDuration(selectedDuration);
-    const baseFee = plan.price || 0;
-    const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
+    const baseFee = Number(plan.price || 0);
+    const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
 
     const subtotal = baseFee; // Membership cost is strictly the base plan fee
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
-    const totalFee = subtotal + gstAmount;
+    const totalFee = Number(subtotal + gstAmount);
 
     const validityDays = plan.validityDays || (selectedDuration * 30);
     const plans = await getMembershipPlans();
@@ -207,12 +222,12 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     const adminService = require('../admin/admin.service');
     const durationMonths = Number(overrides.durationMonths || vendor.membership.durationMonths || 3);
     const plan = await getPlanByDuration(durationMonths);
-    const baseFee = plan.price || 0;
-    const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
+    const baseFee = Number(plan.price || 0);
+    const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
 
     const subtotal = baseFee; // Membership cost is strictly the base plan fee
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
-    const totalFee = subtotal + gstAmount;
+    const totalFee = Number(subtotal + gstAmount);
 
     const validityDays = plan.validityDays || (durationMonths * 30);
     const plans = await getMembershipPlans();
@@ -268,12 +283,12 @@ const createMembershipOrder = async (vendorId) => {
     const adminService = require('../admin/admin.service');
     const durationMonths = Number(vendor.membership.durationMonths || 3);
     const plan = await getPlanByDuration(durationMonths);
-    const baseFee = plan.price || 0;
-    const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
+    const baseFee = Number(plan.price || 0);
+    const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
     
     const subtotal = baseFee;
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
-    const totalFee = subtotal + gstAmount;
+    const totalFee = Number(subtotal + gstAmount);
 
     if (totalFee <= 0) {
         throw new ApiError(400, 'Membership fee must be greater than 0');
@@ -365,13 +380,13 @@ const selectServices = async (vendorId, { categoryId, subcategoryIds, durationMo
     // Fetch global base membership fee based on duration
     const adminService = require('../admin/admin.service');
     const plan = await getPlanByDuration(durationMonths);
-    const baseFee = plan.price || 0;
-    const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
+    const baseFee = Number(plan.price || 0);
+    const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
 
     // Subtotal is strictly the duration-based base fee (items are included in plan)
     const subtotal = baseFee;
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
-    const totalPrice = subtotal + gstAmount;
+    const totalPrice = Number(subtotal + gstAmount);
 
     // Update vendor
     vendor.membership.category = category._id; // Set primary category for dashboard
