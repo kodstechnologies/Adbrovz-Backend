@@ -568,10 +568,11 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
         }
     });
 
-    // Apply the specific verification update
+    // Apply the specific verification update (normalized to lowercase)
+    const lowerStatus = status?.toLowerCase();
     const currentDoc = vendor.documents[docType]; // Now guaranteed to be object or migrated
     // Map 'approved' to 'verified' for internal consistency if needed
-    const isApprovedOrVerified = status === 'verified' || status === 'approved';
+    const isApprovedOrVerified = lowerStatus === 'verified' || lowerStatus === 'approved';
     const newReason = isApprovedOrVerified ? null : (reason || (vendor.documents[docType]?.reason) || null);
 
     const url = (currentDoc && typeof currentDoc === 'object' ? currentDoc.url : (typeof currentDoc === 'string' ? currentDoc : '')) || '';
@@ -579,7 +580,7 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
     // Use vendor.set for deep object persistence reliability
     vendor.set(`documents.${docType}`, {
         url,
-        status,
+        status: lowerStatus,
         reason: newReason
     });
 
@@ -605,14 +606,14 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
 
     let message;
 
-    if (status === 'rejected') {
+    if (lowerStatus === 'rejected') {
         vendor.isVerified = false;
         vendor.documentStatus = 'rejected';
         message = `Your ${docType} has been rejected. Reason: ${reason || 'Please provide a valid document.'}`;
     } else if (hasRejectedDocs) {
         vendor.isVerified = false;
         vendor.documentStatus = 'rejected';
-        message = `Your ${docType} has been ${status}.`;
+        message = `Your ${docType} has been ${lowerStatus}.`;
     } else if (allRequiredVerified) {
         vendor.isVerified = true;
         vendor.documentStatus = 'approved';
@@ -635,7 +636,7 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
         vendor.isVerified = false;
         // Keep as pending if not all required docs are approved/verified
         vendor.documentStatus = 'pending';
-        message = `Your ${docType} has been ${status}.`;
+        message = `Your ${docType} has been ${lowerStatus}.`;
     }
 
     await vendor.save();
@@ -733,12 +734,21 @@ const rejectVendorAccount = async (vendorId, { reason }) => {
     vendor.isVerified = false;
     vendor.documentStatus = 'rejected';
 
-    // Mark all pending/verified docs as rejected too if needed
-    const docs = ['photo', 'idProof', 'addressProof'];
-    docs.forEach(doc => {
-        if (vendor.documents[doc]) {
-            vendor.documents[doc].status = 'rejected';
-            vendor.documents[doc].reason = reason;
+    // Migrate ALL documents to object structure if they are strings (Database Cleanup)
+    const docTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+    docTypes.forEach(type => {
+        const val = vendor.documents[type];
+        if (typeof val === 'string' && val !== undefined) {
+            vendor.set(`documents.${type}`, { url: val, status: 'pending' });
+        }
+    });
+
+    // Mark all available documents as rejected too for account-level rejection
+    docTypes.forEach(doc => {
+        const d = vendor.documents[doc];
+        if (d && typeof d === 'object') {
+            vendor.set(`documents.${doc}.status`, 'rejected');
+            vendor.set(`documents.${doc}.reason`, reason || 'Account rejected by admin');
         }
     });
 

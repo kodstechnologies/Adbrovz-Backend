@@ -221,7 +221,7 @@ vendorSchema.virtual('status').get(function () {
   if (this.isBlocked) return 'BLOCKED';
   if (this.isVerified) return 'ACTIVE';
   if (this.documentStatus === 'rejected') return 'REJECTED';
-  if (this.registrationStep === 'COMPLETED' && !this.isVerified) return 'PENDING_VERIFICATION';
+  if (['COMPLETED', 'SIGNUP_COMPLETED'].includes(this.registrationStep) && !this.isVerified) return 'PENDING_VERIFICATION';
   return 'PENDING_DOCS';
 });
 
