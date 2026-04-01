@@ -1152,6 +1152,20 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
         normalizedUploadedDocs[key.toLowerCase()] = uploadedDocs[key];
     });
 
+    // Also update other profile fields if provided
+    if (uploadedDocs.name) vendor.name = uploadedDocs.name;
+    if (uploadedDocs.email) vendor.email = uploadedDocs.email;
+    if (uploadedDocs.address) vendor.address = uploadedDocs.address;
+    if (uploadedDocs.workCity) vendor.workCity = uploadedDocs.workCity;
+    if (uploadedDocs.workState) vendor.workState = uploadedDocs.workState;
+    if (uploadedDocs.zipcode) vendor.zipcode = uploadedDocs.zipcode;
+    
+    // Update array fields (workPincodes, categories, subcategories, services)
+    if (uploadedDocs.workPincodes) vendor.workPincodes = uploadedDocs.workPincodes;
+    if (uploadedDocs.selectedCategories) vendor.selectedCategories = uploadedDocs.selectedCategories;
+    if (uploadedDocs.selectedSubcategories) vendor.selectedSubcategories = uploadedDocs.selectedSubcategories;
+    if (uploadedDocs.selectedServices) vendor.selectedServices = uploadedDocs.selectedServices;
+
     docTypes.forEach(doc => {
         // Use lowercase check for uploadedDocs keys
         const incomingUrl = normalizedUploadedDocs[doc.toLowerCase()];
@@ -1167,7 +1181,7 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
         }
     });
 
-    if (updated) {
+    if (updated || Object.keys(uploadedDocs).length > 0) {
         vendor.markModified('documents');
         
         // If there are still rejected documents, keep status rejected, else pending
