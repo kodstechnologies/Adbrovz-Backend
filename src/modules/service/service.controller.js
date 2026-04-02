@@ -13,7 +13,12 @@ const getCategories = asyncHandler(async (req, res) => {
 // Get slots by category
 const getCategorySlots = asyncHandler(async (req, res) => {
     const { categoryId } = req.params;
-    const slots = await serviceService.getCategorySlots(categoryId);
+    const { timezoneOffset } = req.query;
+    
+    // Default to 330 (IST) if not provided, ensure it's a number
+    const offset = timezoneOffset !== undefined ? parseInt(timezoneOffset) : 330;
+    
+    const slots = await serviceService.getCategorySlots(categoryId, offset);
     res.status(200).json(
         new ApiResponse(200, slots, 'Slots retrieved successfully')
     );

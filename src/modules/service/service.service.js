@@ -493,24 +493,21 @@ const getServiceCatalogue = async () => {
 
 /**
  * Public: Get generic available time slots for a category
+ * @param {string} categoryId
+ * @param {number} timezoneOffset Offset in minutes (e.g., IST = 330). Default is IST.
  */
-const getCategorySlots = async (categoryId) => {
+const getCategorySlots = async (categoryId, timezoneOffset = 330) => {
     const category = await Category.findById(categoryId);
     if (!category) throw new ApiError(404, 'Category not found');
 
-    let slotStartH = 8, slotStartM = 0;
-    let slotEndH = 20, slotEndM = 0;
+    const parseTime = (timeStr, fallbackH) => {
+        if (!timeStr) return [fallbackH, 0];
+        const [h, m] = timeStr.split(':').map(Number);
+        return [isNaN(h) ? fallbackH : h, isNaN(m) ? 0 : m];
+    };
 
-    if (category.slotStartTime) {
-        const [h, m] = category.slotStartTime.split(':').map(Number);
-        slotStartH = h;
-        slotStartM = m || 0;
-    }
-    if (category.slotEndTime) {
-        const [h, m] = category.slotEndTime.split(':').map(Number);
-        slotEndH = h;
-        slotEndM = m || 0;
-    }
+    const [slotStartH, slotStartM] = parseTime(category.slotStartTime, 8);
+    const [slotEndH, slotEndM] = parseTime(category.slotEndTime, 20);
 
     const formatDisplayTime = (h, m) => {
         const ampm = h >= 12 ? 'PM' : 'AM';
@@ -518,51 +515,61 @@ const getCategorySlots = async (categoryId) => {
         return `${String(hours12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
     };
 
+    const now = new Date();
     const daysList = [];
-    const windowDays = 7; // Generate slots for 7 days
+    const windowDays = 7;
+    const slotDurationMs = 60 * 60 * 1000;
+
+    // Correctly calculate the start of the user's "Today" in UTC
+    // 1. Get current time in user's local milliseconds
+    const nowLocalMs = now.getTime() + (timezoneOffset * 60000);
+    // 2. Find the start of that day (00:00) in "local" time
+    const startOfUserTodayLocal = new Date(nowLocalMs);
+    startOfUserTodayLocal.setUTCHours(0, 0, 0, 0);
+    // 3. Convert that "local 00:00" back to UTC
+    const todayBaseMs = startOfUserTodayLocal.getTime() - (timezoneOffset * 60000);
+    const todayBase = new Date(todayBaseMs);
 
     for (let dayOffset = 0; dayOffset < windowDays; dayOffset++) {
-        const currentDate = new Date();
-        currentDate.setDate(currentDate.getDate() + dayOffset);
+        // Construct the date for this offset using UTC methods to maintain day boundaries
+        const loopDate = new Date(todayBase.getTime());
+        loopDate.setUTCDate(loopDate.getUTCDate() + dayOffset);
         
-        // Format YYYY-MM-DD
-        const dateStr = currentDate.toISOString().split('T')[0];
+        // Re-calculate the actual local date string for this day
+        const localDateForLoop = new Date(loopDate.getTime() + (timezoneOffset * 60000));
+        const dateStr = localDateForLoop.toISOString().split('T')[0];
+        let dayLabel = dayOffset === 0 ? 'Today' : (dayOffset === 1 ? 'Tomorrow' : '');
         
-        let dayLabel = 'Today';
-        if (dayOffset === 1) {
-            dayLabel = 'Tomorrow';
-        } else if (dayOffset > 1) {
-            dayLabel = currentDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        if (!dayLabel) {
+            // Faster manual formatting for generic labels
+            const options = { weekday: 'short', month: 'short', day: 'numeric' };
+            dayLabel = loopDate.toLocaleDateString('en-US', options);
         }
 
         const dailySlots = [];
-        const slotDurationMs = 60 * 60 * 1000;
-        
+        const categoryEndMs = (slotEndH * 60 + slotEndM) * 60000;
+
         for (let h = slotStartH; h <= slotEndH; h++) {
             for (let m = (h === slotStartH ? slotStartM : 0); m < 60; m += 30) {
+                const currentMinutes = h * 60 + m;
                 if (h === slotEndH && m >= slotEndM) break;
                 
-                // Construct slot start time
-                const slotStart = new Date(currentDate);
-                slotStart.setHours(h, m, 0, 0);
+                // Calculate Slot Start and End in UTC to compare with 'now'
+                // since todayBase/loopDate are already normalized to UTC start of the local day.
+                const slotStartUTCMs = loopDate.getTime() + (currentMinutes * 60000);
+                const slotEndUTCMs = slotStartUTCMs + slotDurationMs;
                 
-                const slotEnd = new Date(slotStart.getTime() + slotDurationMs);
+                // Construct category end in UTC
+                const categoryEndUTCMs = loopDate.getTime() + categoryEndMs;
                 
-                // Construct category end time for the day
-                const categoryEnd = new Date(currentDate);
-                categoryEnd.setHours(slotEndH, slotEndM, 0, 0);
-                
-                if (slotEnd > categoryEnd) break;
+                if (slotEndUTCMs > categoryEndUTCMs) break;
 
-                // Determine if available (not in the past if it's today)
-                const isAvailable = slotStart > new Date();
-                
-                const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                const isAvailable = slotStartUTCMs > now.getTime();
                 
                 dailySlots.push({
-                    time: timeStr,
+                    time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
                     displayTime: formatDisplayTime(h, m),
-                    isAvailable: isAvailable
+                    isAvailable
                 });
             }
         }
