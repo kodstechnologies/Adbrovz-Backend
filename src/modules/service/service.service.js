@@ -38,6 +38,12 @@ const getServicesBySubcategoryId = async (subcategoryId, options = {}) => {
     const { page = 1, limit = 10, search } = options;
     const skip = (page - 1) * limit;
 
+    // Fetch subcategory to get categoryId
+    const subcategory = await Subcategory.findById(subcategoryId);
+    if (!subcategory) {
+        throw new ApiError(404, 'Subcategory not found');
+    }
+
     const query = {
         subcategory: subcategoryId
     };
@@ -57,6 +63,7 @@ const getServicesBySubcategoryId = async (subcategoryId, options = {}) => {
     const total = await Service.countDocuments(query);
 
     return {
+        categoryId: subcategory.category,
         services,
         pagination: {
             page,

@@ -27,40 +27,14 @@ const requestLead = async (
         isSuspended: false,
         registrationStep: 'COMPLETED',
         selectedSubcategories: subcategoryId,
-        workPincodes: pincode,
         'creditPlan.expiryDate': { $gt: new Date() }
     });
 
-    const dailyLeadsLimit = (await adminService.getSetting('bookings.daily_leads_limit')) || 5;
-
-    const matchingVendors = potentialVendors.filter(vendor => {
-        const lastReset = vendor.creditPlan.lastLeadResetDate;
-        const currentCount =
-            lastReset && lastReset.toDateString() === todayStr
-                ? vendor.creditPlan.dailyLeadsCount
-                : 0;
-
-        const limit = vendor.creditPlan.dailyLimit || dailyLeadsLimit;
-        return currentCount < limit;
-    });
-
-    if (matchingVendors.length === 0) {
+    if (potentialVendors.length === 0) {
         throw new ApiError(
             404,
-            'No available vendors found for this service and area (or limits reached)'
+            'No available vendors found for this service'
         );
-    }
-
-    const now = new Date();
-    for (const vendor of matchingVendors) {
-        const lastReset = vendor.creditPlan.lastLeadResetDate;
-        if (!lastReset || lastReset.toDateString() !== todayStr) {
-            vendor.creditPlan.dailyLeadsCount = 1;
-            vendor.creditPlan.lastLeadResetDate = now;
-        } else {
-            vendor.creditPlan.dailyLeadsCount += 1;
-        }
-        await vendor.save();
     }
 
     const booking = await Booking.create({
@@ -73,6 +47,7 @@ const requestLead = async (
         location: { address, pincode }
     });
 
+
     const searchTimeoutMins = (await adminService.getSetting('bookings.search_timeout_mins')) || 2;
 
     // Trigger broadcast (similar to createBooking)
@@ -81,10 +56,11 @@ const requestLead = async (
     console.log(`[DEBUG] Lead request created: ${booking._id}, status: ${booking.status}`);
     return {
         booking,
-        availableVendorsCount: matchingVendors.length,
+        availableVendorsCount: potentialVendors.length,
         searchTimeoutMins,
         message: 'Lead broadcasted to available vendors'
     };
+
 };
 
 /**
@@ -690,40 +666,6 @@ const createBooking = async (userId, bookingData) => {
         searchVendors(booking, true).catch(console.error);
     }
 
-    return { booking: _formatBooking(booking, 'user'), searchTimeoutMins };
-};
-
-/**
- * Helper to get the time range (start and end) for a booking
- */
-const getBookingTimeRange = async (booking) => {
-    // Ensure services are populated to get approxCompletionTime
-    let bookingWithServices = booking;
-    if (!booking.services?.[0]?.service?.approxCompletionTime) {
-        bookingWithServices = await Booking.findById(booking._id).populate('services.service');
-    }
-
-    if (!bookingWithServices || !bookingWithServices.scheduledDate || !bookingWithServices.scheduledTime) {
-        return null;
-    }
-
-    const [hours, minutes] = bookingWithServices.scheduledTime.split(':').map(Number);
-    const start = new Date(bookingWithServices.scheduledDate);
-    start.setHours(hours || 0, minutes || 0, 0, 0);
-
-    let totalDuration = 0;
-    bookingWithServices.services.forEach(item => {
-        const duration = item.service?.approxCompletionTime || 60; // default 60 mins
-        totalDuration += duration * (item.quantity || 1);
-    });
-
-    const end = new Date(start.getTime() + totalDuration * 60 * 1000);
-    return { start, end };
-};
-
-/**
- * Vendor search and broadcast
- */
 const searchVendors = async (booking, broadcast = false) => {
     const radius = (await adminService.getSetting('bookings.vendor_search_radius_km')) || 5;
 
