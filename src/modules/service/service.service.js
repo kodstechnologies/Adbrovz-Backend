@@ -512,28 +512,69 @@ const getCategorySlots = async (categoryId) => {
         slotEndM = m || 0;
     }
 
-    const slots = [];
-    const date = new Date('2000-01-01'); 
-    date.setHours(0, 0, 0, 0);
-    const slotDurationMs = 60 * 60 * 1000;
+    const formatDisplayTime = (h, m) => {
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const hours12 = h % 12 || 12;
+        return `${String(hours12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
+    };
 
-    for (let h = slotStartH; h <= slotEndH; h++) {
-        for (let m = (h === slotStartH ? slotStartM : 0); m < 60; m += 30) {
-            if (h === slotEndH && m >= slotEndM) break;
-            
-            const slotStart = new Date(date);
-            slotStart.setHours(h, m, 0, 0);
-            
-            const slotEnd = new Date(slotStart.getTime() + slotDurationMs);
-            const categoryEnd = new Date(date);
-            categoryEnd.setHours(slotEndH, slotEndM, 0, 0);
-            
-            if (slotEnd > categoryEnd) break;
-            
-            slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+    const daysList = [];
+    const windowDays = 7; // Generate slots for 7 days
+
+    for (let dayOffset = 0; dayOffset < windowDays; dayOffset++) {
+        const currentDate = new Date();
+        currentDate.setDate(currentDate.getDate() + dayOffset);
+        
+        // Format YYYY-MM-DD
+        const dateStr = currentDate.toISOString().split('T')[0];
+        
+        let dayLabel = 'Today';
+        if (dayOffset === 1) {
+            dayLabel = 'Tomorrow';
+        } else if (dayOffset > 1) {
+            dayLabel = currentDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
         }
+
+        const dailySlots = [];
+        const slotDurationMs = 60 * 60 * 1000;
+        
+        for (let h = slotStartH; h <= slotEndH; h++) {
+            for (let m = (h === slotStartH ? slotStartM : 0); m < 60; m += 30) {
+                if (h === slotEndH && m >= slotEndM) break;
+                
+                // Construct slot start time
+                const slotStart = new Date(currentDate);
+                slotStart.setHours(h, m, 0, 0);
+                
+                const slotEnd = new Date(slotStart.getTime() + slotDurationMs);
+                
+                // Construct category end time for the day
+                const categoryEnd = new Date(currentDate);
+                categoryEnd.setHours(slotEndH, slotEndM, 0, 0);
+                
+                if (slotEnd > categoryEnd) break;
+
+                // Determine if available (not in the past if it's today)
+                const isAvailable = slotStart > new Date();
+                
+                const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                
+                dailySlots.push({
+                    time: timeStr,
+                    displayTime: formatDisplayTime(h, m),
+                    isAvailable: isAvailable
+                });
+            }
+        }
+
+        daysList.push({
+            date: dateStr,
+            dayLabel,
+            slots: dailySlots
+        });
     }
-    return slots;
+
+    return daysList;
 };
 
 module.exports = {

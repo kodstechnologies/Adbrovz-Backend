@@ -15,7 +15,7 @@ const getCategorySlots = asyncHandler(async (req, res) => {
     const { categoryId } = req.params;
     const slots = await serviceService.getCategorySlots(categoryId);
     res.status(200).json(
-        new ApiResponse(200, slots, 'Category slots retrieved successfully')
+        new ApiResponse(200, slots, 'Slots retrieved successfully')
     );
 });
 
