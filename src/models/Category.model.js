@@ -23,6 +23,14 @@ const categorySchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    slotStartTime: {
+      type: String,
+      default: '08:00',
+    },
+    slotEndTime: {
+      type: String,
+      default: '20:00',
+    },
   },
   {
     timestamps: true,

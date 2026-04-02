@@ -12,6 +12,11 @@ router.use('/admin', authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN));
 // Get all categories with subcategories (Admin)
 router.get('/admin/categories', serviceController.getCategoriesWithSubcategories);
 
+router.get('/admin/category-schema', (req, res) => {
+    const Category = require('../../models/Category.model');
+    res.json(Category.schema.obj);
+});
+
 // Category Management
 router.post('/admin/categories', upload.single('icon'), uploadToCloudinary('categories'), serviceController.createCategory);
 router.put('/admin/categories/:categoryId', upload.single('icon'), uploadToCloudinary('categories'), serviceController.updateCategory);
@@ -32,6 +37,7 @@ router.get('/all', serviceController.getAllServices);
 router.get('/catalogue', serviceController.getServiceCatalogue);
 router.get('/search', serviceController.globalSearch);
 router.get('/categories', serviceController.getCategories);
+router.get('/categories/:categoryId/slots', serviceController.getCategorySlots);
 router.get('/subcategories', serviceController.getSubcategoriesWithServices);
 router.get('/categories/:categoryId/subcategories', serviceController.getSubcategories);
 router.get('/subcategories/:subcategoryId/services', serviceController.getServices);

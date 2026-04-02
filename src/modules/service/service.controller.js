@@ -10,6 +10,15 @@ const getCategories = asyncHandler(async (req, res) => {
     );
 });
 
+// Get slots by category
+const getCategorySlots = asyncHandler(async (req, res) => {
+    const { categoryId } = req.params;
+    const slots = await serviceService.getCategorySlots(categoryId);
+    res.status(200).json(
+        new ApiResponse(200, slots, 'Category slots retrieved successfully')
+    );
+});
+
 // Get subcategories by category
 const getSubcategories = asyncHandler(async (req, res) => {
     const { categoryId } = req.params;
@@ -56,6 +65,7 @@ const getAllServices = asyncHandler(async (req, res) => {
 
 // Admin: Category Management
 const createCategory = asyncHandler(async (req, res) => {
+    console.log('DEBUG: createCategory req.body:', req.body);
     const data = { ...req.body };
     // Cloudinary URL is already set in req.body.icon by uploadToCloudinary middleware
     if (req.file && req.file.cloudinary) {
@@ -66,6 +76,7 @@ const createCategory = asyncHandler(async (req, res) => {
 });
 
 const updateCategory = asyncHandler(async (req, res) => {
+    console.log('DEBUG: updateCategory req.body:', req.body);
     const data = { ...req.body };
     // Cloudinary URL is already set in req.body.icon by uploadToCloudinary middleware
     if (req.file && req.file.cloudinary) {
@@ -178,6 +189,7 @@ const getServiceCatalogue = asyncHandler(async (req, res) => {
 
 module.exports = {
     getCategories,
+    getCategorySlots,
     getSubcategories,
     getServices,
     getServiceDetails,

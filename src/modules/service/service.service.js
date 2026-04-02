@@ -16,7 +16,7 @@ const MESSAGES = require('../../constants/messages');
 const getAllCategories = async () => {
     const categories = await Category.find({})
         .sort({ order: 1, name: 1 })
-        .select('name description icon defaultFreeCredits');
+        .select('name description icon defaultFreeCredits slotStartTime slotEndTime');
     return categories;
 };
 
@@ -386,6 +386,8 @@ const getAllCategoriesWithSubcategories = async () => {
                 description: 1,
                 icon: 1,
                 defaultFreeCredits: 1,
+                slotStartTime: 1,
+                slotEndTime: 1,
                 subcategories: 1
             }
         }
@@ -489,7 +491,53 @@ const getServiceCatalogue = async () => {
     }));
 };
 
+/**
+ * Public: Get generic available time slots for a category
+ */
+const getCategorySlots = async (categoryId) => {
+    const category = await Category.findById(categoryId);
+    if (!category) throw new ApiError(404, 'Category not found');
+
+    let slotStartH = 8, slotStartM = 0;
+    let slotEndH = 20, slotEndM = 0;
+
+    if (category.slotStartTime) {
+        const [h, m] = category.slotStartTime.split(':').map(Number);
+        slotStartH = h;
+        slotStartM = m || 0;
+    }
+    if (category.slotEndTime) {
+        const [h, m] = category.slotEndTime.split(':').map(Number);
+        slotEndH = h;
+        slotEndM = m || 0;
+    }
+
+    const slots = [];
+    const date = new Date('2000-01-01'); 
+    date.setHours(0, 0, 0, 0);
+    const slotDurationMs = 60 * 60 * 1000;
+
+    for (let h = slotStartH; h <= slotEndH; h++) {
+        for (let m = (h === slotStartH ? slotStartM : 0); m < 60; m += 30) {
+            if (h === slotEndH && m >= slotEndM) break;
+            
+            const slotStart = new Date(date);
+            slotStart.setHours(h, m, 0, 0);
+            
+            const slotEnd = new Date(slotStart.getTime() + slotDurationMs);
+            const categoryEnd = new Date(date);
+            categoryEnd.setHours(slotEndH, slotEndM, 0, 0);
+            
+            if (slotEnd > categoryEnd) break;
+            
+            slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+        }
+    }
+    return slots;
+};
+
 module.exports = {
+    getCategorySlots,
     getAllCategories,
     getSubcategoriesByCategoryId,
     getServicesBySubcategoryId,
