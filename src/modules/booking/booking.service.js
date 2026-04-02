@@ -666,6 +666,12 @@ const createBooking = async (userId, bookingData) => {
         searchVendors(booking, true).catch(console.error);
     }
 
+    return {
+        booking,
+        message: 'Booking created successfully'
+    };
+};
+
 const searchVendors = async (booking, broadcast = false) => {
     const radius = (await adminService.getSetting('bookings.vendor_search_radius_km')) || 5;
 
