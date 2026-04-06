@@ -578,7 +578,7 @@ const getBookingDetails = async (bookingId) => {
   // Fetch optional related items
   const [feedback, disputes] = await Promise.all([
     Feedback.findOne({ booking: bookingId }),
-    Dispute.find({ booking: bookingId }).populate('raisedBy', 'name type')
+    Dispute.find({ booking: bookingId }).populate('raisedBy', 'name role phoneNumber')
   ]);
 
   // Transform status history for better admin readability

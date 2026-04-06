@@ -124,9 +124,9 @@ const updateDisputeStatus = async (disputeId, updateData) => {
         throw new ApiError(404, 'Dispute not found');
     }
 
-    if (status) dispute.status = status;
-    if (adminComments) dispute.adminComments = adminComments;
-    if (resolutionNotes) dispute.resolutionNotes = resolutionNotes;
+    if (status !== undefined) dispute.status = status;
+    if (adminComments !== undefined) dispute.adminComments = adminComments;
+    if (resolutionNotes !== undefined) dispute.resolutionNotes = resolutionNotes;
 
     if (status === 'RESOLVED' && !dispute.resolvedAt) {
         dispute.resolvedAt = new Date();
@@ -134,7 +134,12 @@ const updateDisputeStatus = async (disputeId, updateData) => {
     }
 
     await dispute.save();
-    return dispute;
+    
+    // Return populated dispute so frontend reflects details correctly
+    return await Dispute.findById(dispute._id)
+        .populate('booking', 'bookingID')
+        .populate('raisedBy', 'name phoneNumber')
+        .populate('vendor', 'name phoneNumber');
 };
 
 module.exports = {
