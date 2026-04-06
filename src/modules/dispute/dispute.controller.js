@@ -31,8 +31,9 @@ const reuploadEvidence = asyncHandler(async (req, res) => {
     const { id } = req.params;
     
     // evidence is in req.body.evidence (array of URLs) from middleware
-    const dispute = await disputeService.reuploadEvidence(userId, id, req.body.evidence);
-    res.status(200).json(new ApiResponse(200, dispute, 'Evidence reuploaded successfully. Dispute is now open for review again.'));
+    const { evidence, userComment } = req.body;
+    const dispute = await disputeService.reuploadEvidence(userId, id, { evidence, userComment });
+    res.status(200).json(new ApiResponse(200, dispute, 'Response submitted successfully. Dispute is now open for review again.'));
 });
 
 // Get All Disputes (Admin)

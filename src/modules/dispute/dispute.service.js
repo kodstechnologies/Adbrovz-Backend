@@ -61,8 +61,8 @@ const getDisputeByBookingId = async (userId, bookingId) => {
     return dispute;
 };
 
-// Reupload evidence for a dispute
-const reuploadEvidence = async (userId, disputeId, evidenceData) => {
+// Reupload evidence or submit response for a dispute
+const reuploadEvidence = async (userId, disputeId, { evidence, userComment }) => {
     const dispute = await Dispute.findOne({ _id: disputeId, raisedBy: userId });
     
     if (!dispute) {
@@ -70,15 +70,23 @@ const reuploadEvidence = async (userId, disputeId, evidenceData) => {
     }
 
     if (dispute.status !== 'REOPENED') {
-        throw new ApiError(400, 'You can only reupload evidence if the dispute is REOPENED by the admin');
+        throw new ApiError(400, 'You can only submit a response if the dispute is REOPENED by the admin');
     }
 
-    if (!evidenceData || evidenceData.length === 0) {
-        throw new ApiError(400, 'Please provide new evidence to upload');
+    if ((!evidence || evidence.length === 0) && !userComment) {
+        throw new ApiError(400, 'Please provide new evidence or a comment to submit');
     }
 
-    // Replace old evidence with new evidence
-    dispute.evidence = evidenceData;
+    // Update evidence if provided
+    if (evidence && evidence.length > 0) {
+        dispute.evidence = evidence;
+    }
+
+    // Update user comment if provided
+    if (userComment) {
+        dispute.userComment = userComment;
+    }
+
     // Set status back to OPEN so admin can review again
     dispute.status = 'OPEN';
     
@@ -126,7 +134,14 @@ const updateDisputeStatus = async (disputeId, updateData) => {
 
     if (status !== undefined) dispute.status = status;
     if (adminComments !== undefined) dispute.adminComments = adminComments;
-    if (resolutionNotes !== undefined) dispute.resolutionNotes = resolutionNotes;
+    
+    if (resolutionNotes !== undefined) {
+        // Merge with existing notes to avoid overwriting (e.g. if only userNote is sent)
+        dispute.resolutionNotes = {
+            userNote: resolutionNotes.userNote !== undefined ? resolutionNotes.userNote : dispute.resolutionNotes?.userNote,
+            vendorNote: resolutionNotes.vendorNote !== undefined ? resolutionNotes.vendorNote : dispute.resolutionNotes?.vendorNote
+        };
+    }
 
     if (status === 'RESOLVED' && !dispute.resolvedAt) {
         dispute.resolvedAt = new Date();

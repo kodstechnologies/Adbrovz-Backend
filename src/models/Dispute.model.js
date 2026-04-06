@@ -39,6 +39,10 @@ const disputeSchema = new mongoose.Schema(
             type: String,
             trim: true,
         },
+        userComment: {
+            type: String,
+            trim: true,
+        },
         resolutionNotes: {
             userNote: {
                 type: String,
