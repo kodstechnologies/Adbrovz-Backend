@@ -14,7 +14,13 @@ router.post('/',
     uploadDisputeEvidence.uploadToCloudinary,
     disputeController.createDispute
 );
+router.patch('/:id/reupload-evidence',
+    uploadDisputeEvidence.upload.array('evidence', 5),
+    uploadDisputeEvidence.uploadToCloudinary,
+    disputeController.reuploadEvidence
+);
 router.get('/my-disputes', disputeController.getMyDisputes);
+router.get('/booking/:bookingId', disputeController.getDisputeByBookingId);
 
 // Admin Routes
 router.get('/admin/all', authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), disputeController.getAllDisputes);

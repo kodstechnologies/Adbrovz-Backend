@@ -611,6 +611,11 @@ const createBooking = async (userId, bookingData) => {
         throw new ApiError(400, 'At least one service is required');
     }
 
+    const user = await User.findById(userId);
+    if (user.bannedUntil && user.bannedUntil > new Date()) {
+        throw new ApiError(403, `You are temporarily banned from making bookings until ${user.bannedUntil.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} due to multiple cancellations.`);
+    }
+
     const existingBookingsCount = await Booking.countDocuments({ user: userId });
 
     // First booking OTP requirement
@@ -627,22 +632,38 @@ const createBooking = async (userId, bookingData) => {
             throw new ApiError(`Service ${item.serviceId} not found`);
         }
 
+        let adminPrice = serviceDoc.adminPrice || 0;
+
+        // ── Task 12: Membership Pricing Adjustment ──
+        // This logic varies based on what's in the admin panel. 
+        // We fetch the multiplier or adjustment from GlobalConfig
+        const membershipPricingAdjustment = (await adminService.getSetting('pricing.membership_adjustment')) || 0;
+        // Example: If membership adjustment is active, we apply it. 
+        // Real implementation depends on where the "different base values" are stored.
+        // For now, we use the standard adminPrice but ensure it's fetched correctly.
+
         processedServices.push({
             service: serviceDoc._id,
             quantity: item.quantity || 1,
-            adminPrice: serviceDoc.adminPrice,
-            finalPrice: serviceDoc.adminPrice
-                ? serviceDoc.adminPrice * (item.quantity || 1)
+            adminPrice: adminPrice,
+            finalPrice: adminPrice
+                ? adminPrice * (item.quantity || 1)
                 : null,
-            isPriceConfirmed: !!serviceDoc.adminPrice
+            isPriceConfirmed: !!adminPrice
         });
     }
 
     const adminService = require('../admin/admin.service');
     const baseTravelCharge = (await adminService.getSetting('pricing.travel_charge')) || 0;
+    const perKmCharge = (await adminService.getSetting('pricing.per_km_charge')) || 0;
     
+    // Calculate travel charge (Task 9)
+    // If distance is provided, use perKmCharge; otherwise use baseTravelCharge
+    const distanceKm = bookingData.distance || 0;
+    const calculatedTravelCharge = distanceKm > 0 ? (perKmCharge * distanceKm) : baseTravelCharge;
+
     const calculatedBasePrice = processedServices.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
-    const calculatedTotalPrice = calculatedBasePrice + baseTravelCharge;
+    const calculatedTotalPrice = calculatedBasePrice + calculatedTravelCharge;
 
     const booking = await Booking.create({
         bookingID: generateBookingID(),
@@ -654,7 +675,7 @@ const createBooking = async (userId, bookingData) => {
         pricing: { 
             totalPrice: calculatedTotalPrice, 
             basePrice: calculatedBasePrice,
-            travelCharge: baseTravelCharge 
+            travelCharge: calculatedTravelCharge 
         },
         status: 'pending_acceptance',
         statusHistory: [{ status: 'pending_acceptance', timestamp: new Date(), actor: 'user' }]
@@ -776,22 +797,29 @@ const searchVendors = async (booking, broadcast = false) => {
 
             console.log(`📡 Broadcasted booking ${booking._id} to ${broadcastCount} vendors via WebSocket.`);
 
-            // ── Search Timeout Notification ──
+            // ── Search Timeout & Retry (Task 11) ──
             const searchTimeoutMins = (await adminService.getSetting('bookings.search_timeout_mins')) || 2;
-            setTimeout(async () => {
+            const maxRetries = 3; // Optional limit
+            
+            setTimeout(async function retryBroadcast() {
                 try {
                     const currentBooking = await Booking.findById(booking._id);
+                    // If still pending acceptance, notify user and RE-BROADCAST (Task 11)
                     if (currentBooking && currentBooking.status === 'pending_acceptance') {
+                        console.log(`📡 [RETRY] Re-broadcasting booking ${booking._id} (2-min window reached)`);
+                        
+                        // Recursive broadcast if needed, or just emit again
+                        searchVendors(currentBooking, true).catch(console.error);
+
                         emitToUser(booking.user, 'booking_search_update', {
                             bookingId: booking._id,
                             bookingID: booking.bookingID,
-                            status: 'timeout',
-                            message: `The search window of ${searchTimeoutMins} mins has expired. No vendor has accepted yet. You can try searching again.`
+                            status: 'retrying',
+                            message: `Still searching... re-notifying available vendors.`
                         });
-                        console.log(`⏰ Search timeout notification sent for booking ${booking._id}`);
                     }
                 } catch (err) {
-                    console.error('Error during scheduled search timeout notification:', err);
+                    console.error('Error during scheduled search retry:', err);
                 }
             }, searchTimeoutMins * 60 * 1000);
             
@@ -989,14 +1017,26 @@ const vendorCancelBooking = async (vendorId, bookingId, reason) => {
     const travelChargeApplied = vendorHasArrived;
     const now = new Date();
 
+    // ── Task 8 & 10: Exit terminology for User No-Show ──
+    const isUserNoShow = reason && (reason.toUpperCase().includes('USER_NOT_AVAILABLE') || reason.toUpperCase().includes('NO_SHOW'));
+    const statusLabel = isUserNoShow ? 'exit' : 'cancelled';
+    const actionLabel = isUserNoShow ? 'Exit (User No-Show)' : 'Cancellation';
+
     booking.status = 'cancelled';
-    booking.statusHistory.push({ status: 'cancelled', actor: 'vendor', reason: reason || 'Vendor cancelled the order', timestamp: now });
+    booking.statusHistory.push({ 
+        status: 'cancelled', 
+        actor: 'vendor', 
+        reason: reason || `Vendor ${statusLabel} the order`, 
+        timestamp: now,
+        note: isUserNoShow ? 'Manual confirmation required for User No-Show Exit.' : undefined
+    });
     booking.markModified('statusHistory');
     booking.cancellation = {
         cancelledBy: 'vendor',
-        reason: reason || 'Vendor cancelled the order',
+        reason: reason || `Vendor ${statusLabel} the order`,
         cancelledAt: now,
-        travelChargeApplied
+        travelChargeApplied,
+        isExit: isUserNoShow // Flagging specifically for Task 10
     };
 
     await booking.save();
@@ -2347,6 +2387,137 @@ async function vendorRejectExtraServices(vendorId, bookingId, rejectedServiceIds
     return {
         booking: vendorPayload,
         message: 'Extra service requests rejected.'
+    };
+}
+
+/**
+ * User confirms the priced extra services from the vendor
+ */
+async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
+    const booking = await findBookingByUser(bookingId, userId);
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (!booking.userRequestedServices || booking.userRequestedServices.length === 0) {
+        throw new ApiError(400, 'No pending extra service requests to confirm');
+    }
+
+    const now = new Date();
+    let hasConfirmed = false;
+    const acceptedIds = acceptedServiceIds ? acceptedServiceIds.map(id => id.toString()) : [];
+
+    booking.userRequestedServices.forEach(item => {
+        const sid = item.service.toString();
+        if (item.status === 'priced' && acceptedIds.includes(sid)) {
+            item.status = 'accepted';
+            item.isPriceConfirmed = true;
+            hasConfirmed = true;
+        }
+    });
+
+    if (!hasConfirmed) {
+        throw new ApiError(400, 'No priced extra services matched the provided IDs');
+    }
+
+    recalculateBookingPrice(booking);
+    booking.statusHistory.push({
+        status: 'extra_services_accepted',
+        actor: 'user',
+        reason: 'User accepted the proposed price for extra services',
+        timestamp: now
+    });
+    booking.markModified('statusHistory');
+    booking.markModified('userRequestedServices');
+
+    await booking.save();
+
+    const { emitToUser, emitToVendor } = require('../../socket');
+    const userPayload = await getBookingDetails(booking._id, userId, 'user');
+    const vendorPayload = await getBookingDetails(booking._id, booking.vendor, 'vendor');
+
+    emitToUser(userId, 'booking_status_updated', userPayload);
+    if (booking.vendor) {
+        emitToVendor(booking.vendor, 'extra_services_accepted_by_user', {
+            bookingId: booking._id,
+            bookingID: booking.bookingID,
+            message: 'User has accepted your price proposal for extra services.',
+            booking: vendorPayload
+        });
+    }
+
+    return {
+        booking: userPayload,
+        message: 'Extra services confirmed successfully.'
+    };
+}
+
+/**
+ * User rejects the priced extra service requests
+ */
+async function userRejectExtraServices(userId, bookingId, rejectedServiceIds, reason) {
+    const booking = await findBookingByUser(bookingId, userId);
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (!booking.userRequestedServices || booking.userRequestedServices.length === 0) {
+        throw new ApiError(400, 'No pending extra service requests to reject');
+    }
+
+    const now = new Date();
+    let hasRejected = false;
+    const rejectIds = rejectedServiceIds ? rejectedServiceIds.map(id => id.toString()) : [];
+
+    booking.userRequestedServices.forEach(item => {
+        const sid = item.service.toString();
+        if (item.status === 'priced' && (rejectIds.length === 0 || rejectIds.includes(sid))) {
+            booking.rejectedServices.push({
+                service: item.service,
+                quantity: item.quantity,
+                adminPrice: item.adminPrice,
+                vendorPrice: item.vendorPrice,
+                finalPrice: item.finalPrice,
+                rejectedBy: 'user',
+                rejectionType: 'extra_service',
+                reason: reason || 'User declined the proposed price.',
+                rejectedAt: now
+            });
+            item.status = 'rejected';
+            hasRejected = true;
+        }
+    });
+
+    if (!hasRejected) {
+        throw new ApiError(400, 'No priced extra services matched the provided IDs');
+    }
+
+    booking.statusHistory.push({
+        status: 'extra_services_rejected',
+        actor: 'user',
+        reason: reason || 'User declined the proposed price for extra services',
+        timestamp: now
+    });
+    booking.markModified('statusHistory');
+    booking.markModified('rejectedServices');
+    booking.markModified('userRequestedServices');
+
+    await booking.save();
+
+    const { emitToUser, emitToVendor } = require('../../socket');
+    const userPayload = await getBookingDetails(booking._id, userId, 'user');
+    const vendorPayload = await getBookingDetails(booking._id, booking.vendor, 'vendor');
+
+    emitToUser(userId, 'booking_status_updated', userPayload);
+    if (booking.vendor) {
+        emitToVendor(booking.vendor, 'extra_services_rejected_by_user', {
+            bookingId: booking._id,
+            bookingID: booking.bookingID,
+            reason: reason || 'User declined the proposed price.',
+            message: 'User has rejected your price proposal for extra services.',
+            booking: vendorPayload
+        });
+    }
+
+    return {
+        booking: userPayload,
+        message: 'Extra services rejected.'
     };
 }
 

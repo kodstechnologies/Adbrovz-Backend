@@ -47,6 +47,7 @@ router.use('/vendors', vendorRoutes);
 router.use('/media', mediaRoutes);
 router.use('/bookings', bookingRoutes);
 router.use('/disputes', disputeRoutes);
+router.use('/dispute', disputeRoutes); // alias for convenience
 router.use('/feedback', feedbackRoutes);
 
 // Document specific routes

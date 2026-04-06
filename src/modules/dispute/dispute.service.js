@@ -48,6 +48,44 @@ const getUserDisputes = async (userId) => {
         .sort({ createdAt: -1 });
 };
 
+// Get dispute by booking ID for a specific user
+const getDisputeByBookingId = async (userId, bookingId) => {
+    const dispute = await Dispute.findOne({ raisedBy: userId, booking: bookingId })
+        .populate('booking', 'bookingID date time status')
+        .populate('vendor', 'name phoneNumber');
+
+    if (!dispute) {
+        throw new ApiError(404, 'Dispute not found for this booking');
+    }
+    
+    return dispute;
+};
+
+// Reupload evidence for a dispute
+const reuploadEvidence = async (userId, disputeId, evidenceData) => {
+    const dispute = await Dispute.findOne({ _id: disputeId, raisedBy: userId });
+    
+    if (!dispute) {
+        throw new ApiError(404, 'Dispute not found or does not belong to you');
+    }
+
+    if (dispute.status !== 'REOPENED') {
+        throw new ApiError(400, 'You can only reupload evidence if the dispute is REOPENED by the admin');
+    }
+
+    if (!evidenceData || evidenceData.length === 0) {
+        throw new ApiError(400, 'Please provide new evidence to upload');
+    }
+
+    // Replace old evidence with new evidence
+    dispute.evidence = evidenceData;
+    // Set status back to OPEN so admin can review again
+    dispute.status = 'OPEN';
+    
+    await dispute.save();
+    return dispute;
+};
+
 // Get all disputes (Admin)
 const getAllDisputes = async (query) => {
     const { status, page = 1, limit = 10 } = query;
@@ -102,6 +140,8 @@ const updateDisputeStatus = async (disputeId, updateData) => {
 module.exports = {
     createDispute,
     getUserDisputes,
+    getDisputeByBookingId,
+    reuploadEvidence,
     getAllDisputes,
     updateDisputeStatus
 };

@@ -40,6 +40,10 @@ const startServer = async () => {
   // Initialize Socket.io
   initSocket(server);
 
+  // Initialize Cron Jobs
+  const { initAutoCancelJob } = require('./jobs/bookingAutoCancel.job');
+  initAutoCancelJob();
+
   /**
    * Port already in use
    */

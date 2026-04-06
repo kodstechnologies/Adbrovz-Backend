@@ -17,6 +17,24 @@ const getMyDisputes = asyncHandler(async (req, res) => {
     res.status(200).json(new ApiResponse(200, disputes, 'Disputes retrieved successfully'));
 });
 
+// Get User Dispute by Booking ID
+const getDisputeByBookingId = asyncHandler(async (req, res) => {
+    const userId = req.user.userId;
+    const { bookingId } = req.params;
+    const dispute = await disputeService.getDisputeByBookingId(userId, bookingId);
+    res.status(200).json(new ApiResponse(200, dispute, 'Dispute retrieved successfully'));
+});
+
+// Reupload Evidence
+const reuploadEvidence = asyncHandler(async (req, res) => {
+    const userId = req.user.userId;
+    const { id } = req.params;
+    
+    // evidence is in req.body.evidence (array of URLs) from middleware
+    const dispute = await disputeService.reuploadEvidence(userId, id, req.body.evidence);
+    res.status(200).json(new ApiResponse(200, dispute, 'Evidence reuploaded successfully. Dispute is now open for review again.'));
+});
+
 // Get All Disputes (Admin)
 const getAllDisputes = asyncHandler(async (req, res) => {
     const disputes = await disputeService.getAllDisputes(req.query);
@@ -38,6 +56,8 @@ const updateDisputeStatus = asyncHandler(async (req, res) => {
 module.exports = {
     createDispute,
     getMyDisputes,
+    getDisputeByBookingId,
+    reuploadEvidence,
     getAllDisputes,
     updateDisputeStatus
 };
