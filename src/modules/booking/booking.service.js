@@ -535,19 +535,33 @@ const _formatBooking = (bookingDoc, role) => {
             });
     }
 
-    // Add reschedule count and available actions
-    bookingObj.reschedule = bookingObj.rescheduleCount || 0;
+    // Add reschedule info
+    const maxReschedule = 2;
+    const rescheduleAllowed = bookingObj.status === 'pending' && (bookingObj.rescheduleCount || 0) < maxReschedule;
+    let rescheduleReason = "";
+    if (bookingObj.status === 'completed') rescheduleReason = "Booking already completed";
+    else if (bookingObj.status === 'cancelled') rescheduleReason = "Booking already cancelled";
+    else if (['on_the_way', 'arrived', 'ongoing'].includes(bookingObj.status)) rescheduleReason = "Work in progress";
+    else if (bookingObj.status === 'pending_acceptance') rescheduleReason = "Vendor acceptance pending";
+    else if ((bookingObj.rescheduleCount || 0) >= maxReschedule) rescheduleReason = "Maximum reschedule limit reached";
+
+    bookingObj.reschedule = {
+        count: bookingObj.rescheduleCount || 0,
+        maxAllowed: maxReschedule,
+        allowed: rescheduleAllowed,
+        reason: rescheduleReason
+    };
     
-    const actions = [];
-    if (['pending_acceptance', 'pending'].includes(bookingObj.status)) {
-        actions.push('cancel');
-    }
-    if (bookingObj.status === 'pending') {
-        actions.push('reschedule');
-    }
-    // Only allow dispute for completed/cancelled bookings if it doesn't exist
-    // This will be refined in getBookingDetails where we fetch the dispute
-    bookingObj.actions = actions;
+    // Initial actions (to be refined in getBookingDetails if dispute info is needed)
+    bookingObj.actions = {
+        canReschedule: rescheduleAllowed,
+        canCancel: ['pending_acceptance', 'pending'].includes(bookingObj.status),
+        canAddService: bookingObj.status === 'ongoing',
+        canRaiseDispute: bookingObj.status === 'completed',
+        canViewDispute: false,
+        canReuploadDispute: false,
+        canGiveFeedback: bookingObj.status === 'completed'
+    };
 
     return bookingObj;
 };
@@ -596,26 +610,27 @@ const getBookingDetails = async (bookingId, userId, role) => {
     const dispute = await Dispute.findOne({ booking: booking._id }).lean();
     
     if (dispute) {
+        // Embed the full dispute information (similar to get dispute API)
         formattedBooking.dispute = {
+            ...dispute,
             exists: true,
             id: dispute._id,
-            status: dispute.status || 'OPEN',
-            userComment: dispute.userComment || "",
-            adminComments: dispute.adminComments || "",
+            // Re-map some fields for clarity if needed, though ...dispute covers most
             submittedMessage: dispute.userComment || "", // The "submitted message" from user
-            resolutionNotes: dispute.resolutionNotes || { userNote: "", vendorNote: "" }
         };
+        
+        // Refine actions based on dispute existence
+        formattedBooking.actions.canRaiseDispute = false;
+        formattedBooking.actions.canViewDispute = true;
+        formattedBooking.actions.canReuploadDispute = dispute.status === 'REOPENED';
     } else {
         formattedBooking.dispute = {
             exists: false,
             id: null
         };
-        // If it's completed, user can still raise a dispute
-        if (formattedBooking.status === 'completed') {
-            if (!formattedBooking.actions.includes('dispute')) {
-                formattedBooking.actions.push('dispute');
-            }
-        }
+        // canRaiseDispute is already set to true for 'completed' in _formatBooking
+        formattedBooking.actions.canViewDispute = false;
+        formattedBooking.actions.canReuploadDispute = false;
     }
 
     return formattedBooking;
