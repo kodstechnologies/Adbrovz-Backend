@@ -2,6 +2,7 @@ const Booking = require('../../models/Booking.model');
 const Vendor = require('../../models/Vendor.model');
 const Service = require('../../models/Service.model');
 const User = require('../../models/User.model');
+const Dispute = require('../../models/Dispute.model');
 const { ROLES } = require('../../constants/roles');
 
 
@@ -575,7 +576,16 @@ const getBookingDetails = async (bookingId, userId, role) => {
         throw new ApiError(404, 'Booking not found');
     }
 
-    return _formatBooking(booking, role);
+    const formattedBooking = _formatBooking(booking, role);
+    
+    // Check if a dispute exists for this booking
+    const dispute = await Dispute.findOne({ booking: booking._id }).select('_id');
+    formattedBooking.dispute = {
+        exists: !!dispute,
+        id: dispute ? dispute._id : null
+    };
+
+    return formattedBooking;
 };
 
 
