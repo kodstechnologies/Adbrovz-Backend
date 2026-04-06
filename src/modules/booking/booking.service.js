@@ -520,7 +520,7 @@ const _formatBooking = (bookingDoc, role) => {
         bookingObj.unpricedServices = unpriced;
     }
 
-    // Ensure statusHistory is present and formatted
+    // Status history formatting...
     if (bookingObj.statusHistory) {
         bookingObj.statusHistory = [...bookingObj.statusHistory]
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
@@ -534,6 +534,20 @@ const _formatBooking = (bookingDoc, role) => {
                 };
             });
     }
+
+    // Add reschedule count and available actions
+    bookingObj.reschedule = bookingObj.rescheduleCount || 0;
+    
+    const actions = [];
+    if (['pending_acceptance', 'pending'].includes(bookingObj.status)) {
+        actions.push('cancel');
+    }
+    if (bookingObj.status === 'pending') {
+        actions.push('reschedule');
+    }
+    // Only allow dispute for completed/cancelled bookings if it doesn't exist
+    // This will be refined in getBookingDetails where we fetch the dispute
+    bookingObj.actions = actions;
 
     return bookingObj;
 };
@@ -579,11 +593,30 @@ const getBookingDetails = async (bookingId, userId, role) => {
     const formattedBooking = _formatBooking(booking, role);
     
     // Check if a dispute exists for this booking
-    const dispute = await Dispute.findOne({ booking: booking._id }).select('_id');
-    formattedBooking.dispute = {
-        exists: !!dispute,
-        id: dispute ? dispute._id : null
-    };
+    const dispute = await Dispute.findOne({ booking: booking._id }).lean();
+    
+    if (dispute) {
+        formattedBooking.dispute = {
+            exists: true,
+            id: dispute._id,
+            status: dispute.status || 'OPEN',
+            userComment: dispute.userComment || "",
+            adminComments: dispute.adminComments || "",
+            submittedMessage: dispute.userComment || "", // The "submitted message" from user
+            resolutionNotes: dispute.resolutionNotes || { userNote: "", vendorNote: "" }
+        };
+    } else {
+        formattedBooking.dispute = {
+            exists: false,
+            id: null
+        };
+        // If it's completed, user can still raise a dispute
+        if (formattedBooking.status === 'completed') {
+            if (!formattedBooking.actions.includes('dispute')) {
+                formattedBooking.actions.push('dispute');
+            }
+        }
+    }
 
     return formattedBooking;
 };
@@ -663,7 +696,6 @@ const createBooking = async (userId, bookingData) => {
         });
     }
 
-    const adminService = require('../admin/admin.service');
     const baseTravelCharge = (await adminService.getSetting('pricing.travel_charge')) || 0;
     const perKmCharge = (await adminService.getSetting('pricing.per_km_charge')) || 0;
     

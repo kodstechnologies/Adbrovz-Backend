@@ -644,13 +644,34 @@ const getBookingDetails = async (bookingId) => {
     storedTotal: booking.pricing?.totalPrice || 0
   };
 
+  const actions = [];
+  if (['pending_acceptance', 'pending'].includes(booking.status)) {
+    actions.push('cancel');
+  }
+  if (booking.status === 'pending') {
+    actions.push('reschedule');
+  }
+
+  const latestDispute = (disputes && disputes.length > 0) ? disputes[disputes.length - 1] : null;
+
   return {
     booking: {
       ...booking.toJSON(),
       statusLabel: statusLabels[booking.status] || booking.status,
       statusHistory: enhancedHistory, // Overwrite original statusHistory with enhanced one for the frontend
       enhancedHistory, // Keep as separate field too just in case
-      pricingBreakdown
+      pricingBreakdown,
+      reschedule: booking.rescheduleCount || 0,
+      actions,
+      dispute: latestDispute ? {
+        exists: true,
+        id: latestDispute._id,
+        status: latestDispute.status || 'OPEN',
+        userComment: latestDispute.userComment || "",
+        adminComments: latestDispute.adminComments || "",
+        submittedMessage: latestDispute.userComment || "",
+        resolutionNotes: latestDispute.resolutionNotes || { userNote: "", vendorNote: "" }
+      } : { exists: false, id: null }
     },
     feedback,
     disputes
