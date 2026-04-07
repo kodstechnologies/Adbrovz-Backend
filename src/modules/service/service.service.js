@@ -1,5 +1,6 @@
 const Category = require('../../models/Category.model');
 const Subcategory = require('../../models/Subcategory.model');
+const ServiceType = require('../../models/ServiceType.model');
 const Service = require('../../models/Service.model');
 const ApiError = require('../../utils/ApiError');
 const MESSAGES = require('../../constants/messages');
@@ -26,9 +27,63 @@ const getAllCategories = async () => {
 const getSubcategoriesByCategoryId = async (categoryId) => {
     const subcategories = await Subcategory.find({ category: categoryId })
         .sort({ order: 1, name: 1 })
-        .select('name description icon order price');
+        .select('name description icon order price adminPrice coupon discount membershipFee');
 
     return subcategories;
+};
+
+/**
+ * Get service types by subcategory ID
+ */
+const getServiceTypesBySubcategoryId = async (subcategoryId) => {
+    const serviceTypes = await ServiceType.find({ subcategory: subcategoryId })
+        .sort({ order: 1, name: 1 })
+        .select('name order adminPrice coupon discount membershipFee');
+
+    return serviceTypes;
+};
+
+/**
+ * Get services by service type ID with pagination
+ */
+const getServicesByServiceTypeId = async (serviceTypeId, options = {}) => {
+    const { page = 1, limit = 10, search } = options;
+    const skip = (page - 1) * limit;
+
+    const serviceType = await ServiceType.findById(serviceTypeId);
+    if (!serviceType) {
+        throw new ApiError(404, 'Service type not found');
+    }
+
+    const query = {
+        serviceType: serviceTypeId
+    };
+
+    if (search) {
+        query.title = { $regex: search, $options: 'i' };
+    }
+
+    const services = await Service.find(query)
+        .sort({ title: 1 })
+        .skip(skip)
+        .limit(limit)
+        .select(
+            'title description photo approxCompletionTime adminPrice isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount'
+        );
+
+    const total = await Service.countDocuments(query);
+
+    return {
+        categoryId: serviceType.category,
+        subcategoryId: serviceType.subcategory,
+        services,
+        pagination: {
+            page,
+            limit,
+            total,
+            pages: Math.ceil(total / limit)
+        }
+    };
 };
 
 /**
@@ -146,6 +201,51 @@ const getAllServices = async () => {
  * ADMIN APIs
  * =========================
  */
+
+/**
+ * Admin: Get all Service Types with Subcategories
+ */
+const getAllServiceTypesWithSubcategories = async () => {
+    return await ServiceType.find().populate('subcategory', 'name');
+};
+
+/**
+ * Admin: Create Service Type
+ */
+const createServiceType = async (data) => {
+    return await ServiceType.create(data);
+};
+
+/**
+ * Admin: Update Service Type
+ */
+const updateServiceType = async (serviceTypeId, data) => {
+    const serviceType = await ServiceType.findById(serviceTypeId);
+    if (!serviceType) throw new ApiError(404, 'Service type not found');
+
+    return await ServiceType.findByIdAndUpdate(serviceTypeId, data, { new: true });
+};
+
+/**
+ * Admin: Delete Service Type
+ */
+const deleteServiceType = async (serviceTypeId) => {
+    const serviceType = await ServiceType.findById(serviceTypeId);
+    if (!serviceType) throw new ApiError(404, 'Service type not found');
+
+    await ServiceType.findByIdAndDelete(serviceTypeId);
+    return serviceType;
+};
+
+/**
+ * Admin: Get all Services with Details
+ */
+const getAllServicesWithDetails = async () => {
+    return await Service.find()
+        .populate('category', 'name')
+        .populate('subcategory', 'name')
+        .populate('serviceType', 'name');
+};
 
 /**
  * Admin: Create Category
@@ -275,10 +375,10 @@ const createService = async (data) => {
         throw new ApiError(404, `Category not found with ID: ${data.category}`);
     }
 
-    if (data.subcategory) {
-        const subcategory = await Subcategory.findById(data.subcategory);
-        if (!subcategory) {
-            throw new ApiError(404, `Subcategory not found with ID: ${data.subcategory}`);
+    if (data.serviceType) {
+        const serviceType = await ServiceType.findById(data.serviceType);
+        if (!serviceType) {
+            throw new ApiError(404, `Service type not found with ID: ${data.serviceType}`);
         }
     }
 
@@ -348,7 +448,7 @@ const deleteService = async (serviceId) => {
 };
 
 /**
- * Admin: Get all categories with nested subcategories & services
+ * Admin: Get all categories with nested subcategories, service types & services
  */
 const getAllCategoriesWithSubcategories = async () => {
     const result = await Category.aggregate([
@@ -368,7 +468,7 @@ const getAllCategoriesWithSubcategories = async () => {
                     { $sort: { order: 1, name: 1 } },
                     {
                         $lookup: {
-                            from: 'services',
+                            from: 'servicetypes',
                             let: { subcatId: '$_id' },
                             pipeline: [
                                 {
@@ -378,9 +478,26 @@ const getAllCategoriesWithSubcategories = async () => {
                                         }
                                     }
                                 },
-                                { $sort: { title: 1 } }
+                                { $sort: { order: 1, name: 1 } },
+                                {
+                                    $lookup: {
+                                        from: 'services',
+                                        let: { typeId: '$_id' },
+                                        pipeline: [
+                                            {
+                                                $match: {
+                                                    $expr: {
+                                                        $eq: ['$serviceType', '$$typeId']
+                                                    }
+                                                }
+                                            },
+                                            { $sort: { title: 1 } }
+                                        ],
+                                        as: 'services'
+                                    }
+                                }
                             ],
-                            as: 'services'
+                            as: 'serviceTypes'
                         }
                     }
                 ],
@@ -395,6 +512,11 @@ const getAllCategoriesWithSubcategories = async () => {
                 defaultFreeCredits: 1,
                 slotStartTime: 1,
                 slotEndTime: 1,
+                adminPrice: 1,
+                coupon: 1,
+                discount: 1,
+                membershipFee: 1,
+                renewalCharge: 1,
                 subcategories: 1
             }
         }
@@ -409,6 +531,9 @@ const getAllCategoriesWithSubcategories = async () => {
 
         if (cleaned.subcategories) {
             cleaned.subcategories = cleaned.subcategories.map(cleanDoc);
+        }
+        if (cleaned.serviceTypes) {
+            cleaned.serviceTypes = cleaned.serviceTypes.map(cleanDoc);
         }
         if (cleaned.services) {
             cleaned.services = cleaned.services.map(cleanDoc);
@@ -595,7 +720,9 @@ module.exports = {
     getCategorySlots,
     getAllCategories,
     getSubcategoriesByCategoryId,
+    getServiceTypesBySubcategoryId,
     getServicesBySubcategoryId,
+    getServicesByServiceTypeId,
     getServiceById,
     globalSearch,
     getAllServices,
@@ -605,10 +732,15 @@ module.exports = {
     createSubcategory,
     updateSubcategory,
     deleteSubcategory,
+    createServiceType,
+    updateServiceType,
+    deleteServiceType,
     createService,
     updateService,
     deleteService,
+    getServiceCatalogue,
+    getAllServicesWithDetails,
+    getAllServiceTypesWithSubcategories,
     getAllCategoriesWithSubcategories,
-    getAllSubcategoriesWithServices,
-    getServiceCatalogue
+    getAllSubcategoriesWithServices
 };

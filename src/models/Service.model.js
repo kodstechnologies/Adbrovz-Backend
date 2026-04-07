@@ -26,12 +26,24 @@ const serviceSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Subcategory',
     },
+    serviceType: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ServiceType',
+    },
     adminPrice: {
       type: Number,
     },
     isAdminPriced: {
       type: Boolean,
       default: false,
+    },
+    coupon: {
+      type: String,
+      trim: true,
+    },
+    discount: {
+      type: Number,
+      default: 0,
     },
     approxCompletionTime: {
       type: Number, // in minutes
@@ -84,7 +96,7 @@ serviceSchema.pre('save', function (next) {
 });
 
 // Indexes
-serviceSchema.index({ category: 1, subcategory: 1 });
+serviceSchema.index({ category: 1, subcategory: 1, serviceType: 1 });
 
 const Service = mongoose.model('Service', serviceSchema);
 

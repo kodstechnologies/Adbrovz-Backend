@@ -27,6 +27,22 @@ const subcategorySchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    adminPrice: {
+      type: Number,
+      default: 0,
+    },
+    coupon: {
+      type: String,
+      trim: true,
+    },
+    discount: {
+      type: Number,
+      default: 0,
+    },
+    membershipFee: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true,

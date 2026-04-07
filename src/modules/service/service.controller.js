@@ -33,12 +33,37 @@ const getSubcategories = asyncHandler(async (req, res) => {
     );
 });
 
+// Get service types by subcategory
+const getServiceTypes = asyncHandler(async (req, res) => {
+    const { subcategoryId } = req.params;
+    const serviceTypes = await serviceService.getServiceTypesBySubcategoryId(subcategoryId);
+    res.status(200).json(
+        new ApiResponse(200, serviceTypes, 'Service types retrieved successfully')
+    );
+});
+
 // Get services by subcategory
 const getServices = asyncHandler(async (req, res) => {
     const { subcategoryId } = req.params;
     const { page, limit, search } = req.query;
 
     const result = await serviceService.getServicesBySubcategoryId(subcategoryId, {
+        page: parseInt(page) || 1,
+        limit: parseInt(limit) || 10,
+        search
+    });
+
+    res.status(200).json(
+        new ApiResponse(200, result, 'Services retrieved successfully')
+    );
+});
+
+// Get services by service type
+const getServicesByType = asyncHandler(async (req, res) => {
+    const { serviceTypeId } = req.params;
+    const { page, limit, search } = req.query;
+
+    const result = await serviceService.getServicesByServiceTypeId(serviceTypeId, {
         page: parseInt(page) || 1,
         limit: parseInt(limit) || 10,
         search
@@ -122,6 +147,29 @@ const deleteSubcategory = asyncHandler(async (req, res) => {
     res.status(200).json(new ApiResponse(200, null, 'Subcategory deleted successfully'));
 });
 
+// Admin: Service Type Management
+const getAdminServiceTypes = asyncHandler(async (req, res) => {
+    const serviceTypes = await serviceService.getAllServiceTypesWithSubcategories();
+    res.status(200).json(
+        new ApiResponse(200, serviceTypes, 'Service types retrieved successfully')
+    );
+});
+
+const createServiceType = asyncHandler(async (req, res) => {
+    const serviceType = await serviceService.createServiceType(req.body);
+    res.status(201).json(new ApiResponse(201, serviceType, 'Service type created successfully'));
+});
+
+const updateServiceType = asyncHandler(async (req, res) => {
+    const serviceType = await serviceService.updateServiceType(req.params.serviceTypeId, req.body);
+    res.status(200).json(new ApiResponse(200, serviceType, 'Service type updated successfully'));
+});
+
+const deleteServiceType = asyncHandler(async (req, res) => {
+    await serviceService.deleteServiceType(req.params.serviceTypeId);
+    res.status(200).json(new ApiResponse(200, null, 'Service type deleted successfully'));
+});
+
 // Admin: Service Management
 const createService = asyncHandler(async (req, res) => {
     console.log('DEBUG: createService req.body:', req.body);
@@ -152,6 +200,13 @@ const updateService = asyncHandler(async (req, res) => {
 const deleteService = asyncHandler(async (req, res) => {
     await serviceService.deleteService(req.params.serviceId);
     res.status(200).json(new ApiResponse(200, null, 'Service deleted successfully'));
+});
+
+const getAdminServices = asyncHandler(async (req, res) => {
+    const services = await serviceService.getAllServicesWithDetails();
+    res.status(200).json(
+        new ApiResponse(200, services, 'Services retrieved successfully')
+    );
 });
 
 // Admin: Get all categories with subcategories 
@@ -196,7 +251,9 @@ module.exports = {
     getCategories,
     getCategorySlots,
     getSubcategories,
+    getServiceTypes,
     getServices,
+    getServicesByType,
     getServiceDetails,
     globalSearch,
     // Admin exports
@@ -206,10 +263,15 @@ module.exports = {
     createSubcategory,
     updateSubcategory,
     deleteSubcategory,
+    createServiceType,
+    updateServiceType,
+    deleteServiceType,
     getAllServices,
     createService,
     updateService,
     deleteService,
+    getAdminServiceTypes,
+    getAdminServices,
     getCategoriesWithSubcategories,
     getSubcategoriesWithServices,
     getServiceCatalogue

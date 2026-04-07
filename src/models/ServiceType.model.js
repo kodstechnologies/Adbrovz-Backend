@@ -1,35 +1,21 @@
 const mongoose = require('mongoose');
 
-const categorySchema = new mongoose.Schema(
+const serviceTypeSchema = new mongoose.Schema(
   {
     name: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
     },
-    description: {
-      type: String,
-      trim: true,
+    category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Category',
+      required: true,
     },
-    icon: {
-      type: String,
-    },
-    defaultFreeCredits: {
-      type: Number,
-      default: 0,
-    },
-    order: {
-      type: Number,
-      default: 0,
-    },
-    slotStartTime: {
-      type: String,
-      default: '08:00',
-    },
-    slotEndTime: {
-      type: String,
-      default: '20:00',
+    subcategory: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Subcategory',
+      required: true,
     },
     adminPrice: {
       type: Number,
@@ -47,7 +33,7 @@ const categorySchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-    renewalCharge: {
+    order: {
       type: Number,
       default: 0,
     },
@@ -68,9 +54,9 @@ const categorySchema = new mongoose.Schema(
 );
 
 // Indexes
-categorySchema.index({ order: 1 });
+serviceTypeSchema.index({ subcategory: 1 });
+serviceTypeSchema.index({ order: 1 });
 
-const Category = mongoose.model('Category', categorySchema);
+const ServiceType = mongoose.model('ServiceType', serviceTypeSchema);
 
-module.exports = Category;
-
+module.exports = ServiceType;

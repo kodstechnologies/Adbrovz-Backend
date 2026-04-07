@@ -30,19 +30,26 @@ const seedServicesForAllSubcategories = async () => {
             // Create 5 new services
             for (let i = 1; i <= 5; i++) {
                 const serviceNum = existingCount + i;
-                await Service.create({
-                    title: `${subcategory.name} Service ${serviceNum}`,
-                    description: `Professional ${subcategory.name.toLowerCase()} service #${serviceNum}. High quality work guaranteed with experienced professionals.`,
-                    photo: `uploads/services/service-${subcategory._id}-${i}.jpg`,
-                    moreInfo: `Additional details about ${subcategory.name} Service ${serviceNum}. Includes all necessary materials and expert consultation.`,
-                    category: subcategory.category._id,
-                    subcategory: subcategory._id,
-                    adminPrice: 300 + (i * 100),
-                    isAdminPriced: true,
-                    approxCompletionTime: 45 + (i * 15),
-                    quantityEnabled: true,
-                    priceAdjustmentEnabled: true
-                });
+                await Service.findOneAndUpdate(
+                    { title: `${subcategory.name} Service ${serviceNum}`, subcategory: subcategory._id },
+                    {
+                        title: `${subcategory.name} Service ${serviceNum}`,
+                        description: `Professional ${subcategory.name.toLowerCase()} service #${serviceNum}. High quality work guaranteed with experienced professionals.`,
+                        photo: `uploads/services/service-${subcategory._id}-${i}.jpg`,
+                        moreInfo: `Additional details about ${subcategory.name} Service ${serviceNum}. Includes all necessary materials and expert consultation.`,
+                        category: subcategory.category._id,
+                        subcategory: subcategory._id,
+                        adminPrice: 300 + (i * 100),
+                        isAdminPriced: true,
+                        coupon: `SUB${serviceNum}OFF`,
+                        discount: 5,
+                        membershipFee: 50,
+                        approxCompletionTime: 45 + (i * 15),
+                        quantityEnabled: true,
+                        priceAdjustmentEnabled: true
+                    },
+                    { upsert: true, new: true }
+                );
                 totalCreated++;
             }
 

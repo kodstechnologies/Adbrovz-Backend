@@ -151,7 +151,11 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
     const baseFee = Number(plan.price || 0);
     const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
 
-    const subtotal = baseFee; // Membership cost is strictly the base plan fee
+    // Check if it's a renewal (vendor has an existing membership or expiry date)
+    const isRenewal = !!(vendorId && (await Vendor.findById(vendorId))?.membership?.expiryDate);
+    const categoryCharge = isRenewal ? (category?.renewalCharge || 0) : (category?.membershipFee || 0);
+
+    const subtotal = baseFee + categoryCharge; 
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
     const totalFee = Number(subtotal + gstAmount);
 
@@ -162,6 +166,8 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
         subtotal,
         gstAmount,
         totalFee,
+        categoryMembershipFee: category?.membershipFee || 0,
+        categoryRenewalCharge: category?.renewalCharge || 0,
         duration: `${validityDays} days`,
         durationMonths: selectedDuration,
         plans,
@@ -169,7 +175,7 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
             id: item._id,
             title: isSubcategory ? item.name : item.title,
             type: isSubcategory ? 'subcategory' : 'service',
-            membershipFee: 0 // Service fees are no longer added individually
+            membershipFee: item.membershipFee || 0 
         }))
     };
 };
@@ -225,7 +231,11 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     const baseFee = Number(plan.price || 0);
     const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
 
-    const subtotal = baseFee; // Membership cost is strictly the base plan fee
+    // Check if it's a renewal
+    const isRenewal = !!vendor.membership?.expiryDate;
+    const categoryCharge = isRenewal ? (category?.renewalCharge || 0) : (category?.membershipFee || 0);
+
+    const subtotal = baseFee + categoryCharge; 
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
     const totalFee = Number(subtotal + gstAmount);
 
@@ -294,7 +304,11 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount } = {}) 
     const baseFee = amount ? Number(amount) : Number(plan.price || 0);
     const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
     
-    const subtotal = baseFee;
+    // Check if it's a renewal
+    const isRenewal = !!vendor.membership?.expiryDate;
+    const categoryCharge = isRenewal ? (vendor.membership?.category?.renewalCharge || 0) : (vendor.membership?.category?.membershipFee || 0);
+
+    const subtotal = baseFee + categoryCharge;
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
     const totalFee = Number(subtotal + gstAmount);
 
@@ -402,6 +416,7 @@ const selectServices = async (vendorId, { categoryId, subcategoryIds, durationMo
     vendor.membership.durationMonths = durationMonths;
     vendor.membership.subtotal = subtotal; // Optional: store subtotal
     vendor.membership.gstAmount = gstAmount; // Optional: store GST
+    vendor.membership.renewalCharge = category.renewalCharge || 0;
     vendor.registrationStep = 'SERVICES_SELECTED';
 
     await vendor.save();
@@ -409,10 +424,13 @@ const selectServices = async (vendorId, { categoryId, subcategoryIds, durationMo
     return {
         totalPrice,
         durationMonths,
+        categoryMembershipFee: category.membershipFee || 0,
+        categoryRenewalCharge: category.renewalCharge || 0,
         subcategories: subcategories.map(s => ({
             id: s._id,
             name: s.name,
             price: 0,
+            membershipFee: s.membershipFee || 0,
             category: s.category?.name || 'Unknown Category'
         })),
     };
@@ -420,7 +438,7 @@ const selectServices = async (vendorId, { categoryId, subcategoryIds, durationMo
 
 /**
  * Step 3: Purchase Membership (Demo)
- */
+ */ 
 const purchaseMembership = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');

@@ -1,12 +1,9 @@
-const AuditLog = require('../../models/AuditLog.model');
-const User = require('../../models/User.model');
-const Vendor = require('../../models/Vendor.model');
-const Booking = require('../../models/Booking.model');
-const GlobalConfig = require('../../models/GlobalConfig.model');
-const CreditPlan = require('../../models/CreditPlan.model');
-const { DEFAULT_SETTINGS } = require('../../constants/settings');
-
+const Category = require('../../models/Category.model');
+const Subcategory = require('../../models/Subcategory.model');
+const ServiceType = require('../../models/ServiceType.model');
+const Service = require('../../models/Service.model');
 const CoinTransaction = require('../../models/CoinTransaction.model');
+const ApiError = require('../../utils/ApiError');
 
 const getDashboardStats = async () => {
   try {
@@ -125,6 +122,14 @@ const getDashboardStats = async () => {
       busiestDayName = weekDays[peakHoursData[0]._id.day - 1]; // MongoDB $dayOfWeek is 1(Sun) to 7(Sat)
     }
 
+    // 5. Service Management Stats
+    const [totalCategories, totalSubcategories, totalServiceTypes, totalServices] = await Promise.all([
+      Category.countDocuments(),
+      Subcategory.countDocuments(),
+      ServiceType.countDocuments(),
+      Service.countDocuments()
+    ]);
+
     const calculateTrend = (current, previous) => {
       if (previous === 0) return { trend: current > 0 ? '+100%' : '0%', trendUp: current >= 0 };
       const percent = ((current - previous) / previous) * 100;
@@ -137,6 +142,12 @@ const getDashboardStats = async () => {
         bookings: { value: thisWeekActive, ...calculateTrend(thisWeekActive, lastWeekActive) },
         vendors: { value: totalVendorsThisMonth, ...calculateTrend(totalVendorsThisMonth, totalVendorsLastMonth) },
         credits: { value: thisMonthCredits, ...calculateTrend(thisMonthCredits, lastMonthCredits) }
+      },
+      serviceStats: {
+          categories: totalCategories,
+          subcategories: totalSubcategories,
+          serviceTypes: totalServiceTypes,
+          services: totalServices
       },
       weekData,
       vendorPerf,

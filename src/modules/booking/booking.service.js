@@ -647,6 +647,36 @@ const generateBookingID = () => {
 };
 
 /**
+ * Helper to fetch pricing and promotions across the hierarchy
+ * Hierarchy: Service -> ServiceType -> Subcategory -> Category
+ */
+const _getHierarchicalPricing = async (serviceId) => {
+    const service = await Service.findById(serviceId)
+        .populate('serviceType')
+        .populate('subcategory')
+        .populate('category');
+    
+    if (!service) return { adminPrice: 0, coupon: null, discount: 0 };
+
+    const adminPrice = service.adminPrice || 
+                      service.serviceType?.adminPrice || 
+                      service.subcategory?.adminPrice || 
+                      service.category?.adminPrice || 0;
+
+    const coupon = service.coupon || 
+                  service.serviceType?.coupon || 
+                  service.subcategory?.coupon || 
+                  service.category?.coupon || null;
+
+    const discount = service.discount || 
+                    service.serviceType?.discount || 
+                    service.subcategory?.discount || 
+                    service.category?.discount || 0;
+
+    return { adminPrice, coupon, discount };
+};
+
+/**
  * Create booking (full flow)
  */
 const createBooking = async (userId, bookingData) => {
@@ -685,27 +715,22 @@ const createBooking = async (userId, bookingData) => {
 
     const processedServices = [];
     for (const item of services) {
-        const serviceDoc = await Service.findById(item.serviceId);
-        if (!serviceDoc) {
-            throw new ApiError(`Service ${item.serviceId} not found`);
+        // Fetch hierarchical pricing (Service -> ServiceType -> Subcategory -> Category)
+        const { adminPrice, coupon, discount } = await _getHierarchicalPricing(item.serviceId);
+        
+        if (adminPrice === 0) {
+            // Log a warning or handle as unpriced
+            console.log(`[WARNING] Service ${item.serviceId} has 0 adminPrice across hierarchy`);
         }
 
-        let adminPrice = serviceDoc.adminPrice || 0;
-
-        // ── Task 12: Membership Pricing Adjustment ──
-        // This logic varies based on what's in the admin panel. 
-        // We fetch the multiplier or adjustment from GlobalConfig
-        const membershipPricingAdjustment = (await adminService.getSetting('pricing.membership_adjustment')) || 0;
-        // Example: If membership adjustment is active, we apply it. 
-        // Real implementation depends on where the "different base values" are stored.
-        // For now, we use the standard adminPrice but ensure it's fetched correctly.
-
         processedServices.push({
-            service: serviceDoc._id,
+            service: item.serviceId,
             quantity: item.quantity || 1,
             adminPrice: adminPrice,
+            coupon: coupon,
+            discount: discount,
             finalPrice: adminPrice
-                ? adminPrice * (item.quantity || 1)
+                ? (adminPrice * (item.quantity || 1)) * (1 - (discount / 100))
                 : null,
             isPriceConfirmed: !!adminPrice
         });
