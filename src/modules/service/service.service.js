@@ -87,6 +87,63 @@ const getServicesByServiceTypeId = async (serviceTypeId, options = {}) => {
 };
 
 /**
+ * Get services by multiple service type IDs with pagination
+ */
+const getServicesByTypes = async (typeIds, options = {}) => {
+    const { page = 1, limit = 10, search } = options;
+    const skip = (page - 1) * limit;
+
+    if (!Array.isArray(typeIds) || typeIds.length === 0) {
+        throw new ApiError(400, 'typeIds must be a non-empty array');
+    }
+
+    const query = {
+        serviceType: { $in: typeIds }
+    };
+
+    if (search) {
+        query.title = { $regex: search, $options: 'i' };
+    }
+
+    const services = await Service.find(query)
+        .populate('serviceType', 'name')
+        .sort({ title: 1 })
+        .skip(skip)
+        .limit(limit)
+        .select(
+            'title description photo approxCompletionTime adminPrice isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType'
+        );
+
+    const total = await Service.countDocuments(query);
+
+    // Group services by service type name
+    const groupedServices = services.reduce((acc, service) => {
+        const typeName = service.serviceType?.name || 'Other';
+        if (!acc[typeName]) {
+            acc[typeName] = {
+                serviceTypeName: typeName,
+                services: []
+            };
+        }
+        acc[typeName].services.push(service);
+        return acc;
+    }, {});
+
+    // Convert grouped object to array
+    const result = Object.values(groupedServices);
+
+    return {
+        data: result,
+        pagination: {
+            page,
+            limit,
+            total,
+            pages: Math.ceil(total / limit)
+        }
+    };
+};
+
+/**
  * Get services by subcategory ID with pagination
  */
 const getServicesBySubcategoryId = async (subcategoryId, options = {}) => {
@@ -723,6 +780,7 @@ module.exports = {
     getServiceTypesBySubcategoryId,
     getServicesBySubcategoryId,
     getServicesByServiceTypeId,
+    getServicesByTypes,
     getServiceById,
     globalSearch,
     getAllServices,

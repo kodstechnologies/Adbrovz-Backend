@@ -58,6 +58,7 @@ router.delete('/admin/services/:serviceId', serviceController.deleteService);
 router.get('/all', serviceController.getAllServices);
 router.get('/catalogue', serviceController.getServiceCatalogue);
 router.get('/search', serviceController.globalSearch);
+router.get('/by-types', serviceController.getServicesByTypes);
 router.get('/categories', serviceController.getCategories);
 router.get('/categories/:categoryId/slots', serviceController.getCategorySlots);
 router.get('/subcategories', serviceController.getSubcategoriesWithServices);

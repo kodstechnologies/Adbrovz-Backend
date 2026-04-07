@@ -33,6 +33,14 @@ const serviceTypeSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    concurrencyFee: {
+      type: Number,
+      default: 0,
+    },
+    renewalCharge: {
+      type: Number,
+      default: 0,
+    },
     order: {
       type: Number,
       default: 0,

@@ -99,9 +99,9 @@ const DEFAULT_SETTINGS = {
         value: 10,
         description: 'Coins deducted from vendor when accepting a lead.',
     },
-    'pricing.vendor_entry_fee': {
+    'pricing.company_fee': {
         value: 0,
-        description: 'Entry fee charged to vendors.',
+        description: 'Entry fee charged to companies.',
     },
     'pricing.credit_restore_rule': {
         value: 'manual',

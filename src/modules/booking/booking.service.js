@@ -3,6 +3,7 @@ const Vendor = require('../../models/Vendor.model');
 const Service = require('../../models/Service.model');
 const User = require('../../models/User.model');
 const Dispute = require('../../models/Dispute.model');
+const Feedback = require('../../models/Feedback.model');
 const { ROLES } = require('../../constants/roles');
 
 
@@ -633,8 +634,23 @@ const getBookingDetails = async (bookingId, userId, role) => {
         formattedBooking.actions.canReuploadDispute = false;
     }
 
+    // Check if feedback exists for this booking
+    const feedback = await Feedback.findOne({ booking: booking._id, user: booking.user }).lean();
+    if (feedback) {
+        formattedBooking.actions.canGiveFeedback = false;
+        formattedBooking.feedback = {
+            id: feedback._id,
+            rating: feedback.rating,
+            review: feedback.review,
+            createdAt: feedback.createdAt
+        };
+    } else {
+        formattedBooking.feedback = null;
+    }
+
     return formattedBooking;
 };
+
 
 
 /**
@@ -1308,7 +1324,20 @@ const getBookingsByUser = async (userId) => {
         .populate('vendor', 'name phoneNumber photo')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
-    return bookings.map(b => _formatBooking(b, 'user'));
+    
+    const formattedBookings = bookings.map(b => _formatBooking(b, 'user'));
+
+    // Batch check for feedback to avoid N+1 queries
+    const bookingIds = bookings.map(b => b._id);
+    const feedbacks = await Feedback.find({ booking: { $in: bookingIds }, user: userId }).select('booking').lean();
+    const feedbackBookingIds = new Set(feedbacks.map(f => f.booking.toString()));
+
+    return formattedBookings.map(fb => {
+        if (fb.actions && feedbackBookingIds.has(fb._id.toString())) {
+            fb.actions.canGiveFeedback = false;
+        }
+        return fb;
+    });
 };
 
 const getBookingsByVendor = async (vendorId) => {
@@ -1336,7 +1365,20 @@ const getCompletedBookingsByUser = async (userId) => {
         .populate('vendor', 'name phoneNumber photo')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
-    return bookings.map(b => _formatBooking(b, 'user'));
+    
+    const formattedBookings = bookings.map(b => _formatBooking(b, 'user'));
+
+    // Batch check for feedback
+    const bookingIds = bookings.map(b => b._id);
+    const feedbacks = await Feedback.find({ booking: { $in: bookingIds }, user: userId }).select('booking').lean();
+    const feedbackBookingIds = new Set(feedbacks.map(f => f.booking.toString()));
+
+    return formattedBookings.map(fb => {
+        if (fb.actions && feedbackBookingIds.has(fb._id.toString())) {
+            fb.actions.canGiveFeedback = false;
+        }
+        return fb;
+    });
 };
 
 /**

@@ -272,6 +272,11 @@ vendorSchema.virtual('planStatus').get(function () {
   return 'PAID';
 });
 
+// Photo virtual mapping to document photo
+vendorSchema.virtual('photo').get(function () {
+  return this.documents?.photo?.url || '';
+});
+
 // Indexes
 // Note: vendorID and phoneNumber already have indexes from unique: true
 vendorSchema.index({ workCity: 1 });

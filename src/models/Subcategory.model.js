@@ -43,6 +43,14 @@ const subcategorySchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    concurrencyFee: {
+      type: Number,
+      default: 0,
+    },
+    renewalCharge: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true,

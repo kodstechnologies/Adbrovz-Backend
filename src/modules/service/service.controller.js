@@ -74,6 +74,28 @@ const getServicesByType = asyncHandler(async (req, res) => {
     );
 });
 
+// Get services by multiple service types
+const getServicesByTypes = asyncHandler(async (req, res) => {
+    // Expected in query like: ?typeIds=id1,id2,id3
+    const { typeIds, page, limit, search } = req.query;
+
+    if (!typeIds) {
+        return res.status(400).json(new ApiResponse(400, null, 'typeIds query parameter is required'));
+    }
+
+    const typeIdsArray = typeIds.split(',').map(id => id.trim()).filter(Boolean);
+
+    const result = await serviceService.getServicesByTypes(typeIdsArray, {
+        page: parseInt(page) || 1,
+        limit: parseInt(limit) || 10,
+        search
+    });
+
+    res.status(200).json(
+        new ApiResponse(200, result, 'Services retrieved successfully')
+    );
+});
+
 // Get service details
 const getServiceDetails = asyncHandler(async (req, res) => {
     const { serviceId } = req.params;
@@ -254,6 +276,7 @@ module.exports = {
     getServiceTypes,
     getServices,
     getServicesByType,
+    getServicesByTypes,
     getServiceDetails,
     globalSearch,
     // Admin exports
