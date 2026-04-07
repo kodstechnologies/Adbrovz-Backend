@@ -37,10 +37,41 @@ const getSubcategoriesByCategoryId = async (categoryId) => {
  */
 const getServiceTypesBySubcategoryId = async (subcategoryId) => {
     const serviceTypes = await ServiceType.find({ subcategory: subcategoryId })
+        .populate('category', 'name')
+        .populate('subcategory', 'name')
         .sort({ order: 1, name: 1 })
-        .select('name order adminPrice coupon discount membershipFee');
+        .select('name order adminPrice coupon discount membershipFee concurrencyFee renewalCharge category subcategory');
 
     return serviceTypes;
+};
+
+/**
+ * Get service types by multiple subcategory IDs with details, grouped by subcategory
+ */
+const getServiceTypesBySubcategories = async (subcategoryIds) => {
+    if (!Array.isArray(subcategoryIds) || subcategoryIds.length === 0) {
+        throw new ApiError(400, 'subcategoryIds must be a non-empty array');
+    }
+
+    const serviceTypes = await ServiceType.find({ subcategory: { $in: subcategoryIds } })
+        .populate('category', 'name')
+        .populate('subcategory', 'name')
+        .sort({ order: 1, name: 1 });
+
+    // Group service types by subcategory name
+    const groupedTypes = serviceTypes.reduce((acc, type) => {
+        const subName = type.subcategory?.name || 'Other';
+        if (!acc[subName]) {
+            acc[subName] = {
+                subcategoryName: subName,
+                serviceTypes: []
+            };
+        }
+        acc[subName].serviceTypes.push(type);
+        return acc;
+    }, {});
+
+    return Object.values(groupedTypes);
 };
 
 /**
@@ -778,6 +809,7 @@ module.exports = {
     getAllCategories,
     getSubcategoriesByCategoryId,
     getServiceTypesBySubcategoryId,
+    getServiceTypesBySubcategories,
     getServicesBySubcategoryId,
     getServicesByServiceTypeId,
     getServicesByTypes,

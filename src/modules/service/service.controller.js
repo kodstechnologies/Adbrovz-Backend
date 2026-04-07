@@ -269,6 +269,24 @@ const getServiceCatalogue = asyncHandler(async (req, res) => {
     );
 });
 
+// Get service types by multiple subcategories
+const getServiceTypesBySubcategories = asyncHandler(async (req, res) => {
+    const { subcategoryIds } = req.query;
+
+    if (!subcategoryIds) {
+        throw new ApiError(400, 'subcategoryIds query parameter is required');
+    }
+
+    const subcategoryIdsArray = subcategoryIds.split(',').map(id => id.trim()).filter(Boolean);
+
+    const result = await serviceService.getServiceTypesBySubcategories(subcategoryIdsArray);
+
+    res.status(200).json(
+        new ApiResponse(200, result, 'Service types retrieved successfully')
+    );
+});
+
+
 module.exports = {
     getCategories,
     getCategorySlots,
@@ -278,6 +296,7 @@ module.exports = {
     getServicesByType,
     getServicesByTypes,
     getServiceDetails,
+    getServiceTypesBySubcategories,
     globalSearch,
     // Admin exports
     createCategory,
