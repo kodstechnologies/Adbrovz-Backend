@@ -44,8 +44,8 @@ router.delete('/admin/subcategories/:subcategoryId', serviceController.deleteSub
 
 // Service Type Management
 router.get('/admin/service-types', serviceController.getAdminServiceTypes);
-router.post('/admin/service-types', serviceController.createServiceType);
-router.put('/admin/service-types/:serviceTypeId', serviceController.updateServiceType);
+router.post('/admin/service-types', upload.single('photo'), uploadToCloudinary('service-types'), serviceController.createServiceType);
+router.put('/admin/service-types/:serviceTypeId', upload.single('photo'), uploadToCloudinary('service-types'), serviceController.updateServiceType);
 router.delete('/admin/service-types/:serviceTypeId', serviceController.deleteServiceType);
 
 // Service Management

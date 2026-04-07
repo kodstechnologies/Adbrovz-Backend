@@ -620,10 +620,13 @@ const getBookingDetails = async (bookingId, userId, role) => {
             submittedMessage: dispute.userComment || "", // The "submitted message" from user
         };
         
-        // Refine actions based on dispute existence
+        // Refine actions based on dispute existence and status
+        // When dispute is REOPENED: only canReuploadDispute is true, others are false
+        // For all other statuses: only canViewDispute is true
+        const isReopened = dispute.status === 'REOPENED';
         formattedBooking.actions.canRaiseDispute = false;
-        formattedBooking.actions.canViewDispute = true;
-        formattedBooking.actions.canReuploadDispute = dispute.status === 'REOPENED';
+        formattedBooking.actions.canViewDispute = !isReopened;
+        formattedBooking.actions.canReuploadDispute = isReopened;
     } else {
         formattedBooking.dispute = {
             exists: false,

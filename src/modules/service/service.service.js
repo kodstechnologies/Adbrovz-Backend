@@ -301,6 +301,11 @@ const getAllServiceTypesWithSubcategories = async () => {
  * Admin: Create Service Type
  */
 const createServiceType = async (data) => {
+    // Ensure category is present if subcategory is provided
+    if (data.subcategory && !data.category) {
+        const sub = await Subcategory.findById(data.subcategory);
+        if (sub) data.category = sub.category;
+    }
     return await ServiceType.create(data);
 };
 
@@ -311,6 +316,20 @@ const updateServiceType = async (serviceTypeId, data) => {
     const serviceType = await ServiceType.findById(serviceTypeId);
     if (!serviceType) throw new ApiError(404, 'Service type not found');
 
+    if (
+        data.photo &&
+        serviceType.photo &&
+        serviceType.photo.includes('cloudinary.com') &&
+        data.photo !== serviceType.photo
+    ) {
+        try {
+            const cloudinaryService = require('../services/cloudinary.service');
+            await cloudinaryService.deleteFromCloudinary(serviceType.photo);
+        } catch (error) {
+            console.error('Error deleting old service type image from Cloudinary:', error);
+        }
+    }
+
     return await ServiceType.findByIdAndUpdate(serviceTypeId, data, { new: true });
 };
 
@@ -320,6 +339,15 @@ const updateServiceType = async (serviceTypeId, data) => {
 const deleteServiceType = async (serviceTypeId) => {
     const serviceType = await ServiceType.findById(serviceTypeId);
     if (!serviceType) throw new ApiError(404, 'Service type not found');
+
+    if (serviceType.photo && serviceType.photo.includes('cloudinary.com')) {
+        try {
+            const cloudinaryService = require('../services/cloudinary.service');
+            await cloudinaryService.deleteFromCloudinary(serviceType.photo);
+        } catch (error) {
+            console.error('Error deleting service type image from Cloudinary:', error);
+        }
+    }
 
     await ServiceType.findByIdAndDelete(serviceTypeId);
     return serviceType;
