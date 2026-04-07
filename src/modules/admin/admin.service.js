@@ -2,8 +2,17 @@ const Category = require('../../models/Category.model');
 const Subcategory = require('../../models/Subcategory.model');
 const ServiceType = require('../../models/ServiceType.model');
 const Service = require('../../models/Service.model');
+const Booking = require('../../models/Booking.model');
+const Vendor = require('../../models/Vendor.model');
+const User = require('../../models/User.model');
+const AuditLog = require('../../models/AuditLog.model');
+const GlobalConfig = require('../../models/GlobalConfig.model');
+const Dispute = require('../../models/Dispute.model');
+const Feedback = require('../../models/Feedback.model');
+const CreditPlan = require('../../models/CreditPlan.model');
 const CoinTransaction = require('../../models/CoinTransaction.model');
 const ApiError = require('../../utils/ApiError');
+const { DEFAULT_SETTINGS } = require('../../constants/settings');
 
 const getDashboardStats = async () => {
   try {
@@ -567,9 +576,6 @@ const getAllBookings = async (query = {}) => {
 };
 
 const getBookingDetails = async (bookingId) => {
-  const Dispute = require('../../models/Dispute.model');
-  const Feedback = require('../../models/Feedback.model');
-
   const booking = await Booking.findById(bookingId)
     .populate('user', 'name phoneNumber email profileImage status')
     .populate('vendor', 'name phoneNumber email profileImage specialization rating status isSuspended isBlocked isVerified documentStatus registrationStep adminSuspended')
