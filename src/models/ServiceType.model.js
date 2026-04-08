@@ -10,9 +10,11 @@ const serviceTypeSchema = new mongoose.Schema(
     description: {
       type: String,
       trim: true,
+      default: '',
     },
     photo: {
       type: String,
+      default: null,
     },
     category: {
       type: mongoose.Schema.Types.ObjectId,

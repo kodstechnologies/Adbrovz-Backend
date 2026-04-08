@@ -40,7 +40,7 @@ const getServiceTypesBySubcategoryId = async (subcategoryId) => {
         .populate('category', 'name')
         .populate('subcategory', 'name')
         .sort({ order: 1, name: 1 })
-        .select('name order adminPrice coupon discount membershipFee concurrencyFee renewalCharge category subcategory');
+        .select('name description photo order adminPrice coupon discount membershipFee concurrencyFee renewalCharge category subcategory');
 
     return serviceTypes;
 };
@@ -595,6 +595,12 @@ const getAllCategoriesWithSubcategories = async () => {
                                     }
                                 },
                                 { $sort: { order: 1, name: 1 } },
+                                {
+                                    $addFields: {
+                                        description: { $ifNull: ['$description', ''] },
+                                        photo: { $ifNull: ['$photo', null] }
+                                    }
+                                },
                                 {
                                     $lookup: {
                                         from: 'services',
