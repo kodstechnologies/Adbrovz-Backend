@@ -154,7 +154,6 @@ const getServicesByTypes = async (typeIds, options = {}) => {
             acc[typeId] = {
                 serviceTypeId: typeId,
                 serviceTypeName: service.serviceType?.name || 'Other',
-                categoryId: service.category || null,
                 servicesGroup: []
             };
         }
@@ -166,6 +165,7 @@ const getServicesByTypes = async (typeIds, options = {}) => {
     const result = Object.values(groupedServices);
 
     return {
+        categoryId: services.length > 0 ? services[0].category : null,
         data: result,
         pagination: {
             page,
