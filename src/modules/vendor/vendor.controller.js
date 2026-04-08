@@ -249,6 +249,15 @@ const reuploadDocuments = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * Get Subscription Status for Mobile App
+ */
+const getSubscriptionStatus = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.getSubscriptionStatus(vendorId);
+    res.status(200).json(result);
+});
+
 
 module.exports = {
     getAllVendors,
@@ -271,5 +280,6 @@ module.exports = {
     getMembershipPlans,
     getCategoryRegistrationData,
     reuploadDocuments,
+    getSubscriptionStatus,
 };
 

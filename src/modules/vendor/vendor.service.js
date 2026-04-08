@@ -1273,6 +1273,65 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
     return { vendor, isVerified: vendor.isVerified, payload };
 };
 
+/**
+ * Get Subscription Status for Mobile App
+ */
+const getSubscriptionStatus = async (vendorId) => {
+    const vendor = await Vendor.findById(vendorId).populate('selectedServices selectedSubcategories');
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const now = new Date();
+    const memExp = vendor.membership?.expiryDate ? new Date(vendor.membership.expiryDate) : null;
+    const isMemActive = memExp ? memExp > now : false;
+
+    const renExp = vendor.serviceRenewal?.expiryDate ? new Date(vendor.serviceRenewal.expiryDate) : null;
+    const isRenActive = renExp ? renExp > now : false;
+    
+    let daysRemaining = 0;
+    if (isRenActive) {
+        const diff = renExp - now;
+        daysRemaining = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    }
+
+    // Determine the list of services (using subcategories if present, else services)
+    let serviceList = [];
+    if (vendor.selectedSubcategories && vendor.selectedSubcategories.length > 0) {
+        serviceList = vendor.selectedSubcategories.map(sub => ({
+             serviceId: sub.name,
+             isActive: isRenActive,
+             daysRemaining: daysRemaining
+        }));
+    } else if (vendor.selectedServices && vendor.selectedServices.length > 0) {
+        serviceList = vendor.selectedServices.map(svc => ({
+             serviceId: svc.title,
+             isActive: isRenActive,
+             daysRemaining: daysRemaining
+        }));
+    }
+
+    // Summary
+    const activeServiceCount = serviceList.filter(s => s.isActive).length;
+    const expiredServiceCount = serviceList.filter(s => !s.isActive).length;
+
+    // Permissions
+    // Remove documentStatus === 'approved' check if they just want to know if plan allows go-online
+    const canGoOnline = isMemActive && isRenActive;
+
+    return {
+        membership: {
+            isActive: isMemActive
+        },
+        services: serviceList,
+        summary: {
+            activeServiceCount,
+            expiredServiceCount
+        },
+        permissions: {
+            canGoOnline
+        }
+    };
+};
+
 module.exports = {
     getAllVendors,
     getMembershipInfo,
@@ -1296,5 +1355,6 @@ module.exports = {
     getMembershipPlans,
     getCategoryRegistrationData,
     reuploadDocuments,
+    getSubscriptionStatus,
 };
 

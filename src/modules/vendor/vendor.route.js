@@ -41,6 +41,7 @@ router.patch('/:vendorId/status', authenticate, authorize(ROLES.ADMIN), vendorCo
 
 // Profile routes
 router.get('/profile', authenticate, authorize(ROLES.VENDOR), vendorController.getProfile);
+router.get('/subscription-status', authenticate, authorize(ROLES.VENDOR), vendorController.getSubscriptionStatus);
 router.get('/dashboard/metrics', authenticate, authorize(ROLES.VENDOR), vendorController.getDashboardMetrics);
 router.get('/coins', authenticate, authorize(ROLES.VENDOR), vendorController.getCoins);
 router.put('/profile', authenticate, authorize(ROLES.VENDOR), upload.single('image'), uploadToCloudinary('vendors'), vendorController.updateProfile);
