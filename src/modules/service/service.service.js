@@ -142,7 +142,7 @@ const getServicesByTypes = async (typeIds, options = {}) => {
         .skip(skip)
         .limit(limit)
         .select(
-            'title description photo approxCompletionTime adminPrice isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType'
+            'title description photo approxCompletionTime adminPrice isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType category'
         );
 
     const total = await Service.countDocuments(query);
@@ -152,11 +152,12 @@ const getServicesByTypes = async (typeIds, options = {}) => {
         const typeName = service.serviceType?.name || 'Other';
         if (!acc[typeName]) {
             acc[typeName] = {
+                categoryId: service.category || null,
                 serviceTypeName: typeName,
-                services: []
+                servicesGroup: []
             };
         }
-        acc[typeName].services.push(service);
+        acc[typeName].servicesGroup.push(service);
         return acc;
     }, {});
 
