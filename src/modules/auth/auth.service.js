@@ -798,7 +798,7 @@ const login = async (phoneNumber, pin, role = 'user', req = null) => {
     }
   }
 
-  const allowedStatuses = ['ACTIVE', 'PENDING_VERIFICATION', 'PENDING_DOCS', 'REJECTED', 'PENDING'];
+  const allowedStatuses = ['ACTIVE', 'PENDING_VERIFICATION', 'PENDING_DOCS', 'REJECTED', 'PENDING', 'VERIFIED', 'APPROVED'];
   if (user.status && !allowedStatuses.includes(user.status)) {
     throw new ApiError(403, `Account is ${user.status.toLowerCase()}. Please contact support.`);
   }
