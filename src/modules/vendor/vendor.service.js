@@ -151,9 +151,10 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
     const baseFee = Number(plan.price || 0);
     const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
 
-    // Check if it's a renewal (vendor has an existing membership or expiry date)
-    const isRenewal = !!(vendorId && (await Vendor.findById(vendorId))?.membership?.expiryDate);
-    const categoryCharge = isRenewal ? (category?.renewalCharge || 0) : (category?.membershipFee || 0);
+    // Combine concurrencyFee (membership base) and renewalCharge (monthly service)
+    const membershipCharge = category?.concurrencyFee || category?.membershipFee || 0;
+    const renewalCharge = category?.renewalCharge || 0;
+    const categoryCharge = membershipCharge + renewalCharge;
 
     const subtotal = baseFee + categoryCharge; 
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
@@ -166,7 +167,7 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
         subtotal,
         gstAmount,
         totalFee,
-        categoryMembershipFee: category?.membershipFee || 0,
+        categoryMembershipFee: category?.concurrencyFee || category?.membershipFee || 0,
         categoryRenewalCharge: category?.renewalCharge || 0,
         duration: `${validityDays} days`,
         durationMonths: selectedDuration,
@@ -231,9 +232,10 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     const baseFee = Number(plan.price || 0);
     const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
 
-    // Check if it's a renewal
-    const isRenewal = !!vendor.membership?.expiryDate;
-    const categoryCharge = isRenewal ? (category?.renewalCharge || 0) : (category?.membershipFee || 0);
+    // Combine concurrencyFee and renewalCharge
+    const membershipCharge = category?.concurrencyFee || category?.membershipFee || 0;
+    const renewalCharge = category?.renewalCharge || 0;
+    const categoryCharge = membershipCharge + renewalCharge;
 
     const subtotal = baseFee + categoryCharge; 
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
@@ -304,9 +306,10 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount } = {}) 
     const baseFee = amount ? Number(amount) : Number(plan.price || 0);
     const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
     
-    // Check if it's a renewal
-    const isRenewal = !!vendor.membership?.expiryDate;
-    const categoryCharge = isRenewal ? (vendor.membership?.category?.renewalCharge || 0) : (vendor.membership?.category?.membershipFee || 0);
+    // Combine concurrencyFee and renewalCharge
+    const membershipCharge = vendor.membership?.category?.concurrencyFee || vendor.membership?.category?.membershipFee || 0;
+    const renewalCharge = vendor.membership?.category?.renewalCharge || 0;
+    const categoryCharge = membershipCharge + renewalCharge;
 
     const subtotal = baseFee + categoryCharge;
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
@@ -417,6 +420,9 @@ const selectServices = async (vendorId, { categoryId, subcategoryIds, durationMo
     vendor.membership.subtotal = subtotal; // Optional: store subtotal
     vendor.membership.gstAmount = gstAmount; // Optional: store GST
     vendor.membership.renewalCharge = category.renewalCharge || 0;
+    vendor.serviceRenewal = {
+        fee: category.renewalCharge || 0,
+    };
     vendor.registrationStep = 'SERVICES_SELECTED';
 
     await vendor.save();
@@ -457,6 +463,13 @@ const purchaseMembership = async (vendorId) => {
         const expiryDate = new Date();
         expiryDate.setDate(expiryDate.getDate() + Number(validityDays));
         vendor.membership.expiryDate = expiryDate;
+        
+        vendor.serviceRenewal = vendor.serviceRenewal || {};
+        vendor.serviceRenewal.startDate = new Date();
+        const renExpiry = new Date();
+        renExpiry.setDate(renExpiry.getDate() + 30);
+        vendor.serviceRenewal.expiryDate = renExpiry;
+        
         vendor.registrationStep = 'COMPLETED';
     } else {
         vendor.registrationStep = 'MEMBERSHIP_PAID';
@@ -682,6 +695,13 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
 
             vendor.membership.startDate = vendor.membership.startDate || startDate;
             vendor.membership.expiryDate = vendor.membership.expiryDate || expiryDate;
+            
+            vendor.serviceRenewal = vendor.serviceRenewal || {};
+            vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || startDate;
+            const renExpiryDate = new Date();
+            renExpiryDate.setDate(renExpiryDate.getDate() + 30);
+            vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiryDate;
+            
             vendor.registrationStep = 'COMPLETED';
         }
     } else {
@@ -739,6 +759,13 @@ const verifyAllDocuments = async (vendorId) => {
 
         vendor.membership.startDate = vendor.membership.startDate || startDate;
         vendor.membership.expiryDate = vendor.membership.expiryDate || expiryDate;
+        
+        vendor.serviceRenewal = vendor.serviceRenewal || {};
+        vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || startDate;
+        const renExpiryDate = new Date();
+        renExpiryDate.setDate(renExpiryDate.getDate() + 30);
+        vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiryDate;
+        
         vendor.registrationStep = 'COMPLETED';
     }
 

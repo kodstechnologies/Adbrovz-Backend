@@ -135,6 +135,11 @@ const vendorSchema = new mongoose.Schema(
       startDate: { type: Date },
       expiryDate: { type: Date },
     },
+    serviceRenewal: {
+      fee: { type: Number, default: 0 },
+      startDate: { type: Date },
+      expiryDate: { type: Date },
+    },
     creditPlan: {
       planId: { type: mongoose.Schema.Types.ObjectId, ref: 'CreditPlan' },
       expiryDate: { type: Date },
@@ -205,29 +210,52 @@ const vendorSchema = new mongoose.Schema(
         // Add isActive to membership based on expiryDate
         if (ret.membership) {
           ret.membership.isActive = !!(ret.membership.expiryDate && new Date(ret.membership.expiryDate) > new Date());
+          
           // Also set planStatus for nested transform results if needed
           const now = new Date();
-          const exp = ret.membership.expiryDate ? new Date(ret.membership.expiryDate) : null;
-          ret.membership.planStatus = exp > now ? 'PAID' : (exp ? 'EXPIRED' : 'UNPAID');
-
-          if (exp) {
-            const diff = exp - now;
-            const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-            ret.membership.validity = days > 0 ? `${days}d remaining` : 'Expired';
-          } else {
+          const memExp = ret.membership.expiryDate ? new Date(ret.membership.expiryDate) : null;
+          const renExp = ret.serviceRenewal?.expiryDate ? new Date(ret.serviceRenewal.expiryDate) : null;
+          
+          // It's EXPIRED if either the membership expires or the service renewal expires
+          const isMemExpired = memExp ? now > memExp : true;
+          const isRenExpired = renExp ? now > renExp : true;
+          
+          if (!memExp || !renExp) {
+            ret.membership.planStatus = 'UNPAID';
             ret.membership.validity = 'UNPAID';
+          } else if (isMemExpired || isRenExpired) {
+             ret.membership.planStatus = 'EXPIRED';
+             ret.membership.validity = 'Expired';
+          } else {
+             ret.membership.planStatus = 'PAID';
+             // Show whichever validity is closer to expiring
+             const memDiff = memExp - now;
+             const renDiff = renExp - now;
+             const minDiff = Math.min(memDiff, renDiff);
+             const days = Math.ceil(minDiff / (1000 * 60 * 60 * 24));
+             ret.membership.validity = days > 0 ? `${days}d remaining` : 'Expired';
           }
         }
 
         // Add top-level planValidity for table columns
-        const exp = ret.membership?.expiryDate ? new Date(ret.membership.expiryDate) : null;
+        const memExp = ret.membership?.expiryDate ? new Date(ret.membership.expiryDate) : null;
+        const renExp = ret.serviceRenewal?.expiryDate ? new Date(ret.serviceRenewal.expiryDate) : null;
         const now = new Date();
-        if (exp) {
-            const diff = exp - now;
-            const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-            ret.planValidity = days > 0 ? `${days}d remaining` : 'Expired';
-        } else {
+        
+        if (!memExp || !renExp) {
             ret.planValidity = 'UNPAID';
+        } else {
+            const isMemExpired = now > memExp;
+            const isRenExpired = now > renExp;
+            if (isMemExpired || isRenExpired) {
+                ret.planValidity = 'Expired';
+            } else {
+                const memDiff = memExp - now;
+                const renDiff = renExp - now;
+                const minDiff = Math.min(memDiff, renDiff);
+                const days = Math.ceil(minDiff / (1000 * 60 * 60 * 24));
+                ret.planValidity = days > 0 ? `${days}d remaining` : 'Expired';
+            }
         }
 
         delete ret.__v;
@@ -265,10 +293,12 @@ vendorSchema.virtual('status').get(function () {
 
 // Subscription/Plan status virtual
 vendorSchema.virtual('planStatus').get(function () {
-  if (!this.membership || !this.membership.expiryDate) return 'UNPAID';
+  if (!this.membership || !this.membership.expiryDate || !this.serviceRenewal || !this.serviceRenewal.expiryDate) return 'UNPAID';
   const now = new Date();
-  const expiry = new Date(this.membership.expiryDate);
-  if (now > expiry) return 'EXPIRED';
+  const memExpiry = new Date(this.membership.expiryDate);
+  const renExpiry = new Date(this.serviceRenewal.expiryDate);
+  
+  if (now > memExpiry || now > renExpiry) return 'EXPIRED';
   return 'PAID';
 });
 

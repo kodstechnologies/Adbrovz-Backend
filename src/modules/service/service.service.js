@@ -147,17 +147,18 @@ const getServicesByTypes = async (typeIds, options = {}) => {
 
     const total = await Service.countDocuments(query);
 
-    // Group services by service type name
+    // Group services by service type ID
     const groupedServices = services.reduce((acc, service) => {
-        const typeName = service.serviceType?.name || 'Other';
-        if (!acc[typeName]) {
-            acc[typeName] = {
+        const typeId = service.serviceType?._id?.toString() || 'Other';
+        if (!acc[typeId]) {
+            acc[typeId] = {
+                serviceTypeId: typeId,
+                serviceTypeName: service.serviceType?.name || 'Other',
                 categoryId: service.category || null,
-                serviceTypeName: typeName,
                 servicesGroup: []
             };
         }
-        acc[typeName].servicesGroup.push(service);
+        acc[typeId].servicesGroup.push(service);
         return acc;
     }, {});
 
