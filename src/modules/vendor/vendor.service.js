@@ -1608,25 +1608,14 @@ const verifyServiceRenewalPayment = async (vendorId, { razorpay_order_id, razorp
     // Also extend membership expiry if this is a unified renewal
     try {
         const feeDetails = await getServiceRenewalFeeDetails(vendorId);
-        if (feeDetails.membershipRenewal.fee > 0) {
-            const memBaseDate = (vendor.membership.expiryDate && vendor.membership.expiryDate > now)
-                ? vendor.membership.expiryDate
-                : now;
-            const newMemExpiry = new Date(memBaseDate);
-            newMemExpiry.setDate(newMemExpiry.getDate() + 30); // Extend by 30 days default or similar
-            vendor.membership.expiryDate = newMemExpiry;
-        }
         vendor.serviceRenewal.fee = feeDetails.totalFee;
-    } catch (e) { 
-        console.error('Error in unified renewal extension:', e);
-    }
+    } catch (e) { }
 
     await vendor.save();
 
     return { 
-        message: 'Renewal payment verified successfully. Validity extended.', 
-        serviceExpiryDate: vendor.serviceRenewal.expiryDate,
-        membershipExpiryDate: vendor.membership.expiryDate
+        message: 'Service renewal payment verified successfully. Validity extended.', 
+        expiryDate: vendor.serviceRenewal.expiryDate
     };
 };
 
