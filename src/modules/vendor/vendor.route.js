@@ -35,6 +35,16 @@ router.post('/membership/create', authenticate, authorize(ROLES.VENDOR), vendorC
 router.post('/membership/verify-payment', authenticate, authorize(ROLES.VENDOR), vendorController.verifyMembershipPayment);
 router.post('/membership/verify', authenticate, authorize(ROLES.VENDOR), vendorController.verifyMembership);
 
+// Service Renewal API
+router.get('/renewal/fee', authenticate, authorize(ROLES.VENDOR), vendorController.getServiceRenewalFee);
+router.post('/renewal/create-order', authenticate, authorize(ROLES.VENDOR), vendorController.createServiceRenewalOrder);
+router.post('/renewal/verify-payment', authenticate, authorize(ROLES.VENDOR), vendorController.verifyServiceRenewalPayment);
+
+// Membership Renewal API
+router.get('/membership/renewal/fee', authenticate, authorize(ROLES.VENDOR), vendorController.getMembershipRenewalFee);
+router.post('/membership/renewal/create-order', authenticate, authorize(ROLES.VENDOR), vendorController.createMembershipRenewalOrder);
+router.post('/membership/renewal/verify-payment', authenticate, authorize(ROLES.VENDOR), vendorController.verifyMembershipRenewalPayment);
+
 // Vendor status routes
 router.patch('/status', authenticate, authorize(ROLES.VENDOR), vendorController.toggleOnlineStatus);
 router.patch('/:vendorId/status', authenticate, authorize(ROLES.ADMIN), vendorController.toggleOnlineStatus);

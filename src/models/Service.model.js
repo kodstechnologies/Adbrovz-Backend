@@ -30,7 +30,7 @@ const serviceSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'ServiceType',
     },
-    adminPrice: {
+    serviceCharge: {
       type: Number,
     },
     isAdminPriced: {
@@ -56,15 +56,15 @@ const serviceSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
-    membershipFee: {
+    membershipCharge: {
       type: Number,
       default: 0,
     },
-    concurrencyFee: {
+    serviceRenewalCharge: {
       type: Number,
       default: 0,
     },
-    renewalCharge: {
+    membershipRenewalCharge: {
       type: Number,
       default: 0,
     },
@@ -94,11 +94,11 @@ const serviceSchema = new mongoose.Schema(
 
 // Pre-save hook to set isAdminPriced automatically
 serviceSchema.pre('save', function (next) {
-  if (this.adminPrice !== undefined && this.adminPrice !== null && this.adminPrice > 0) {
+  if (this.serviceCharge !== undefined && this.serviceCharge !== null && this.serviceCharge > 0) {
     this.isAdminPriced = true;
   } else {
     this.isAdminPriced = false;
-    this.adminPrice = 0; // Normalize to 0 if not priced
+    this.serviceCharge = 0; // Normalize to 0 if not priced
   }
   next();
 });

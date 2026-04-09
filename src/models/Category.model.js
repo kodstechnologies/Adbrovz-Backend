@@ -15,7 +15,11 @@ const categorySchema = new mongoose.Schema(
     icon: {
       type: String,
     },
-    concurrencyFee: {
+    serviceRenewalCharge: {
+        type: Number,
+        default: 0
+    },
+    renewalCharge: {
         type: Number,
         default: 0
     },
@@ -31,7 +35,7 @@ const categorySchema = new mongoose.Schema(
       type: String,
       default: '20:00',
     },
-    adminPrice: {
+    serviceCharge: {
       type: Number,
       default: 0,
     },
@@ -43,11 +47,11 @@ const categorySchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-    membershipFee: {
+    membershipCharge: {
       type: Number,
       default: 0,
     },
-    renewalCharge: {
+    membershipRenewalCharge: {
       type: Number,
       default: 0,
     },

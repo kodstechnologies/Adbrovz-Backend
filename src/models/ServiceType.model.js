@@ -26,7 +26,7 @@ const serviceTypeSchema = new mongoose.Schema(
       ref: 'Subcategory',
       required: true,
     },
-    adminPrice: {
+    serviceCharge: {
       type: Number,
       default: 0,
     },
@@ -38,15 +38,15 @@ const serviceTypeSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-    membershipFee: {
+    membershipCharge: {
       type: Number,
       default: 0,
     },
-    concurrencyFee: {
+    serviceRenewalCharge: {
       type: Number,
       default: 0,
     },
-    renewalCharge: {
+    membershipRenewalCharge: {
       type: Number,
       default: 0,
     },

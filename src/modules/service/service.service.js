@@ -17,7 +17,7 @@ const MESSAGES = require('../../constants/messages');
 const getAllCategories = async () => {
     const categories = await Category.find({})
         .sort({ order: 1, name: 1 })
-        .select('name description icon defaultFreeCredits slotStartTime slotEndTime');
+        .select('name description icon defaultFreeCredits slotStartTime slotEndTime serviceRenewalCharge membershipRenewalCharge renewalCharge');
     return categories;
 };
 
@@ -27,7 +27,7 @@ const getAllCategories = async () => {
 const getSubcategoriesByCategoryId = async (categoryId) => {
     const subcategories = await Subcategory.find({ category: categoryId })
         .sort({ order: 1, name: 1 })
-        .select('name description icon order price adminPrice coupon discount membershipFee');
+        .select('name description icon order price serviceCharge coupon discount membershipCharge serviceRenewalCharge membershipRenewalCharge renewalCharge');
 
     return subcategories;
 };
@@ -40,7 +40,7 @@ const getServiceTypesBySubcategoryId = async (subcategoryId) => {
         .populate('category', 'name')
         .populate('subcategory', 'name')
         .sort({ order: 1, name: 1 })
-        .select('name description photo order adminPrice coupon discount membershipFee concurrencyFee renewalCharge category subcategory');
+        .select('name description photo order serviceCharge coupon discount membershipCharge serviceRenewalCharge membershipRenewalCharge category subcategory');
 
     return serviceTypes;
 };
@@ -99,7 +99,7 @@ const getServicesByServiceTypeId = async (serviceTypeId, options = {}) => {
         .skip(skip)
         .limit(limit)
         .select(
-            'title description photo approxCompletionTime adminPrice isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount'
+            'title description photo approxCompletionTime serviceCharge isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount'
         );
 
     const total = await Service.countDocuments(query);
@@ -142,7 +142,7 @@ const getServicesByTypes = async (typeIds, options = {}) => {
         .skip(skip)
         .limit(limit)
         .select(
-            'title description photo approxCompletionTime adminPrice isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType category'
+            'title description photo approxCompletionTime serviceCharge isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType category'
         );
 
     const total = await Service.countDocuments(query);
@@ -202,7 +202,7 @@ const getServicesBySubcategoryId = async (subcategoryId, options = {}) => {
         .skip(skip)
         .limit(limit)
         .select(
-            'title description photo approxCompletionTime adminPrice isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled'
+            'title description photo approxCompletionTime serviceCharge isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled'
         );
 
     const total = await Service.countDocuments(query);
@@ -256,7 +256,7 @@ const globalSearch = async (query) => {
             .populate('category', 'name')
             .populate('subcategory', 'name')
             .select(
-                'title description photo adminPrice approxCompletionTime category subcategory'
+                'title description photo serviceCharge approxCompletionTime category subcategory'
             )
             .limit(20)
     ]);
@@ -500,13 +500,13 @@ const createService = async (data) => {
         }
     }
 
-    // Normalize adminPrice and set isAdminPriced
-    if (data.adminPrice === '' || data.adminPrice === undefined || data.adminPrice === null || data.adminPrice === 'null') {
-        data.adminPrice = 0;
+    // Normalize serviceCharge and set isAdminPriced
+    if (data.serviceCharge === '' || data.serviceCharge === undefined || data.serviceCharge === null || data.serviceCharge === 'null') {
+        data.serviceCharge = 0;
         data.isAdminPriced = false;
     } else {
-        data.adminPrice = Number(data.adminPrice);
-        data.isAdminPriced = data.adminPrice > 0;
+        data.serviceCharge = Number(data.serviceCharge);
+        data.isAdminPriced = data.serviceCharge > 0;
     }
 
     return await Service.create(data);
@@ -533,13 +533,13 @@ const updateService = async (serviceId, data) => {
         }
     }
 
-    // Normalize adminPrice and set isAdminPriced
-    if (data.adminPrice === '' || data.adminPrice === undefined || data.adminPrice === null || data.adminPrice === 'null') {
-        data.adminPrice = 0;
+    // Normalize serviceCharge and set isAdminPriced
+    if (data.serviceCharge === '' || data.serviceCharge === undefined || data.serviceCharge === null || data.serviceCharge === 'null') {
+        data.serviceCharge = 0;
         data.isAdminPriced = false;
     } else {
-        data.adminPrice = Number(data.adminPrice);
-        data.isAdminPriced = data.adminPrice > 0;
+        data.serviceCharge = Number(data.serviceCharge);
+        data.isAdminPriced = data.serviceCharge > 0;
     }
 
     return await Service.findByIdAndUpdate(serviceId, data, { new: true, runValidators: true });
@@ -636,10 +636,12 @@ const getAllCategoriesWithSubcategories = async () => {
                 defaultFreeCredits: 1,
                 slotStartTime: 1,
                 slotEndTime: 1,
-                adminPrice: 1,
+                serviceCharge: 1,
                 coupon: 1,
                 discount: 1,
-                membershipFee: 1,
+                membershipCharge: 1,
+                membershipRenewalCharge: 1,
+                serviceRenewalCharge: 1,
                 renewalCharge: 1,
                 subcategories: 1
             }
@@ -691,10 +693,10 @@ const getAllSubcategoriesWithServices = async () => {
                         $project: {
                             _id: 1,
                             title: 1,
-                            membershipFee: {
+                            membershipCharge: {
                                 $cond: [
-                                    { $gt: ['$membershipFee', 0] },
-                                    '$membershipFee',
+                                    { $gt: ['$membershipCharge', 0] },
+                                    '$membershipCharge',
                                     '$$REMOVE'
                                 ]
                             }
@@ -711,6 +713,8 @@ const getAllSubcategoriesWithServices = async () => {
                 icon: 1,
                 order: 1,
                 price: 1,
+                serviceRenewalCharge: 1,
+                renewalCharge: 1,
                 services: 1,
                 category: 1
             }

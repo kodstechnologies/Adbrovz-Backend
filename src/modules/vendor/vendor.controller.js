@@ -258,6 +258,85 @@ const getSubscriptionStatus = asyncHandler(async (req, res) => {
     res.status(200).json(result);
 });
 
+/**
+ * Service Renewal: Get Fee Details
+ */
+const getServiceRenewalFee = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.getServiceRenewalFeeDetails(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Service renewal fee retrieved successfully')
+    );
+});
+
+/**
+ * Service Renewal: Create Razorpay Order
+ */
+const createServiceRenewalOrder = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.createServiceRenewalOrder(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Service renewal order created successfully')
+    );
+});
+
+/**
+ * Service Renewal: Verify Payment
+ */
+const verifyServiceRenewalPayment = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    const result = await vendorService.verifyServiceRenewalPayment(vendorId, {
+        razorpay_order_id,
+        razorpay_payment_id,
+        razorpay_signature,
+    });
+    res.status(200).json(
+        new ApiResponse(200, result, result.message)
+    );
+});
+
+/**
+ * Membership Renewal: Get Fee Details
+ */
+const getMembershipRenewalFee = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const { durationMonths } = req.query;
+    const result = await vendorService.getMembershipRenewalFeeDetails(vendorId, { durationMonths });
+    res.status(200).json(
+        new ApiResponse(200, result, 'Membership renewal fee retrieved successfully')
+    );
+});
+
+/**
+ * Membership Renewal: Create Razorpay Order
+ */
+const createMembershipRenewalOrder = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const { durationMonths } = req.body;
+    const result = await vendorService.createMembershipRenewalOrder(vendorId, { durationMonths });
+    res.status(200).json(
+        new ApiResponse(200, result, 'Membership renewal order created successfully')
+    );
+});
+
+/**
+ * Membership Renewal: Verify Payment
+ */
+const verifyMembershipRenewalPayment = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, durationMonths } = req.body;
+    const result = await vendorService.verifyMembershipRenewalPayment(vendorId, {
+        razorpay_order_id,
+        razorpay_payment_id,
+        razorpay_signature,
+        durationMonths
+    });
+    res.status(200).json(
+        new ApiResponse(200, result, result.message)
+    );
+});
+
 
 module.exports = {
     getAllVendors,
@@ -281,5 +360,11 @@ module.exports = {
     getCategoryRegistrationData,
     reuploadDocuments,
     getSubscriptionStatus,
+    getServiceRenewalFee,
+    createServiceRenewalOrder,
+    verifyServiceRenewalPayment,
+    getMembershipRenewalFee,
+    createMembershipRenewalOrder,
+    verifyMembershipRenewalPayment,
 };
 
