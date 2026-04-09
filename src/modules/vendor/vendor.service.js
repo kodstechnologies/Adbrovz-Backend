@@ -109,17 +109,17 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
 
     // 1. Priorities: Explicit subcategoryIds > Explicit categoryId > Explicit serviceIds > Vendor's saved data
     if (parsedSubcategoryIds.length > 0) {
-        itemList = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).populate('category');
+        itemList = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).populate('category').lean();
         isSubcategory = true;
         if (itemList.length > 0) category = itemList[0].category;
     } else if (categoryId) {
-        category = await Category.findById(categoryId);
+        category = await Category.findById(categoryId).lean();
         if (!category) throw new ApiError(404, 'Category not found');
     } else if (parsedServiceIds.length > 0) {
-        itemList = await Service.find({ _id: { $in: parsedServiceIds } }).populate('category');
+        itemList = await Service.find({ _id: { $in: parsedServiceIds } }).populate('category').lean();
         if (itemList.length > 0) category = itemList[0].category;
     } else if (vendorId) {
-        const vendor = await Vendor.findById(vendorId).populate('selectedServices').populate('selectedSubcategories').populate('membership.category');
+        const vendor = await Vendor.findById(vendorId).populate('selectedServices').populate('selectedSubcategories').populate('membership.category').lean();
         if (vendor) {
             category = vendor.membership?.category;
             if (vendor.selectedSubcategories && vendor.selectedSubcategories.length > 0) {
@@ -129,12 +129,12 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
                 itemList = vendor.selectedServices;
             }
 
-            // Fallback for string IDs if populate failed or wasn't used correctly
+            // Fallback for string IDs if populate failed
             if (itemList.length > 0 && typeof itemList[0] === 'string') {
                 if (isSubcategory) {
-                    itemList = await Subcategory.find({ _id: { $in: itemList } }).populate('category');
+                    itemList = await Subcategory.find({ _id: { $in: itemList } }).populate('category').lean();
                 } else {
-                    itemList = await Service.find({ _id: { $in: itemList } }).populate('category');
+                    itemList = await Service.find({ _id: { $in: itemList } }).populate('category').lean();
                 }
             }
         }
@@ -149,31 +149,46 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
     const selectedDuration = Number(durationMonths || 3);
     const plan = await getPlanByDuration(selectedDuration);
     const baseFee = Number(plan.price || 0);
-    const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
 
-    // Only use base plan fee for membership
-    const subtotal = baseFee;
+    // Calculate hierarchical service membership charges (Fixing 'why zero' issue)
+    let serviceMembershipSubtotal = 0;
+    const services = itemList.map(item => {
+        const charge = Number(item.membershipCharge || item.membershipFee || 0);
+        serviceMembershipSubtotal += charge;
+        return {
+            id: item._id,
+            title: isSubcategory ? item.name : item.title,
+            type: isSubcategory ? 'subcategory' : 'service',
+            membershipFee: charge
+        };
+    });
+
+    // Also include category-level membership charge if applicable
+    const catMembershipCharge = Number(category?.membershipCharge || category?.concurrencyFee || category?.membershipFee || 0);
+    serviceMembershipSubtotal += catMembershipCharge;
+
+    const subtotal = baseFee + serviceMembershipSubtotal;
+    const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
     const totalFee = Number(subtotal + gstAmount);
 
     const validityDays = plan.validityDays || (selectedDuration * 30);
-    const plans = await getMembershipPlans();
+    const plansInfo = await getMembershipPlans(serviceMembershipSubtotal);
 
     return {
+        vendorId,
         subtotal,
+        basePlanFee: baseFee,
+        totalServiceFee: serviceMembershipSubtotal,
+        gstPercent,
         gstAmount,
         totalFee,
-        categoryMembershipFee: category?.concurrencyFee || category?.membershipFee || 0,
+        categoryMembershipFee: catMembershipCharge,
         categoryRenewalCharge: category?.renewalCharge || 0,
         duration: `${validityDays} days`,
         durationMonths: selectedDuration,
-        plans,
-        services: itemList.map(item => ({
-            id: item._id,
-            title: isSubcategory ? item.name : item.title,
-            type: isSubcategory ? 'subcategory' : 'service',
-            membershipFee: item.membershipFee || 0
-        }))
+        plans: plansInfo,
+        services
     };
 };
 
@@ -194,13 +209,13 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
 
     // Priority: Query overrides > Saved data
     if (parsedSubcategoryIds.length > 0) {
-        itemList = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).populate('category');
+        itemList = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).populate('category').lean();
         isSubcategory = true;
         if (itemList.length > 0) category = itemList[0].category;
     } else if (categoryId) {
-        category = await Category.findById(categoryId);
+        category = await Category.findById(categoryId).lean();
     } else if (parsedServiceIds.length > 0) {
-        itemList = await Service.find({ _id: { $in: parsedServiceIds } }).populate('category');
+        itemList = await Service.find({ _id: { $in: parsedServiceIds } }).populate('category').lean();
         if (itemList.length > 0) category = itemList[0].category;
     } else {
         category = vendor.membership?.category;
@@ -214,9 +229,9 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         // Fallback for string IDs if populate failed
         if (itemList.length > 0 && typeof itemList[0] === 'string') {
             if (isSubcategory) {
-                itemList = await Subcategory.find({ _id: { $in: itemList } }).populate('category');
+                itemList = await Subcategory.find({ _id: { $in: itemList } }).populate('category').lean();
             } else {
-                itemList = await Service.find({ _id: { $in: itemList } }).populate('category');
+                itemList = await Service.find({ _id: { $in: itemList } }).populate('category').lean();
             }
         }
     }
@@ -226,31 +241,46 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     const durationMonths = Number(overrides.durationMonths || vendor.membership.durationMonths || 3);
     const plan = await getPlanByDuration(durationMonths);
     const baseFee = Number(plan.price || 0);
-    const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
 
-    // Only use base plan fee for membership
-    const subtotal = baseFee;
+    // Calculate hierarchical service membership charges (Fixing 'why zero' issue)
+    let serviceMembershipSubtotal = 0;
+    const services = itemList.map(item => {
+        const charge = Number(item.membershipCharge || item.membershipFee || 0);
+        serviceMembershipSubtotal += charge;
+        return {
+            id: item._id,
+            title: isSubcategory ? item.name : item.title,
+            type: isSubcategory ? 'subcategory' : 'service',
+            membershipFee: charge
+        };
+    });
+
+    // Also include category-level membership charge if applicable
+    const catMembershipCharge = Number(category?.membershipCharge || category?.concurrencyFee || category?.membershipFee || 0);
+    serviceMembershipSubtotal += catMembershipCharge;
+
+    const subtotal = baseFee + serviceMembershipSubtotal;
+    const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
     const totalFee = Number(subtotal + gstAmount);
 
     const validityDays = plan.validityDays || (durationMonths * 30);
-    const plans = await getMembershipPlans();
+    const plansInfo = await getMembershipPlans(serviceMembershipSubtotal);
 
     return {
         vendorId: vendor._id,
         subtotal,
+        basePlanFee: baseFee,
+        totalServiceFee: serviceMembershipSubtotal,
+        gstPercent,
         gstAmount,
         totalFee,
+        categoryMembershipFee: catMembershipCharge,
         duration: `${validityDays} days`,
         durationMonths,
         razorpayKeyId: config.RAZORPAY_KEY_ID,
-        plans,
-        services: itemList.map(item => ({
-            id: item._id,
-            title: isSubcategory ? item.name : item.title,
-            type: isSubcategory ? 'subcategory' : 'service',
-            membershipFee: 0 // Service fees are no longer added individually
-        }))
+        plans: plansInfo,
+        services
     };
 };
 
@@ -506,7 +536,7 @@ const purchaseMembership = async (vendorId) => {
 /**
  * Get available membership plans (3, 6, 12 months) from settings
  */
-const getMembershipPlans = async () => {
+const getMembershipPlans = async (serviceMembershipFee = 0) => {
     const adminService = require('../admin/admin.service');
     const tiers = await CreditPlan.find({
         name: { $in: ['Basic', 'Pro', 'Elite'] }
@@ -528,15 +558,20 @@ const getMembershipPlans = async () => {
 
         const baseFee = plan.price || 0;
         const validityDays = plan.validityDays || (config.duration * 30);
+        const serviceFee = Number(serviceMembershipFee);
 
-        const gstAmount = Math.round(baseFee * (gstPercent / 100));
+        const subtotal = baseFee + serviceFee;
+        const gstAmount = Math.round(subtotal * (gstPercent / 100));
+        const totalFee = Number(subtotal + gstAmount);
+
         result.push({
             durationMonths: config.duration,
             label: `${config.name} (${validityDays} Days)`,
             baseFee,
+            ServiceFee: serviceFee,
             validityDays: Number(validityDays),
             gstAmount,
-            totalFee: baseFee + gstAmount,
+            totalFee,
             gstPercent
         });
     }
@@ -1390,11 +1425,6 @@ const getServiceRenewalFeeDetails = async (vendorId) => {
     serviceTypes.forEach(st => serviceSubtotal += (st.serviceRenewalCharge || 0));
     services.forEach(s => serviceSubtotal += (s.serviceRenewalCharge || 0));
 
-    // 2. Calculate Membership Renewal Fee (Categorical)
-    let membershipSubtotal = 0;
-    categories.forEach(c => membershipSubtotal += (c.membershipRenewalCharge || 0));
-    subcategories.forEach(s => membershipSubtotal += (s.membershipRenewalCharge || 0));
-
     const totalFee = serviceSubtotal;
 
     // Build breakdown filtering out 0 charges and omitting empty arrays
@@ -1415,7 +1445,6 @@ const getServiceRenewalFeeDetails = async (vendorId) => {
     return {
         vendorId: vendor._id,
         totalFee,
-        membershipExpiryDate: vendor.membership?.expiryDate || null,
         serviceRenewal: {
             fee: serviceSubtotal,
             expiryDate: vendor.serviceRenewal?.expiryDate || null,
@@ -1429,28 +1458,90 @@ const getServiceRenewalFeeDetails = async (vendorId) => {
  * Membership Renewal: Calculate fee based on duration
  */
 const getMembershipRenewalFeeDetails = async (vendorId, { durationMonths = 3 } = {}) => {
-    const vendor = await Vendor.findById(vendorId);
+    const vendor = await Vendor.findById(vendorId)
+        .populate('selectedCategories selectedSubcategories membership.category');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const adminService = require('../admin/admin.service');
     const plan = await getPlanByDuration(Number(durationMonths));
-    const baseFee = Number(plan.price || 0);
+    const basePlanPrice = Number(plan.price || 0);
     const validityDays = Number(plan.validityDays || (durationMonths * 30));
 
+    // Gather IDs to calculate hierarchical membership charges
+    const categoryIds = new Set();
+    const subcategoryIds = new Set();
+    const serviceTypeIds = new Set();
+    const serviceIds = new Set();
+
+    if (vendor.selectedCategories) {
+        vendor.selectedCategories.forEach(c => categoryIds.add(String(c._id || c)));
+    }
+    if (vendor.membership?.category) {
+        categoryIds.add(String(vendor.membership.category._id || vendor.membership.category));
+    }
+    if (vendor.selectedSubcategories) {
+        vendor.selectedSubcategories.forEach(s => {
+            subcategoryIds.add(String(s._id || s));
+            if (s.category) categoryIds.add(String(s.category._id || s.category));
+        });
+    }
+    if (vendor.selectedServices && vendor.selectedServices.length > 0) {
+        const fullServices = await Service.find({ _id: { $in: vendor.selectedServices } });
+        fullServices.forEach(svc => {
+            serviceIds.add(String(svc._id));
+            if (svc.serviceType) serviceTypeIds.add(String(svc.serviceType));
+            if (svc.subcategory) subcategoryIds.add(String(svc.subcategory));
+            if (svc.category) categoryIds.add(String(svc.category));
+        });
+    }
+
+    const categories = await Category.find({ _id: { $in: Array.from(categoryIds) } });
+    const subcategories = await Subcategory.find({ _id: { $in: Array.from(subcategoryIds) } });
+    
+    const ServiceType = require('../../models/ServiceType.model');
+    const serviceTypes = await ServiceType.find({ _id: { $in: Array.from(serviceTypeIds) } });
+    const services = await Service.find({ _id: { $in: Array.from(serviceIds) } });
+
+    // Calculate hierarchical Membership Renewal Fee
+    let membershipHierarchicalSubtotal = 0;
+    categories.forEach(c => membershipHierarchicalSubtotal += (c.membershipRenewalCharge || 0));
+    subcategories.forEach(s => membershipHierarchicalSubtotal += (s.membershipRenewalCharge || 0));
+    serviceTypes.forEach(st => membershipHierarchicalSubtotal += (st.membershipRenewalCharge || 0));
+    services.forEach(s => membershipHierarchicalSubtotal += (s.membershipRenewalCharge || 0));
+
+    const subtotal = basePlanPrice + membershipHierarchicalSubtotal;
     const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
-    const gstAmount = Math.round(baseFee * (gstPercent / 100));
-    const totalFee = Number(baseFee + gstAmount);
+    const gstAmount = Math.round(subtotal * (gstPercent / 100));
+    const totalFee = Number(subtotal + gstAmount);
+
+    // Build breakdown for hierarchical charges
+    const breakdown = {
+        basePlan: { name: plan.name || 'Basic', price: basePlanPrice }
+    };
+    
+    const catList = categories.map(c => ({ id: c._id, name: c.name, charge: c.membershipRenewalCharge || 0 })).filter(c => c.charge > 0);
+    if (catList.length > 0) breakdown.categories = catList;
+
+    const subList = subcategories.map(s => ({ id: s._id, name: s.name, charge: s.membershipRenewalCharge || 0 })).filter(s => s.charge > 0);
+    if (subList.length > 0) breakdown.subcategories = subList;
+
+    const typeList = serviceTypes.map(st => ({ id: st._id, name: st.name, charge: st.membershipRenewalCharge || 0 })).filter(t => t.charge > 0);
+    if (typeList.length > 0) breakdown.serviceTypes = typeList;
+
+    const svcList = services.map(s => ({ id: s._id, name: s.title, charge: s.membershipRenewalCharge || 0 })).filter(s => s.charge > 0);
+    if (svcList.length > 0) breakdown.services = svcList;
 
     return {
         vendorId: vendor._id,
-        subtotal: baseFee,
+        subtotal,
         gstPercent,
         gstAmount,
         totalFee,
         durationMonths: Number(durationMonths),
         validityDays,
         razorpayKeyId: config.RAZORPAY_KEY_ID,
-        planName: durationMonths === 6 ? 'Pro' : (durationMonths === 12 ? 'Elite' : 'Basic')
+        planName: plan.name || (durationMonths === 6 ? 'Pro' : (durationMonths === 12 ? 'Elite' : 'Basic')),
+        breakdown
     };
 };
 
@@ -1605,11 +1696,13 @@ const verifyServiceRenewalPayment = async (vendorId, { razorpay_order_id, razorp
 
     vendor.serviceRenewal.expiryDate = newExpiryDate;
 
-    // Also extend membership expiry if this is a unified renewal
+    // Recalculate fee to keep it updated just in case
     try {
         const feeDetails = await getServiceRenewalFeeDetails(vendorId);
         vendor.serviceRenewal.fee = feeDetails.totalFee;
-    } catch (e) { }
+    } catch (e) { 
+        console.error('Error in service renewal extension:', e);
+    }
 
     await vendor.save();
 
