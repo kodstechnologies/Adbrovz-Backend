@@ -92,10 +92,23 @@ const getRazorpay = () => {
  */
 const getAllVendors = async () => {
     return await Vendor.find()
-        .populate('membership.category', 'name')
+        .populate('membership.category', 'name membershipCharge renewalCharge')
         .populate('creditPlan.planId', 'name')
-        .populate('selectedSubcategories', 'name price')
-        .populate('selectedServices', 'title adminPrice membershipFee')
+        .populate('selectedCategories', 'name membershipCharge renewalCharge')
+        .populate({
+            path: 'selectedSubcategories',
+            select: 'name price membershipFee membershipCharge category',
+            populate: { path: 'category', select: 'name' }
+        })
+        .populate({
+            path: 'selectedServices',
+            select: 'title adminPrice membershipFee subcategory category serviceType',
+            populate: [
+                { path: 'category', select: 'name' },
+                { path: 'subcategory', select: 'name' },
+                { path: 'serviceType', select: 'name' }
+            ]
+        })
         .sort({ createdAt: -1 });
 };
 
@@ -974,6 +987,35 @@ const getVendorProfile = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
+    // Calculate metrics
+    const mongoose = require('mongoose');
+    const Booking = require('../../models/Booking.model');
+    const vendorIdObj = new mongoose.Types.ObjectId(vendorId);
+    
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    const [completedBookingsThisMonth, totalCompletedBookingCounts] = await Promise.all([
+        Booking.find({
+            vendor: vendorIdObj,
+            status: 'completed',
+            updatedAt: { $gte: startOfMonth, $lte: endOfMonth }
+        }).select('pricing services'),
+        Booking.countDocuments({ vendor: vendorIdObj, status: 'completed' })
+    ]);
+
+    let monthlyEarnings = 0;
+    completedBookingsThisMonth.forEach(booking => {
+        if (booking.pricing && booking.pricing.totalPrice) {
+            monthlyEarnings += booking.pricing.totalPrice;
+        } else if (booking.services && booking.services.length > 0) {
+            booking.services.forEach(s => {
+                monthlyEarnings += (s.finalPrice || s.adminPrice || 0) * (s.quantity || 1);
+            });
+        }
+    });
+
     return {
         id: vendor._id,
         image: vendor.documents?.photo?.url || '',
@@ -987,6 +1029,8 @@ const getVendorProfile = async (vendorId) => {
         country: vendor.country || 'India',
         coins: vendor.coins || 0,
         isOnline: vendor.isOnline || false,
+        monthlyEarnings,
+        totalCompletedBookingCounts,
     };
 };
 
@@ -1930,6 +1974,198 @@ const getHierarchicalMembershipCharges = async (vendorId) => {
     };
 };
 
+/**
+ * Add Category: Calculate fee details
+ */
+const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds = [], serviceIds = [] } = {}) => {
+    if (!categoryId) throw new ApiError(400, 'categoryId is required');
+
+    const category = await Category.findById(categoryId).lean();
+    if (!category) throw new ApiError(404, 'Category not found');
+
+    const parsedSubcategoryIds = parseArrayInput(subcategoryIds);
+    const parsedServiceIds = parseArrayInput(serviceIds);
+
+    const subcategories = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).lean();
+    const services = await Service.find({ _id: { $in: parsedServiceIds } }).lean();
+
+    let totalFee = Number(category.membershipCharge || 0);
+    const breakdown = {
+        category: { id: category._id, name: category.name, charge: Number(category.membershipCharge || 0) },
+        subcategories: [],
+        services: []
+    };
+
+    subcategories.forEach(sub => {
+        const charge = Number(sub.membershipCharge || 0);
+        totalFee += charge;
+        if (charge > 0) breakdown.subcategories.push({ id: sub._id, name: sub.name, charge });
+    });
+
+    services.forEach(svc => {
+        const charge = Number(svc.membershipCharge || 0);
+        totalFee += charge;
+        if (charge > 0) breakdown.services.push({ id: svc._id, name: svc.title, charge });
+    });
+
+    return {
+        vendorId,
+        categoryId,
+        totalFee,
+        breakdown,
+        razorpayKeyId: config.RAZORPAY_KEY_ID
+    };
+};
+
+/**
+ * Add Category: Create order
+ */
+const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [], serviceIds = [] } = {}) => {
+    const feeDetails = await getAddCategoryFeeDetails(vendorId, { categoryId, subcategoryIds, serviceIds });
+
+    if (feeDetails.totalFee <= 0) {
+        throw new ApiError(400, 'Total fee for adding category is zero. Cannot create payment order.');
+    }
+
+    let razorpayOrder;
+    try {
+        razorpayOrder = await getRazorpay().orders.create({
+            amount: Math.round(feeDetails.totalFee * 100),
+            currency: 'INR',
+            receipt: `add_cat_${vendorId.toString().slice(-10)}_${Date.now()}`,
+            notes: {
+                vendorId: vendorId.toString(),
+                purpose: 'category_purchase',
+            },
+        });
+
+        // Log the pending payment record
+        await PaymentRecord.create({
+            vendor: vendorId,
+            orderId: razorpayOrder.id,
+            purpose: 'CATEGORY_PURCHASE',
+            amount: feeDetails.totalFee,
+            totalAmount: feeDetails.totalFee,
+            status: 'PENDING',
+            metadata: {
+                ...feeDetails.breakdown,
+                selectedSubcategories: subcategoryIds,
+                selectedServices: serviceIds,
+                categoryId: categoryId
+            }
+        });
+    } catch (error) {
+        console.error('Razorpay Add Category Order Error:', error);
+        const errorMsg = error.error?.description || error.message || 'Failed to create payment order with Razorpay';
+        throw new ApiError(400, `Payment Error: ${errorMsg}`);
+    }
+
+    return {
+        ...feeDetails,
+        status: razorpayOrder.status,
+        razorpayOrder: {
+            id: razorpayOrder.id,
+            amount: razorpayOrder.amount,
+            amountInRupees: razorpayOrder.amount / 100,
+            currency: razorpayOrder.currency,
+            status: razorpayOrder.status,
+        }
+    };
+};
+
+/**
+ * Add Category: Verify payment and activate
+ */
+const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature, isAdminBypass = false, categoryId, selectedSubcategories, selectedServices }) => {
+    if (!isAdminBypass) {
+        const generated_signature = crypto
+            .createHmac('sha256', config.RAZORPAY_KEY_SECRET)
+            .update(razorpay_order_id + '|' + razorpay_payment_id)
+            .digest('hex');
+
+        if (generated_signature !== razorpay_signature) {
+            throw new ApiError(400, 'Invalid payment signature');
+        }
+    }
+
+    let finalCategoryId = categoryId;
+    let finalSubcategories = selectedSubcategories;
+    let finalServices = selectedServices;
+
+    const paymentRecord = await PaymentRecord.findOne({ orderId: razorpay_order_id });
+    
+    if (!paymentRecord && !isAdminBypass) {
+        throw new ApiError(404, 'Payment record not found');
+    }
+
+    if (paymentRecord && paymentRecord.metadata) {
+        finalCategoryId = finalCategoryId || paymentRecord.metadata.categoryId;
+        finalSubcategories = finalSubcategories || paymentRecord.metadata.selectedSubcategories;
+        finalServices = finalServices || paymentRecord.metadata.selectedServices;
+    }
+
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    // Add unique selections to vendor profile
+    if (finalCategoryId && !vendor.selectedCategories.includes(finalCategoryId)) {
+        vendor.selectedCategories.push(finalCategoryId);
+    }
+
+    if (finalSubcategories && Array.isArray(finalSubcategories)) {
+        finalSubcategories.forEach(subId => {
+            if (!vendor.selectedSubcategories.includes(String(subId))) {
+                vendor.selectedSubcategories.push(subId);
+            }
+        });
+    }
+
+    if (finalServices && Array.isArray(finalServices)) {
+        finalServices.forEach(svcId => {
+            if (!vendor.selectedServices.includes(String(svcId))) {
+                vendor.selectedServices.push(svcId);
+            }
+        });
+    }
+
+    // Update payment record if it exists
+    if (paymentRecord) {
+        paymentRecord.status = 'COMPLETED';
+        paymentRecord.paymentId = razorpay_payment_id;
+        await paymentRecord.save();
+    } else if (isAdminBypass) {
+        // Create a record for admin activation audit trail
+        await PaymentRecord.create({
+            vendor: vendorId,
+            orderId: razorpay_order_id,
+            paymentId: razorpay_payment_id,
+            purpose: 'CATEGORY_PURCHASE',
+            amount: 0,
+            totalAmount: 0,
+            status: 'COMPLETED',
+            metadata: {
+                categoryId: finalCategoryId,
+                selectedSubcategories: finalSubcategories,
+                selectedServices: finalServices,
+                notes: 'Activated by Admin'
+            }
+        });
+    }
+
+    await vendor.save();
+
+    return {
+        success: true,
+        message: 'New category and services added successfully.',
+        vendor: {
+            selectedCategories: vendor.selectedCategories,
+            selectedSubcategories: vendor.selectedSubcategories,
+            selectedServices: vendor.selectedServices
+        }
+    };
+};
+
+
 module.exports = {
     getAllVendors,
     getMembershipInfo,
@@ -1963,5 +2199,8 @@ module.exports = {
     getMembershipPlansWithStatus,
     getMembershipRenewalFeeNoGst,
     getHierarchicalMembershipCharges,
+    getAddCategoryFeeDetails,
+    createAddCategoryOrder,
+    verifyAddCategoryPayment,
 };
 

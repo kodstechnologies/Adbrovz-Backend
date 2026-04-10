@@ -373,6 +373,60 @@ const getHierarchicalMembershipChargesController = asyncHandler(async (req, res)
     );
 });
 
+/**
+ * Add Category: Get fee details
+ */
+const getAddCategoryFee = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.getAddCategoryFeeDetails(vendorId, req.body);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Add category fee details retrieved successfully')
+    );
+});
+
+/**
+ * Add Category: Create Razorpay order
+ */
+const createAddCategoryOrder = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.createAddCategoryOrder(vendorId, req.body);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Add category payment order created successfully')
+    );
+});
+
+/**
+ * Add Category: Verify Payment
+ */
+const verifyAddCategoryPayment = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.verifyAddCategoryPayment(vendorId, req.body);
+    res.status(200).json(
+        new ApiResponse(200, result, result.message)
+    );
+});
+
+/**
+ * Add Category: Direct Activation (Admin bypass)
+ */
+const activateAddCategory = asyncHandler(async (req, res) => {
+    const { vendorId } = req.params;
+    const { categoryId, subcategoryIds, serviceIds } = req.body;
+    
+    // Simulate a completed payment for direct activation
+    const result = await vendorService.verifyAddCategoryPayment(vendorId, {
+        razorpay_order_id: `admin_skip_${Date.now()}`,
+        razorpay_payment_id: `admin_manual_${Date.now()}`,
+        razorpay_signature: 'skipped_by_admin',
+        // We might need to adjust verifyAddCategoryPayment to skip signature check for admins
+        isAdminBypass: true 
+    });
+
+    res.status(200).json(
+        new ApiResponse(200, result, 'Category activated successfully by admin')
+    );
+});
+
 module.exports = {
     getAllVendors,
     getMembership,
@@ -404,5 +458,9 @@ module.exports = {
     getMembershipPlansWithStatus: getMembershipPlansWithStatusController,
     getMembershipRenewalFeeNoGst: getMembershipRenewalFeeNoGstController,
     getHierarchicalMembershipCharges: getHierarchicalMembershipChargesController,
+    getAddCategoryFee,
+    createAddCategoryOrder,
+    verifyAddCategoryPayment,
+    activateAddCategory,
 };
 

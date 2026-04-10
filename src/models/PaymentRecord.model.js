@@ -17,7 +17,7 @@ const paymentRecordSchema = new mongoose.Schema(
     },
     purpose: {
       type: String,
-      enum: ['MEMBERSHIP_RENEWAL', 'SERVICE_RENEWAL', 'MEMBERSHIP_PURCHASE', 'PLAN_PURCHASE'],
+      enum: ['MEMBERSHIP_RENEWAL', 'SERVICE_RENEWAL', 'MEMBERSHIP_PURCHASE', 'PLAN_PURCHASE', 'CATEGORY_PURCHASE'],
       required: true,
     },
     amount: {

@@ -27,6 +27,11 @@ router.post('/register/:vendorId/select-services', authenticate, authorize(ROLES
 router.post('/register/:vendorId/purchase-membership', authenticate, authorize(ROLES.ADMIN), vendorController.purchaseMembership);
 router.post('/register/:vendorId/purchase-plan', authenticate, authorize(ROLES.ADMIN), vendorController.purchaseCreditPlan);
 
+// Admin-level Add Category Configuration
+router.post('/register/:vendorId/add-category/fee', authenticate, authorize(ROLES.ADMIN), vendorController.getAddCategoryFee);
+router.post('/register/:vendorId/add-category/activate', authenticate, authorize(ROLES.ADMIN), vendorController.activateAddCategory);
+router.get('/register/categories-data', authenticate, authorize(ROLES.ADMIN), vendorController.getCategoryRegistrationData);
+
 // Membership create-order — vendorId is extracted from JWT token, NOT from URL
 router.post('/membership/create-order', authenticate, authorize(ROLES.VENDOR), vendorController.createMembershipOrder);
 router.post('/membership/create', authenticate, authorize(ROLES.VENDOR), vendorController.createMembership);
@@ -34,6 +39,11 @@ router.post('/membership/create', authenticate, authorize(ROLES.VENDOR), vendorC
 // Membership verify-payment — verifies Razorpay signature and activates membership
 router.post('/membership/verify-payment', authenticate, authorize(ROLES.VENDOR), vendorController.verifyMembershipPayment);
 router.post('/membership/verify', authenticate, authorize(ROLES.VENDOR), vendorController.verifyMembership);
+
+// Add/Repurchase Category API
+router.post('/add-category/fee', authenticate, authorize(ROLES.VENDOR), vendorController.getAddCategoryFee);
+router.post('/add-category/create-order', authenticate, authorize(ROLES.VENDOR), vendorController.createAddCategoryOrder);
+router.post('/add-category/verify-payment', authenticate, authorize(ROLES.VENDOR), vendorController.verifyAddCategoryPayment);
 
 // Service Renewal API
 router.get('/renewal/fee', authenticate, authorize(ROLES.VENDOR), vendorController.getServiceRenewalFee);
