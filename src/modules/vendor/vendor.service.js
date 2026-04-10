@@ -1578,7 +1578,6 @@ const createMembershipRenewalOrder = async (vendorId, { planId, durationMonths }
             amount: Math.round(feeDetails.totalFee * 100),
             currency: 'INR',
             receipt: `m_ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
-            },
         });
 
         // Log the pending payment record
