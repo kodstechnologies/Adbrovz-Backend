@@ -301,8 +301,8 @@ const verifyServiceRenewalPayment = asyncHandler(async (req, res) => {
  */
 const getMembershipRenewalFee = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const { durationMonths } = req.query;
-    const result = await vendorService.getMembershipRenewalFeeDetails(vendorId, { durationMonths });
+    const { durationMonths, planId } = req.query;
+    const result = await vendorService.getMembershipRenewalFeeDetails(vendorId, { durationMonths, planId });
     res.status(200).json(
         new ApiResponse(200, result, 'Membership renewal fee retrieved successfully')
     );
@@ -313,8 +313,8 @@ const getMembershipRenewalFee = asyncHandler(async (req, res) => {
  */
 const createMembershipRenewalOrder = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const { durationMonths } = req.body;
-    const result = await vendorService.createMembershipRenewalOrder(vendorId, { durationMonths });
+    const { durationMonths, planId } = req.body;
+    const result = await vendorService.createMembershipRenewalOrder(vendorId, { durationMonths, planId });
     res.status(200).json(
         new ApiResponse(200, result, 'Membership renewal order created successfully')
     );
@@ -325,18 +325,53 @@ const createMembershipRenewalOrder = asyncHandler(async (req, res) => {
  */
 const verifyMembershipRenewalPayment = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, durationMonths } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, durationMonths, planId } = req.body;
     const result = await vendorService.verifyMembershipRenewalPayment(vendorId, {
         razorpay_order_id,
         razorpay_payment_id,
         razorpay_signature,
-        durationMonths
+        durationMonths,
+        planId
     });
     res.status(200).json(
         new ApiResponse(200, result, result.message)
     );
 });
 
+
+/**
+ * API 1: List all membership plans with vendor status (expiry and renewal totals)
+ */
+const getMembershipPlansWithStatusController = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.getMembershipPlansWithStatus(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Membership plans with status retrieved successfully')
+    );
+});
+
+/**
+ * API 2: Renewal Membership without GST
+ */
+const getMembershipRenewalFeeNoGstController = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const { durationMonths } = req.query;
+    const result = await vendorService.getMembershipRenewalFeeNoGst(vendorId, { durationMonths });
+    res.status(200).json(
+        new ApiResponse(200, result, 'Membership renewal fee (no GST) retrieved successfully')
+    );
+});
+
+/**
+ * API 3: Hierarchical Renewal Charges Only
+ */
+const getHierarchicalMembershipChargesController = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.getHierarchicalMembershipCharges(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Hierarchical membership charges retrieved successfully')
+    );
+});
 
 module.exports = {
     getAllVendors,
@@ -366,5 +401,8 @@ module.exports = {
     getMembershipRenewalFee,
     createMembershipRenewalOrder,
     verifyMembershipRenewalPayment,
+    getMembershipPlansWithStatus: getMembershipPlansWithStatusController,
+    getMembershipRenewalFeeNoGst: getMembershipRenewalFeeNoGstController,
+    getHierarchicalMembershipCharges: getHierarchicalMembershipChargesController,
 };
 

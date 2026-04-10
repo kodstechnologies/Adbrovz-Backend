@@ -33,6 +33,8 @@ const getPlanByDuration = async (months) => {
     }
 
     return {
+        id: plan._id,
+        name: plan.name,
         price: Number(plan.price),
         validityDays: Number(plan.validityDays)
     };
@@ -1457,15 +1459,29 @@ const getServiceRenewalFeeDetails = async (vendorId) => {
 /**
  * Membership Renewal: Calculate fee based on duration
  */
-const getMembershipRenewalFeeDetails = async (vendorId, { durationMonths = 3 } = {}) => {
+const getMembershipRenewalFeeDetails = async (vendorId, { planId, durationMonths } = {}) => {
     const vendor = await Vendor.findById(vendorId)
         .populate('selectedCategories selectedSubcategories membership.category');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const adminService = require('../admin/admin.service');
-    const plan = await getPlanByDuration(Number(durationMonths));
-    const basePlanPrice = Number(plan.price || 0);
-    const validityDays = Number(plan.validityDays || (durationMonths * 30));
+    
+    let plan;
+    if (planId) {
+        const planDoc = await CreditPlan.findById(planId).lean();
+        if (!planDoc) throw new ApiError(404, 'Membership plan not found');
+        plan = {
+            id: planDoc._id,
+            name: planDoc.name,
+            price: Number(planDoc.price),
+            validityDays: Number(planDoc.validityDays)
+        };
+    } else {
+        plan = await getPlanByDuration(Number(durationMonths || 3));
+    }
+
+    const basePlanPrice = plan.price;
+    const validityDays = plan.validityDays;
 
     // Gather IDs to calculate hierarchical membership charges
     const categoryIds = new Set();
@@ -1510,9 +1526,9 @@ const getMembershipRenewalFeeDetails = async (vendorId, { durationMonths = 3 } =
     services.forEach(s => membershipHierarchicalSubtotal += (s.membershipRenewalCharge || 0));
 
     const subtotal = basePlanPrice + membershipHierarchicalSubtotal;
-    const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
-    const gstAmount = Math.round(subtotal * (gstPercent / 100));
-    const totalFee = Number(subtotal + gstAmount);
+    const gstPercent = 0; // No GST for renewal as per user request
+    const gstAmount = 0;
+    const totalFee = subtotal;
 
     // Build breakdown for hierarchical charges
     const breakdown = {
@@ -1533,14 +1549,14 @@ const getMembershipRenewalFeeDetails = async (vendorId, { durationMonths = 3 } =
 
     return {
         vendorId: vendor._id,
+        planId: plan.id,
         subtotal,
         gstPercent,
         gstAmount,
         totalFee,
-        durationMonths: Number(durationMonths),
+        durationMonths: plan.validityDays / 30, // Rough estimate
         validityDays,
         razorpayKeyId: config.RAZORPAY_KEY_ID,
-        planName: plan.name || (durationMonths === 6 ? 'Pro' : (durationMonths === 12 ? 'Elite' : 'Basic')),
         breakdown
     };
 };
@@ -1548,8 +1564,8 @@ const getMembershipRenewalFeeDetails = async (vendorId, { durationMonths = 3 } =
 /**
  * Membership Renewal: Create order
  */
-const createMembershipRenewalOrder = async (vendorId, { durationMonths = 3 } = {}) => {
-    const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { durationMonths });
+const createMembershipRenewalOrder = async (vendorId, { planId, durationMonths } = {}) => {
+    const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { planId, durationMonths });
 
     if (feeDetails.totalFee <= 0) {
         throw new ApiError(400, 'Renewal fee is zero. Cannot create payment order.');
@@ -1564,7 +1580,8 @@ const createMembershipRenewalOrder = async (vendorId, { durationMonths = 3 } = {
             notes: {
                 vendorId: vendorId.toString(),
                 purpose: 'membership_renewal',
-                durationMonths: String(durationMonths)
+                durationMonths: String(feeDetails.durationMonths),
+                planId: planId || String(feeDetails.planId)
             },
         });
     } catch (error) {
@@ -1574,23 +1591,26 @@ const createMembershipRenewalOrder = async (vendorId, { durationMonths = 3 } = {
     }
 
     return {
-        ...feeDetails,
-        status: razorpayOrder.status,
+        vendorId: vendorId.toString(),
+        planId: feeDetails.planId,
+        totalFee: feeDetails.totalFee,
+        razorpayKeyId: feeDetails.razorpayKeyId,
         razorpayOrder: {
             id: razorpayOrder.id,
             amount: razorpayOrder.amount,
             amountInRupees: razorpayOrder.amount / 100,
             currency: razorpayOrder.currency,
-            receipt: razorpayOrder.receipt,
             status: razorpayOrder.status,
-        }
+        },
+        _debug: "v2-no-gst",
+        breakdown: feeDetails.breakdown
     };
 };
 
 /**
  * Membership Renewal: Verify payment
  */
-const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature, durationMonths = 3 }) => {
+const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature, planId, durationMonths }) => {
     const generated_signature = crypto
         .createHmac('sha256', config.RAZORPAY_KEY_SECRET)
         .update(razorpay_order_id + '|' + razorpay_payment_id)
@@ -1604,8 +1624,22 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const now = new Date();
-    const plan = await getPlanByDuration(Number(durationMonths));
-    const validityDays = Number(plan.validityDays || (durationMonths * 30));
+    
+    let plan;
+    if (planId) {
+        const planDoc = await CreditPlan.findById(planId).lean();
+        if (!planDoc) throw new ApiError(404, 'Membership plan not found');
+        plan = {
+            id: planDoc._id,
+            name: planDoc.name,
+            price: Number(planDoc.price),
+            validityDays: Number(planDoc.validityDays)
+        };
+    } else {
+        plan = await getPlanByDuration(Number(durationMonths || 3));
+    }
+    
+    const validityDays = plan.validityDays;
 
     // Extend membership expiry
     const baseDate = (vendor.membership.expiryDate && vendor.membership.expiryDate > now)
@@ -1616,13 +1650,15 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
     newExpiryDate.setDate(newExpiryDate.getDate() + validityDays);
 
     vendor.membership.expiryDate = newExpiryDate;
-    vendor.membership.durationMonths = Number(durationMonths);
+    vendor.membership.durationMonths = plan.validityDays / 30; // Rough estimate
 
     await vendor.save();
 
     return {
+        success: true,
         message: `Membership renewal payment verified successfully. Validity extended by ${validityDays} days.`,
-        expiryDate: vendor.membership.expiryDate
+        expiryDate: vendor.membership.expiryDate,
+        planId: plan.id
     };
 };
 
@@ -1712,6 +1748,138 @@ const verifyServiceRenewalPayment = async (vendorId, { razorpay_order_id, razorp
     };
 };
 
+/**
+ * API 1: List all membership plans with vendor context (expiry and renewal totals)
+ */
+const getMembershipPlansWithStatus = async (vendorId) => {
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const plans = [
+        { duration: 3, name: 'Basic' },
+        { duration: 6, name: 'Pro' },
+        { duration: 12, name: 'Elite' }
+    ];
+
+    const allPlans = [];
+    let currentPlan = null;
+    const currentDuration = vendor.membership?.durationMonths || 0;
+
+    for (const p of plans) {
+        const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { durationMonths: p.duration });
+        const isCurrent = currentDuration === p.duration;
+        
+        const planObj = {
+            name: p.name,
+            isCurrent,
+            Renewal: feeDetails.subtotal, // Subtotal includes base plan + hierarchy
+            validityDays: feeDetails.validityDays
+        };
+
+        if (isCurrent) {
+            currentPlan = {
+                ...planObj,
+                currentExpiryDate: vendor.membership?.expiryDate || null
+            };
+        } else {
+            allPlans.push(planObj);
+        }
+    }
+
+    return {
+        currentPlan,
+        plans: allPlans
+    };
+};
+
+/**
+ * API 2: Renewal Membership without GST
+ */
+const getMembershipRenewalFeeNoGst = async (vendorId, { durationMonths = 3 } = {}) => {
+    const details = await getMembershipRenewalFeeDetails(vendorId, { durationMonths });
+    return {
+        ...details,
+        totalFee: details.subtotal, // Total is just the subtotal (no GST)
+        gstAmount: 0,
+        message: 'Renewal fee calculated without GST'
+    };
+};
+
+/**
+ * API 3: Hierarchical Renewal Charges Only (Cat, SubCat, Type, Service)
+ */
+const getHierarchicalMembershipCharges = async (vendorId) => {
+    const vendor = await Vendor.findById(vendorId)
+        .populate('selectedCategories selectedSubcategories membership.category');
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const categoryIds = new Set();
+    const subcategoryIds = new Set();
+    const serviceTypeIds = new Set();
+    const serviceIds = new Set();
+
+    if (vendor.selectedCategories) vendor.selectedCategories.forEach(c => categoryIds.add(String(c._id || c)));
+    if (vendor.membership?.category) categoryIds.add(String(vendor.membership.category._id || vendor.membership.category));
+    if (vendor.selectedSubcategories) {
+        vendor.selectedSubcategories.forEach(s => {
+            subcategoryIds.add(String(s._id || s));
+            if (s.category) categoryIds.add(String(s.category._id || s.category));
+        });
+    }
+    if (vendor.selectedServices && vendor.selectedServices.length > 0) {
+        const fullServices = await Service.find({ _id: { $in: vendor.selectedServices } });
+        fullServices.forEach(svc => {
+            serviceIds.add(String(svc._id));
+            if (svc.serviceType) serviceTypeIds.add(String(svc.serviceType));
+            if (svc.subcategory) subcategoryIds.add(String(svc.subcategory));
+            if (svc.category) categoryIds.add(String(svc.category));
+        });
+    }
+
+    const categories = await Category.find({ _id: { $in: Array.from(categoryIds) } });
+    const subcategories = await Subcategory.find({ _id: { $in: Array.from(subcategoryIds) } });
+    const ServiceType = require('../../models/ServiceType.model');
+    const serviceTypes = await ServiceType.find({ _id: { $in: Array.from(serviceTypeIds) } });
+    const services = await Service.find({ _id: { $in: Array.from(serviceIds) } });
+
+    let hierarchicalTotal = 0;
+    const breakdown = {};
+
+    const catList = categories.map(c => {
+        const charge = c.membershipRenewalCharge || 0;
+        hierarchicalTotal += charge;
+        return { name: c.name, charge };
+    }).filter(c => c.charge > 0);
+    if (catList.length > 0) breakdown.categories = catList;
+
+    const subList = subcategories.map(s => {
+        const charge = s.membershipRenewalCharge || 0;
+        hierarchicalTotal += charge;
+        return { name: s.name, charge };
+    }).filter(s => s.charge > 0);
+    if (subList.length > 0) breakdown.subcategories = subList;
+
+    const typeList = serviceTypes.map(st => {
+        const charge = st.membershipRenewalCharge || 0;
+        hierarchicalTotal += charge;
+        return { name: st.name, charge };
+    }).filter(t => t.charge > 0);
+    if (typeList.length > 0) breakdown.serviceTypes = typeList;
+
+    const svcList = services.map(s => {
+        const charge = s.membershipRenewalCharge || 0;
+        hierarchicalTotal += charge;
+        return { name: s.title, charge };
+    }).filter(s => s.charge > 0);
+    if (svcList.length > 0) breakdown.services = svcList;
+
+    return {
+        vendorId: vendor._id,
+        hierarchicalTotal,
+        breakdown
+    };
+};
+
 module.exports = {
     getAllVendors,
     getMembershipInfo,
@@ -1742,5 +1910,8 @@ module.exports = {
     getMembershipRenewalFeeDetails,
     createMembershipRenewalOrder,
     verifyMembershipRenewalPayment,
+    getMembershipPlansWithStatus,
+    getMembershipRenewalFeeNoGst,
+    getHierarchicalMembershipCharges,
 };
 

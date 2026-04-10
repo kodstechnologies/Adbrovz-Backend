@@ -44,6 +44,7 @@ router.use('/admin', adminRoutes);
 router.use('/services', serviceRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/vendors', vendorRoutes);
+router.use('/vendor', vendorRoutes);
 router.use('/media', mediaRoutes);
 router.use('/bookings', bookingRoutes);
 router.use('/disputes', disputeRoutes);
