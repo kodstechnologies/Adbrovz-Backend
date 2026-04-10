@@ -23,14 +23,14 @@ router.get('/:vendorId/membership-detail', authenticate, authorize(ROLES.ADMIN),
 router.post('/register/select-services', authenticate, authorize(ROLES.VENDOR), vendorController.selectServices);
 router.post('/register/purchase-membership', authenticate, authorize(ROLES.VENDOR), vendorController.purchaseMembership);
 router.post('/register/purchase-plan', authenticate, authorize(ROLES.VENDOR), vendorController.purchaseCreditPlan);
-router.post('/register/:vendorId/select-services', authenticate, authorize(ROLES.ADMIN), vendorController.selectServices);
-router.post('/register/:vendorId/purchase-membership', authenticate, authorize(ROLES.ADMIN), vendorController.purchaseMembership);
-router.post('/register/:vendorId/purchase-plan', authenticate, authorize(ROLES.ADMIN), vendorController.purchaseCreditPlan);
+router.post('/register/:vendorId/select-services', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), vendorController.selectServices);
+router.post('/register/:vendorId/purchase-membership', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), vendorController.purchaseMembership);
+router.post('/register/:vendorId/purchase-plan', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), vendorController.purchaseCreditPlan);
 
 // Admin-level Add Category Configuration
-router.post('/register/:vendorId/add-category/fee', authenticate, authorize(ROLES.ADMIN), vendorController.getAddCategoryFee);
-router.post('/register/:vendorId/add-category/activate', authenticate, authorize(ROLES.ADMIN), vendorController.activateAddCategory);
-router.get('/register/categories-data', authenticate, authorize(ROLES.ADMIN), vendorController.getCategoryRegistrationData);
+router.post('/register/:vendorId/add-category/fee', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), vendorController.getAddCategoryFee);
+router.post('/register/:vendorId/add-category/activate', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), vendorController.activateAddCategory);
+router.get('/register/categories-data', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), vendorController.getCategoryRegistrationData);
 
 // Membership create-order — vendorId is extracted from JWT token, NOT from URL
 router.post('/membership/create-order', authenticate, authorize(ROLES.VENDOR), vendorController.createMembershipOrder);
