@@ -242,6 +242,15 @@ const exportAuditLogs = asyncHandler(async (req, res) => {
   res.status(200).send(csv);
 });
 
+const getVendorPaymentHistory = asyncHandler(async (req, res) => {
+  const { vendorId } = req.params;
+  const adminService = require('./admin.service');
+  const history = await adminService.getVendorPaymentHistory(vendorId);
+  res.status(200).json(
+    new ApiResponse(200, history, 'Vendor payment history retrieved successfully')
+  );
+});
+
 module.exports = {
   getDashboard,
   getUsers,
@@ -266,5 +275,6 @@ module.exports = {
   getAllBookings,
   getBookingDetails,
   exportBookings,
-  exportAuditLogs
+  exportAuditLogs,
+  getVendorPaymentHistory
 };

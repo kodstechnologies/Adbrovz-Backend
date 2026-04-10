@@ -37,6 +37,7 @@ router.patch('/vendors/:vendorId/verify-all', adminController.verifyAllVendorDoc
 router.patch('/vendors/:vendorId/toggle-suspension', adminController.toggleVendorSuspension);
 router.patch('/vendors/:vendorId/reject', adminController.rejectVendorAccount);
 router.get('/vendors/eligible', adminController.getEligibleVendors);
+router.get('/vendors/:vendorId/payment-history', adminController.getVendorPaymentHistory);
 
 // Global Settings management
 router.get('/settings', adminController.getGlobalSettings);

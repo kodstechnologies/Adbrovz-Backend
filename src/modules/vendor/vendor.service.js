@@ -3,6 +3,7 @@ const Subcategory = require('../../models/Subcategory.model');
 const Category = require('../../models/Category.model');
 const CreditPlan = require('../../models/CreditPlan.model');
 const Service = require('../../models/Service.model');
+const PaymentRecord = require('../../models/PaymentRecord.model');
 const ApiError = require('../../utils/ApiError');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
@@ -1577,12 +1578,21 @@ const createMembershipRenewalOrder = async (vendorId, { planId, durationMonths }
             amount: Math.round(feeDetails.totalFee * 100),
             currency: 'INR',
             receipt: `m_ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
-            notes: {
-                vendorId: vendorId.toString(),
-                purpose: 'membership_renewal',
-                durationMonths: String(feeDetails.durationMonths),
-                planId: planId || String(feeDetails.planId)
             },
+        });
+
+        // Log the pending payment record
+        await PaymentRecord.create({
+            vendor: vendorId,
+            orderId: razorpayOrder.id,
+            purpose: 'MEMBERSHIP_RENEWAL',
+            amount: feeDetails.subtotal,
+            gstAmount: feeDetails.gstAmount,
+            totalAmount: feeDetails.totalFee,
+            planId: feeDetails.planId,
+            validityDays: feeDetails.validityDays,
+            metadata: feeDetails.breakdown,
+            status: 'PENDING'
         });
     } catch (error) {
         console.error('Razorpay Membership Renewal Order Error:', error);
@@ -1601,9 +1611,7 @@ const createMembershipRenewalOrder = async (vendorId, { planId, durationMonths }
             amountInRupees: razorpayOrder.amount / 100,
             currency: razorpayOrder.currency,
             status: razorpayOrder.status,
-        },
-        _debug: "v2-no-gst",
-        breakdown: feeDetails.breakdown
+        }
     };
 };
 
@@ -1651,6 +1659,21 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
 
     vendor.membership.expiryDate = newExpiryDate;
     vendor.membership.durationMonths = plan.validityDays / 30; // Rough estimate
+    
+    // Update payment record history
+    try {
+        await PaymentRecord.findOneAndUpdate(
+            { orderId: razorpay_order_id },
+            { 
+                status: 'COMPLETED',
+                paymentId: razorpay_payment_id,
+                previousExpiryDate: baseDate,
+                newExpiryDate: newExpiryDate
+            }
+        );
+    } catch (paymentErr) {
+        console.error('Failed to update PaymentRecord on verification:', paymentErr.message);
+    }
 
     await vendor.save();
 
@@ -1682,6 +1705,18 @@ const createServiceRenewalOrder = async (vendorId) => {
                 vendorId: vendorId.toString(),
                 purpose: 'service_renewal',
             },
+        });
+
+        // Log the pending payment record
+        await PaymentRecord.create({
+            vendor: vendorId,
+            orderId: razorpayOrder.id,
+            purpose: 'SERVICE_RENEWAL',
+            amount: feeDetails.subtotal,
+            gstAmount: feeDetails.gstAmount,
+            totalAmount: feeDetails.totalFee,
+            validityDays: 30, // Service renewal is always 30 days
+            status: 'PENDING'
         });
     } catch (error) {
         console.error('Razorpay Service Renewal Order Error:', error);
@@ -1740,6 +1775,21 @@ const verifyServiceRenewalPayment = async (vendorId, { razorpay_order_id, razorp
         console.error('Error in service renewal extension:', e);
     }
 
+    // Update payment record history
+    try {
+        await PaymentRecord.findOneAndUpdate(
+            { orderId: razorpay_order_id },
+            { 
+                status: 'COMPLETED',
+                paymentId: razorpay_payment_id,
+                previousExpiryDate: baseDate,
+                newExpiryDate: newExpiryDate
+            }
+        );
+    } catch (paymentErr) {
+        console.error('Failed to update PaymentRecord on service verification:', paymentErr.message);
+    }
+
     await vendor.save();
 
     return { 
@@ -1770,9 +1820,10 @@ const getMembershipPlansWithStatus = async (vendorId) => {
         const isCurrent = currentDuration === p.duration;
         
         const planObj = {
+            id: feeDetails.planId,
             name: p.name,
             isCurrent,
-            Renewal: feeDetails.subtotal, // Subtotal includes base plan + hierarchy
+            renewal: feeDetails.subtotal, // Subtotal includes base plan + hierarchy
             validityDays: feeDetails.validityDays
         };
 

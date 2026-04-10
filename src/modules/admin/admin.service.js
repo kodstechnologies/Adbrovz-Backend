@@ -11,6 +11,7 @@ const Dispute = require('../../models/Dispute.model');
 const Feedback = require('../../models/Feedback.model');
 const CreditPlan = require('../../models/CreditPlan.model');
 const CoinTransaction = require('../../models/CoinTransaction.model');
+const PaymentRecord = require('../../models/PaymentRecord.model');
 const ApiError = require('../../utils/ApiError');
 const { DEFAULT_SETTINGS } = require('../../constants/settings');
 
@@ -751,6 +752,12 @@ const exportAuditLogsCSV = async (query = {}) => {
   return parse(logs, { fields });
 };
 
+const getVendorPaymentHistory = async (vendorId) => {
+  return await PaymentRecord.find({ vendor: vendorId })
+    .sort({ createdAt: -1 })
+    .populate('planId', 'name price validityDays');
+};
+
 module.exports = {
   getDashboardStats,
   getAllUsers,
@@ -775,4 +782,5 @@ module.exports = {
   getBookingDetails,
   exportBookingsCSV,
   exportAuditLogsCSV,
+  getVendorPaymentHistory,
 };
