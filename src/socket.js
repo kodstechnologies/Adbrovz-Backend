@@ -295,6 +295,33 @@ const initSocket = (server) => {
 
         // ── New real-time actions ──
 
+        socket.on('update_location', async (data) => {
+            try {
+                const vendorId = stringifyId(data?.vendorId || socket.vendorId);
+                const { lat, lng } = data || {};
+
+                if (!vendorId) throw new Error('Vendor ID is required');
+                if (lat === undefined || lng === undefined) throw new Error('Latitude and Longitude are required');
+
+                const Vendor = require('./models/Vendor.model');
+                await Vendor.findByIdAndUpdate(vendorId, {
+                    'liveLocation.type': 'Point',
+                    'liveLocation.coordinates': [lng, lat],
+                    'liveLocation.updatedAt': new Date()
+                });
+
+                const bookingService = require('./modules/booking/booking.service');
+                if (bookingService.broadcastVendorLocation) {
+                    await bookingService.broadcastVendorLocation(vendorId, lat, lng);
+                }
+
+                socket.emit('location_updated_success', { lat, lng });
+            } catch (error) {
+                console.error(`[SOCKET] update_location error: ${error.message}`);
+                // Don't necessarily emit error to client constantly if it's a transient location fail
+            }
+        });
+
         socket.on('report_vendor_no_show', async (data) => {
             try {
                 const userId = stringifyId(data?.userId || socket.userId);

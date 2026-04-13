@@ -102,7 +102,7 @@ const getAllVendors = async () => {
         })
         .populate({
             path: 'selectedServices',
-            select: 'title adminPrice membershipFee subcategory category serviceType',
+            select: 'title adminPrice membershipFee membershipCharge subcategory category serviceType',
             populate: [
                 { path: 'category', select: 'name' },
                 { path: 'subcategory', select: 'name' },
@@ -401,7 +401,7 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount } = {}) 
 /**
  * Step 2: Select services and calculate membership fee
  */
-const selectServices = async (vendorId, { categoryId, subcategoryIds, durationMonths }) => {
+const selectServices = async (vendorId, { categoryId, subcategoryIds, serviceIds, durationMonths }) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
@@ -410,30 +410,39 @@ const selectServices = async (vendorId, { categoryId, subcategoryIds, durationMo
     }
 
     let subcategories = [];
+    let services = [];
     let category = null;
 
     if (subcategoryIds) {
         const parsedSubcategoryIds = parseArrayInput(subcategoryIds);
-        // Fetch subcategories to get prices and categories
         subcategories = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).populate('category', 'name');
         if (subcategories.length > 0) {
-            category = subcategories[0].category;
+            category = category || subcategories[0].category;
             vendor.selectedSubcategories = parsedSubcategoryIds;
+        }
+    }
+
+    if (serviceIds) {
+        const parsedServiceIds = parseArrayInput(serviceIds);
+        services = await Service.find({ _id: { $in: parsedServiceIds } }).populate('category', 'name');
+        if (services.length > 0) {
+            category = category || services[0].category;
+            vendor.selectedServices = parsedServiceIds;
         }
     }
 
     if (!category && categoryId) {
         category = await Category.findById(categoryId);
         if (!category) throw new ApiError(404, 'Category not found');
-
-        // Ensure category is also in selectedCategories
-        if (!vendor.selectedCategories.includes(category._id)) {
-            vendor.selectedCategories.push(category._id);
-        }
     }
 
-    if (!category && subcategories.length === 0) {
-        throw new ApiError(400, 'No valid category or subcategories selected');
+    // Ensure category is also in selectedCategories
+    if (category && !vendor.selectedCategories.includes(category._id)) {
+        vendor.selectedCategories.push(category._id);
+    }
+
+    if (!category && subcategories.length === 0 && services.length === 0) {
+        throw new ApiError(400, 'No valid category, subcategories or services selected');
     }
 
     // Fetch global base membership fee based on duration
@@ -2011,7 +2020,9 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     return {
         vendorId,
         categoryId,
-        totalFee,
+        baseCategoryFee: Number(category.membershipCharge || 0),
+        totalCharge: totalFee,
+        totalWithGst: totalFee, // Add GST logic here if needed based on settings
         breakdown,
         razorpayKeyId: config.RAZORPAY_KEY_ID
     };
@@ -2023,14 +2034,14 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
 const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [], serviceIds = [] } = {}) => {
     const feeDetails = await getAddCategoryFeeDetails(vendorId, { categoryId, subcategoryIds, serviceIds });
 
-    if (feeDetails.totalFee <= 0) {
+    if (feeDetails.totalCharge <= 0) {
         throw new ApiError(400, 'Total fee for adding category is zero. Cannot create payment order.');
     }
 
     let razorpayOrder;
     try {
         razorpayOrder = await getRazorpay().orders.create({
-            amount: Math.round(feeDetails.totalFee * 100),
+            amount: Math.round(feeDetails.totalCharge * 100),
             currency: 'INR',
             receipt: `add_cat_${vendorId.toString().slice(-10)}_${Date.now()}`,
             notes: {
@@ -2044,8 +2055,8 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
             vendor: vendorId,
             orderId: razorpayOrder.id,
             purpose: 'CATEGORY_PURCHASE',
-            amount: feeDetails.totalFee,
-            totalAmount: feeDetails.totalFee,
+            amount: feeDetails.totalCharge,
+            totalAmount: feeDetails.totalCharge,
             status: 'PENDING',
             metadata: {
                 ...feeDetails.breakdown,

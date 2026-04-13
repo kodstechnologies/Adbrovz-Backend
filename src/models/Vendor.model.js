@@ -156,6 +156,18 @@ const vendorSchema = new mongoose.Schema(
       rating: { type: Number, default: 0 },
       totalRatings: { type: Number, default: 0 },
     },
+    liveLocation: {
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point'
+      },
+      coordinates: {
+        type: [Number], // [longitude, latitude]
+        default: [0, 0]
+      },
+      updatedAt: { type: Date }
+    },
     isVerified: {
       type: Boolean,
       default: false,
@@ -312,6 +324,7 @@ vendorSchema.virtual('photo').get(function () {
 vendorSchema.index({ workCity: 1 });
 vendorSchema.index({ 'membership.expiryDate': 1 });
 vendorSchema.index({ createdAt: -1 });
+vendorSchema.index({ liveLocation: '2dsphere' });
 
 const Vendor = mongoose.model('Vendor', vendorSchema);
 

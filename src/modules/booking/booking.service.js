@@ -2648,6 +2648,31 @@ async function userRejectExtraServices(userId, bookingId, rejectedServiceIds, re
     };
 }
 
+/**
+ * Broadcast vendor live location to users with active bookings
+ */
+const broadcastVendorLocation = async (vendorId, lat, lng) => {
+    const activeBookings = await Booking.find({
+        vendor: vendorId,
+        status: { $in: ['on_the_way', 'arrived', 'ongoing'] }
+    }).select('_id bookingID user status');
+
+    if (!activeBookings.length) return;
+
+    const { emitToUser } = require('../../socket');
+    
+    activeBookings.forEach(booking => {
+        emitToUser(booking.user, 'vendor_location_update', {
+            bookingId: booking._id,
+            bookingID: booking.bookingID,
+            vendorId: vendorId,
+            status: booking.status,
+            location: { lat, lng },
+            updatedAt: new Date()
+        });
+    });
+};
+
 module.exports = {
     // Lead flow
     requestLead,
@@ -2694,5 +2719,6 @@ module.exports = {
     vendorConfirmExtraServices,
     vendorRejectExtraServices,
     userConfirmExtraServices,
-    userRejectExtraServices
+    userRejectExtraServices,
+    broadcastVendorLocation
 };

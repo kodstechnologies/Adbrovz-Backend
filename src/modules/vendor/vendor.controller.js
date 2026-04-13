@@ -418,8 +418,10 @@ const activateAddCategory = asyncHandler(async (req, res) => {
         razorpay_order_id: `admin_skip_${Date.now()}`,
         razorpay_payment_id: `admin_manual_${Date.now()}`,
         razorpay_signature: 'skipped_by_admin',
-        // We might need to adjust verifyAddCategoryPayment to skip signature check for admins
-        isAdminBypass: true 
+        isAdminBypass: true,
+        categoryId,
+        selectedSubcategories: subcategoryIds,
+        selectedServices: serviceIds
     });
 
     res.status(200).json(
