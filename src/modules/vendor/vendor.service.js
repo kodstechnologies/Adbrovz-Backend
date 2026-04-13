@@ -438,8 +438,11 @@ const selectServices = async (vendorId, { categoryId, subcategoryIds, serviceIds
     }
 
     // Ensure category is also in selectedCategories
-    if (category && !vendor.selectedCategories.includes(category._id)) {
-        vendor.selectedCategories.push(category._id);
+    if (category) {
+        const catIdStr = String(category._id);
+        if (!vendor.selectedCategories.map(id => String(id)).includes(catIdStr)) {
+            vendor.selectedCategories.push(category._id);
+        }
     }
 
     if (!category && subcategories.length === 0 && services.length === 0) {
@@ -2120,13 +2123,17 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     // Add unique selections to vendor profile
-    if (finalCategoryId && !vendor.selectedCategories.includes(finalCategoryId)) {
-        vendor.selectedCategories.push(finalCategoryId);
+    if (finalCategoryId) {
+        const catIdStr = String(finalCategoryId);
+        if (!vendor.selectedCategories.map(id => String(id)).includes(catIdStr)) {
+            vendor.selectedCategories.push(finalCategoryId);
+        }
     }
 
     if (finalSubcategories && Array.isArray(finalSubcategories)) {
         finalSubcategories.forEach(subId => {
-            if (!vendor.selectedSubcategories.includes(String(subId))) {
+            const subIdStr = String(subId);
+            if (!vendor.selectedSubcategories.map(id => String(id)).includes(subIdStr)) {
                 vendor.selectedSubcategories.push(subId);
             }
         });
@@ -2134,7 +2141,8 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
 
     if (finalServices && Array.isArray(finalServices)) {
         finalServices.forEach(svcId => {
-            if (!vendor.selectedServices.includes(String(svcId))) {
+            const svcIdStr = String(svcId);
+            if (!vendor.selectedServices.map(id => String(id)).includes(svcIdStr)) {
                 vendor.selectedServices.push(svcId);
             }
         });
