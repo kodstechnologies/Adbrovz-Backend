@@ -64,7 +64,8 @@ const processVendorDocs = async (req, res, next) => {
         // Normalize field name variations so vendorSignup always finds them
         // categoryId: accept categoryId, selectedCategory, category (single value)
         if (!req.body.categoryId) {
-            req.body.categoryId = req.body.selectedCategory || req.body.category || null;
+            const catId = req.body.selectedCategory || req.body.category;
+            if (catId) req.body.categoryId = catId;
         }
         // selectedCategories: accept selectedCategories, categories
         if (!req.body.selectedCategories && req.body.categories) {
@@ -72,15 +73,18 @@ const processVendorDocs = async (req, res, next) => {
         }
         // selectedSubcategories: accept subcategoryIds, subcategories
         if (!req.body.selectedSubcategories) {
-            req.body.selectedSubcategories = req.body.subcategoryIds || req.body.subcategories || null;
+            const val = req.body.subcategoryIds || req.body.subcategories;
+            if (val) req.body.selectedSubcategories = val;
         }
         // selectedServiceTypes: accept selectedType, serviceTypeIds, serviceTypes
         if (!req.body.selectedServiceTypes) {
-            req.body.selectedServiceTypes = req.body.selectedType || req.body.serviceTypeIds || req.body.serviceTypes || null;
+            const val = req.body.selectedType || req.body.serviceTypeIds || req.body.serviceTypes;
+            if (val) req.body.selectedServiceTypes = val;
         }
         // selectedServices: accept selectedService, serviceIds, services
         if (!req.body.selectedServices) {
-            req.body.selectedServices = req.body.selectedService || req.body.serviceIds || req.body.services || null;
+            const val = req.body.selectedService || req.body.serviceIds || req.body.services;
+            if (val) req.body.selectedServices = val;
         }
 
         console.log('[DEBUG] Final normalized body fields:', {
