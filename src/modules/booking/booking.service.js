@@ -822,25 +822,16 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
         ...(leadOrBooking.laterVendors || [])
     ].map(id => id.toString());
 
-    // ── Busy vendor exclusion logic ──
-    const currentRange = await getBookingTimeRange(leadOrBooking);
+    // ── Busy vendor exclusion logic (Sequential: One at a time per day) ──
     const busyVendorIds = [];
+    const activeBookings = await Booking.find({
+        scheduledDate: leadOrBooking.scheduledDate,
+        status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] },
+        vendor: { $exists: true, $ne: null }
+    });
 
-    if (currentRange) {
-        const activeBookings = await Booking.find({
-            scheduledDate: leadOrBooking.scheduledDate,
-            status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] },
-            vendor: { $exists: true, $ne: null }
-        }).populate('services.service');
-
-        for (const activeBooking of activeBookings) {
-            const range = await getBookingTimeRange(activeBooking);
-            if (!range) continue;
-            const overlap = Math.max(currentRange.start, range.start) < Math.min(currentRange.end, range.end);
-            if (overlap) {
-                busyVendorIds.push(activeBooking.vendor.toString());
-            }
-        }
+    for (const activeBooking of activeBookings) {
+        busyVendorIds.push(activeBooking.vendor.toString());
     }
 
     // ── Geospatial Query ──
@@ -912,9 +903,11 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
                 });
             }
 
-            // ── Schedule Search Expansion (Retries) ──
+            // ── Schedule Search Expansion (Retries: 2/2/1 mins for total of 5 mins) ──
             if (retryCount < radiusTiers.length - 1) {
-                const searchTimeoutMins = (await adminService.getSetting('bookings.search_timeout_mins')) || 2;
+                // Tier 0 (5km) -> 2 mins, Tier 1 (10km) -> 2 mins, Tier 2 (15km) -> 1 min (final)
+                const delayMins = retryCount < 2 ? 2 : 1;
+                
                 setTimeout(async () => {
                     const current = isLead ? await Lead.findById(leadOrBooking._id) : await Booking.findById(leadOrBooking._id);
                     if (current && (current.status === 'searching' || current.status === 'pending_acceptance')) {
@@ -922,7 +915,22 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
                         await current.save();
                         searchVendors(current, true).catch(console.error);
                     }
-                }, searchTimeoutMins * 60 * 1000);
+                }, delayMins * 60 * 1000);
+            } else if (retryCount === radiusTiers.length - 1) {
+                // Hard-Stop: After the final tier (reaches the end of 5 mins total)
+                setTimeout(async () => {
+                    const current = isLead ? await Lead.findById(leadOrBooking._id) : await Booking.findById(leadOrBooking._id);
+                    if (current && (current.status === 'searching' || current.status === 'pending_acceptance')) {
+                        current.status = isLead ? 'expired' : 'no_vendors_available';
+                        await current.save();
+                        
+                        emitToUser(leadOrBooking.user, 'booking_search_update', {
+                            bookingId: leadOrBooking._id,
+                            status: 'no_vendors_found',
+                            message: 'Could not find any vendors within 15km after 5 minutes of searching. Please try again manually.'
+                        });
+                    }
+                }, 1 * 60 * 1000); // Wait 1 more min for the 15km tier before stopping
             }
             
         } catch (error) {
@@ -1409,23 +1417,36 @@ const getCancelledBookings = async (userId, role) => {
 };
 
 const retrySearchVendors = async (userId, bookingId) => {
-    const booking = await findBookingByUser(bookingId, userId);
-    if (!booking) throw new ApiError(404, 'Booking not found');
-
-    if (booking.status !== 'pending_acceptance') {
-        throw new ApiError(400, 'Retry allowed only for pending bookings');
+    // Lead or Booking?
+    let target = await Lead.findOne({ 
+        $or: [{ _id: bookingId, user: userId }, { leadID: bookingId, user: userId }] 
+    });
+    
+    if (!target) {
+        target = await Booking.findOne({ 
+            $or: [{ _id: bookingId, user: userId }, { bookingID: bookingId, user: userId }] 
+        });
     }
 
-    const searchTimeoutMins = (await adminService.getSetting('bookings.search_timeout_mins')) || 2;
-    const nearby = await searchVendors(booking, true);
+    if (!target) throw new ApiError(404, 'Booking/Lead not found');
+
+    if (target.status !== 'pending_acceptance' && target.status !== 'searching' && target.status !== 'expired' && target.status !== 'no_vendors_available') {
+        throw new ApiError(400, 'Retry allowed only for pending search requests');
+    }
+
+    // Reset status and retryCount for tiered search reset
+    target.status = target.leadID ? 'searching' : 'pending_acceptance';
+    target.retryCount = 0;
+    await target.save();
+
+    const nearby = await searchVendors(target, true);
 
     return {
         found: nearby.length > 0,
         count: nearby.length,
-        searchTimeoutMins, // Frontend uses this to know when to show "Try Again" again
         message: nearby.length > 0
-            ? `Search sent to ${nearby.length} available vendor(s). Please wait ${searchTimeoutMins} min(s).`
-            : 'No vendors are currently available. Please try again later.'
+            ? `Search restarted from 5km radius. Please wait.`
+            : 'No vendors are currently available nearby.'
     };
 };
 
