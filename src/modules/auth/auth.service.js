@@ -408,23 +408,36 @@ const parseArrayInput = (input) => {
 };
 
 // ======================== VENDOR SIGNUP (Step 1: Data) ========================
-const vendorSignup = async ({
-  phoneNumber, name, email,
-  photo, idProof, addressProof, workProof, bankProof, policeVerification,
-  workState, workCity, workPincodes,
-  selectedCategories, selectedSubcategories, selectedServices,
-  categoryId
-}) => {
+const vendorSignup = async (body) => {
+  const {
+    phoneNumber, name, email,
+    photo, idProof, addressProof, workProof, bankProof, policeVerification,
+    workState, workCity, workPincodes,
+    selectedCategories, selectedSubcategories, selectedServiceTypes, selectedServices,
+    categoryId
+  } = body;
+
+  console.log('[vendorSignup] Raw body keys:', Object.keys(body));
+  console.log('[vendorSignup] Category fields:', { categoryId, selectedCategories, selectedSubcategories, selectedServiceTypes, selectedServices });
+
   // Parse array inputs
   const parsedWorkPincodes = parseArrayInput(workPincodes);
   let parsedCategories = parseArrayInput(selectedCategories);
   const parsedSubcategories = parseArrayInput(selectedSubcategories);
+  const parsedServiceTypes = parseArrayInput(selectedServiceTypes);
   const parsedServices = parseArrayInput(selectedServices);
 
   // If a single categoryId is provided, ensure it's in the parsedCategories array
-  if (categoryId && !parsedCategories.includes(categoryId)) {
-    parsedCategories.push(categoryId);
+  if (categoryId && !parsedCategories.includes(String(categoryId))) {
+    parsedCategories.push(String(categoryId));
   }
+
+  console.log('[vendorSignup] Parsed selections:', {
+    parsedCategories,
+    parsedSubcategories,
+    parsedServiceTypes,
+    parsedServices
+  });
 
   // Check if vendor already exists
   const existingVendor = await Vendor.findOne({ phoneNumber });
@@ -461,12 +474,14 @@ const vendorSignup = async ({
     existingVendor.workPincodes = parsedWorkPincodes;
     existingVendor.selectedCategories = parsedCategories;
     existingVendor.selectedSubcategories = parsedSubcategories;
+    existingVendor.selectedServiceTypes = parsedServiceTypes;
     existingVendor.selectedServices = parsedServices;
+    if (categoryId) existingVendor.membership.category = categoryId;
     existingVendor.registrationStep = 'PIN_PENDING';
     await existingVendor.save();
     vendor = existingVendor;
   } else {
-    vendor = await Vendor.create({
+    const createData = {
       phoneNumber,
       name,
       email,
@@ -477,11 +492,24 @@ const vendorSignup = async ({
       workPincodes: parsedWorkPincodes,
       selectedCategories: parsedCategories,
       selectedSubcategories: parsedSubcategories,
+      selectedServiceTypes: parsedServiceTypes,
       selectedServices: parsedServices,
       documentStatus: 'pending',
       registrationStep: 'PIN_PENDING',
-    });
+    };
+    if (categoryId) {
+      createData.membership = { category: categoryId };
+    }
+    vendor = await Vendor.create(createData);
   }
+
+  console.log('[vendorSignup] Saved vendor selections:', {
+    selectedCategories: vendor.selectedCategories,
+    selectedSubcategories: vendor.selectedSubcategories,
+    selectedServiceTypes: vendor.selectedServiceTypes,
+    selectedServices: vendor.selectedServices,
+    membershipCategory: vendor.membership?.category
+  });
 
   // Generate a signup session for PIN setup (Skipping OTP per request)
   const signupId = crypto.randomUUID();

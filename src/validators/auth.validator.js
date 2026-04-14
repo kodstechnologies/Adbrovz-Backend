@@ -128,10 +128,29 @@ const vendorSignupSchema = Joi.object({
   policeVerification: Joi.string().optional().allow('', null),
   workState: Joi.string().required(),
   workCity: Joi.string().required(),
-  workPincodes: Joi.array().items(Joi.string()).single().optional().default([]),
-  selectedCategories: Joi.array().items(Joi.string()).single().optional().default([]),
-  selectedSubcategories: Joi.array().items(Joi.string()).single().optional().default([]),
-  selectedServices: Joi.array().items(Joi.string()).single().optional().default([]),
+  workPincodes: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().default([]),
+  // Category selections — accept all field name variations from the app frontend
+  categoryId: Joi.string().optional().allow('', null),
+  selectedCategory: Joi.string().optional().allow('', null),
+  category: Joi.string().optional().allow('', null),
+  selectedCategories: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().default([]),
+  categories: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional(),
+  // Subcategory selections
+  selectedSubcategories: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().default([]),
+  subcategoryIds: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional(),
+  subcategories: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional(),
+  // Service Type selections
+  selectedServiceTypes: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional(),
+  selectedType: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional(),
+  serviceTypeIds: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional(),
+  serviceTypes: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional(),
+  // Service selections
+  selectedServices: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().default([]),
+  selectedService: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional(),
+  serviceIds: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional(),
+  services: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional(),
+  // Duration
+  durationMonths: Joi.number().optional(),
 });
 
 // Vendor Set PIN schema (Step 2: PIN & Policies)

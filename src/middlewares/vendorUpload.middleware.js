@@ -28,7 +28,14 @@ const uploadVendorDocs = upload.any();
 const processVendorDocs = async (req, res, next) => {
     // Helper: parse stringified JSON array fields (always runs, even with no files)
     const parseJsonFields = () => {
-        const jsonFields = ['workPincodes', 'selectedCategories', 'selectedSubcategories', 'selectedServices'];
+        const jsonFields = [
+            'workPincodes',
+            'selectedCategories', 'selectedCategory', 'categories',
+            'selectedSubcategories', 'subcategoryIds', 'subcategories',
+            'selectedServiceTypes', 'selectedType', 'serviceTypeIds', 'serviceTypes',
+            'selectedServices', 'selectedService', 'serviceIds', 'services',
+            'categoryId'
+        ];
         jsonFields.forEach(field => {
             const value = req.body[field];
             if (!value) return;
@@ -52,6 +59,36 @@ const processVendorDocs = async (req, res, next) => {
             } catch (e) {
                 console.error(`[DEBUG] Failed to parse field ${field}:`, e.message);
             }
+        });
+
+        // Normalize field name variations so vendorSignup always finds them
+        // categoryId: accept categoryId, selectedCategory, category (single value)
+        if (!req.body.categoryId) {
+            req.body.categoryId = req.body.selectedCategory || req.body.category || null;
+        }
+        // selectedCategories: accept selectedCategories, categories
+        if (!req.body.selectedCategories && req.body.categories) {
+            req.body.selectedCategories = req.body.categories;
+        }
+        // selectedSubcategories: accept subcategoryIds, subcategories
+        if (!req.body.selectedSubcategories) {
+            req.body.selectedSubcategories = req.body.subcategoryIds || req.body.subcategories || null;
+        }
+        // selectedServiceTypes: accept selectedType, serviceTypeIds, serviceTypes
+        if (!req.body.selectedServiceTypes) {
+            req.body.selectedServiceTypes = req.body.selectedType || req.body.serviceTypeIds || req.body.serviceTypes || null;
+        }
+        // selectedServices: accept selectedService, serviceIds, services
+        if (!req.body.selectedServices) {
+            req.body.selectedServices = req.body.selectedService || req.body.serviceIds || req.body.services || null;
+        }
+
+        console.log('[DEBUG] Final normalized body fields:', {
+            categoryId: req.body.categoryId,
+            selectedCategories: req.body.selectedCategories,
+            selectedSubcategories: req.body.selectedSubcategories,
+            selectedServiceTypes: req.body.selectedServiceTypes,
+            selectedServices: req.body.selectedServices
         });
     };
 
