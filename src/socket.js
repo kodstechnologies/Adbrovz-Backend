@@ -338,10 +338,10 @@ const initSocket = (server) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 if (!vendorId) throw new Error('Vendor ID is required');
-
+ 
                 const bookingService = require('./modules/booking/booking.service');
-                const isTrackingActive = await bookingService.hasActiveBookings(vendorId);
-
+                const isTrackingActive = await bookingService.shouldTrackVendor(vendorId);
+ 
                 socket.emit('vendor_tracking_status', { 
                     vendorId, 
                     isTrackingActive,

@@ -2669,14 +2669,14 @@ async function userRejectExtraServices(userId, bookingId, rejectedServiceIds, re
 }
 
 /**
- * Check if a vendor should be actively tracking (has active bookings OR is online)
+ * Check if a vendor should be actively tracking (for discovery/notifications OR active bookings)
  */
-const hasActiveBookings = async (vendorId) => {
-    // If vendor is online, we MUST track for the "Search Near Me" logic to work
+const shouldTrackVendor = async (vendorId) => {
+    // If vendor is online, we MUST track so they are discoverable for new lead notifications
     const vendor = await Vendor.findById(vendorId).select('isOnline');
     if (vendor?.isOnline) return true;
 
-    // If there is an active booking process, we MUST track
+    // If there is an active booking process, we MUST track for progress updates
     const count = await Booking.countDocuments({
         vendor: vendorId,
         status: { $in: ['on_the_way', 'arrived', 'ongoing'] }
@@ -2756,6 +2756,6 @@ module.exports = {
     vendorRejectExtraServices,
     userConfirmExtraServices,
     userRejectExtraServices,
-    hasActiveBookings,
+    shouldTrackVendor,
     broadcastVendorLocation
 };
