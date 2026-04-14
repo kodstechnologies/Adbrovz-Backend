@@ -59,8 +59,8 @@ const initSocket = (server) => {
             methods: ['GET', 'POST'],
             credentials: true
         },
-        pingTimeout: 60000,
-        pingInterval: 25000,
+        pingTimeout: 120000,
+        pingInterval: 30000,
     });
 
     io.on('connection', (socket) => {
@@ -85,6 +85,7 @@ const initSocket = (server) => {
                 }
             } catch (err) {
                 console.log(`⚠️  Socket JWT auto-auth failed for ${socket.id}: ${err.message}`);
+                socket.emit('auth_error', { message: 'Token expired or invalid. Please re-authenticate.', code: 'TOKEN_INVALID' });
             }
         }
         // ──────────────────────────────────────────────────────────────────
@@ -637,8 +638,8 @@ const initSocket = (server) => {
             }
         });
 
-        socket.on('disconnect', async () => {
-            console.log(`WebSocket Disconnected: ${socket.id}`);
+        socket.on('disconnect', async (reason) => {
+            console.log(`WebSocket Disconnected: ${socket.id}, reason: ${reason}`);
             // Remove socket from active list
             for (const [vendorId, sockets] of activeVendors.entries()) {
                 const index = sockets.indexOf(socket.id);
