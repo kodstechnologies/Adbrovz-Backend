@@ -130,9 +130,9 @@ const vendorSignupSchema = Joi.object({
   workCity: Joi.string().required(),
   workPincodes: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().default([]),
   // Category selections — accept all field name variations from the app frontend
-  categoryId: Joi.string().optional().allow('', null),
-  selectedCategory: Joi.string().optional().allow('', null),
-  category: Joi.string().optional().allow('', null),
+  categoryId: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().allow('', null),
+  selectedCategory: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().allow('', null),
+  category: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().allow('', null),
   selectedCategories: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional().default([]),
   categories: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional(),
   // Subcategory selections

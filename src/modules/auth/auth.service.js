@@ -427,13 +427,21 @@ const vendorSignup = async (body) => {
   const parsedServiceTypes = parseArrayInput(selectedServiceTypes);
   const parsedServices = parseArrayInput(selectedServices);
 
-  // If a single categoryId is provided, ensure it's in the parsedCategories array
-  if (categoryId && !parsedCategories.includes(String(categoryId))) {
-    parsedCategories.push(String(categoryId));
-  }
+  // categoryId from app can be a string, array, or stringified array like "[id1,id2]"
+  // Parse it robustly and merge into parsedCategories
+  const parsedCategoryIds = parseArrayInput(categoryId);
+  parsedCategoryIds.forEach(id => {
+    if (id && !parsedCategories.includes(String(id))) {
+      parsedCategories.push(String(id));
+    }
+  });
+
+  // Determine the primary category ID for membership.category
+  const primaryCategoryId = parsedCategories.length > 0 ? parsedCategories[0] : null;
 
   console.log('[vendorSignup] Parsed selections:', {
     parsedCategories,
+    primaryCategoryId,
     parsedSubcategories,
     parsedServiceTypes,
     parsedServices
@@ -476,7 +484,7 @@ const vendorSignup = async (body) => {
     existingVendor.selectedSubcategories = parsedSubcategories;
     existingVendor.selectedServiceTypes = parsedServiceTypes;
     existingVendor.selectedServices = parsedServices;
-    if (categoryId) existingVendor.membership.category = categoryId;
+    if (primaryCategoryId) existingVendor.membership.category = primaryCategoryId;
     existingVendor.registrationStep = 'PIN_PENDING';
     await existingVendor.save();
     vendor = existingVendor;
@@ -497,8 +505,8 @@ const vendorSignup = async (body) => {
       documentStatus: 'pending',
       registrationStep: 'PIN_PENDING',
     };
-    if (categoryId) {
-      createData.membership = { category: categoryId };
+    if (primaryCategoryId) {
+      createData.membership = { category: primaryCategoryId };
     }
     vendor = await Vendor.create(createData);
   }
