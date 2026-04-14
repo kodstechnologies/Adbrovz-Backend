@@ -2669,9 +2669,14 @@ async function userRejectExtraServices(userId, bookingId, rejectedServiceIds, re
 }
 
 /**
- * Check if a vendor has any active bookings that require location tracking
+ * Check if a vendor should be actively tracking (has active bookings OR is online)
  */
 const hasActiveBookings = async (vendorId) => {
+    // If vendor is online, we MUST track for the "Search Near Me" logic to work
+    const vendor = await Vendor.findById(vendorId).select('isOnline');
+    if (vendor?.isOnline) return true;
+
+    // If there is an active booking process, we MUST track
     const count = await Booking.countDocuments({
         vendor: vendorId,
         status: { $in: ['on_the_way', 'arrived', 'ongoing'] }
