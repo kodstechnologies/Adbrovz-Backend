@@ -1,11 +1,12 @@
 const Booking = require('../../models/Booking.model');
+const Lead = require('../../models/Lead.model');
 const Vendor = require('../../models/Vendor.model');
 const Service = require('../../models/Service.model');
 const User = require('../../models/User.model');
 const Dispute = require('../../models/Dispute.model');
 const Feedback = require('../../models/Feedback.model');
 const { ROLES } = require('../../constants/roles');
-
+const { calculateDistance } = require('../../utils/location');
 
 const ApiError = require('../../utils/ApiError');
 const cacheService = require('../../services/cache.service');
@@ -70,78 +71,66 @@ const requestLead = async (
  */
 const acceptLead = async (vendorId, bookingId) => {
     console.log(`[SOCKET] acceptLead called for vendor: ${vendorId}, booking: ${bookingId}`);
+    
     const query = mongoose.isValidObjectId(bookingId)
         ? { $or: [{ _id: bookingId }, { bookingID: bookingId }] }
         : { bookingID: bookingId };
 
     const vendor = await Vendor.findById(vendorId);
-    if (!vendor) {
-        console.log(`[SOCKET] Vendor not found: ${vendorId}`);
-        throw new ApiError(404, 'Vendor not found');
-    }
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    // ── Credit/Coin check DISABLED ──
-    /*
-    const coinCost = (await adminService.getSetting('pricing.accept_lead_coin_cost')) || 10;
-    if (vendor.coins < coinCost) {
-        throw new ApiError(400, `Insufficient coins. You need ${coinCost} coins to accept a lead (you have ${vendor.coins}).`);
-    }
-    */
+    // ── Atomic Lock: Try to find and delete the Lead ──
+    // This ensures only one vendor can successfully "claim" the lead.
+    const lead = await Lead.findOneAndDelete({ ...query, status: 'searching' });
+    
+    let booking;
 
-    // ── Fetch booking first (for overlap check) ──
-    const pendingBooking = await Booking.findOne({ ...query, status: 'pending_acceptance' });
-    if (!pendingBooking) {
+    if (!lead) {
+        // If lead not found, check if it was already converted to a booking
         const existingBooking = await Booking.findOne(query);
-        if (!existingBooking) throw new ApiError(404, 'Booking not found');
-        throw new ApiError(400, 'You missed your order! This booking has already been accepted by another vendor.');
+        if (existingBooking) {
+            throw new ApiError(400, 'You missed your order! This booking has already been accepted by another vendor.');
+        }
+        throw new ApiError(404, 'Lead not found or already expired.');
     }
 
-    // ── Schedule overlap check ──
+    // ── Lead found! Convert to a permanent Booking ──
+    
+    // Schedule overlap check
     const overlapping = await Booking.findOne({
         vendor: vendorId,
-        _id: { $ne: pendingBooking._id },
-        scheduledDate: pendingBooking.scheduledDate,
-        scheduledTime: pendingBooking.scheduledTime,
-        status: { $nin: ['cancelled', 'completed', 'pending_acceptance'] }
+        scheduledDate: lead.scheduledDate,
+        scheduledTime: lead.scheduledTime,
+        status: { $nin: ['cancelled', 'completed'] }
     });
     if (overlapping) {
-        throw new ApiError(400, 'You already have a booking at this date and time slot. Cannot accept overlapping bookings.');
+        // Restore lead if possible (though findOneAndDelete is final, we could re-create)
+        // But better to just block.
+        await Lead.create(lead.toObject()); // Rollback delete
+        throw new ApiError(400, 'You already have a booking at this date and time slot.');
     }
 
-    // ── Grace period calculation ──
+    // Grace period calculations
     const graceMins = (await adminService.getSetting('bookings.grace_period_mins')) || 30;
     let gracePeriodEnd = null;
-    if (pendingBooking.scheduledDate && pendingBooking.scheduledTime) {
-        const [hours, minutes] = pendingBooking.scheduledTime.split(':').map(Number);
-        const schedDate = new Date(pendingBooking.scheduledDate);
+    if (lead.scheduledDate && lead.scheduledTime) {
+        const [hours, minutes] = lead.scheduledTime.split(':').map(Number);
+        const schedDate = new Date(lead.scheduledDate);
         schedDate.setHours(hours || 0, minutes || 0, 0, 0);
         gracePeriodEnd = new Date(schedDate.getTime() + graceMins * 60 * 1000);
     }
 
-    // Generate Start OTP
-    const startOTP = '1234';
-
-    // Atomic update
-    console.log(`[SOCKET] Attempting atomic update for booking: ${bookingId}`);
-    const booking = await Booking.findOneAndUpdate(
-        { _id: pendingBooking._id, status: 'pending_acceptance' },
-        {
-            $set: {
-                vendor: vendorId,
-                status: 'pending',
-                otp: { startOTP, completionOTP: null },
-                ...(gracePeriodEnd && { gracePeriodEnd })
-            },
-            $push: {
-                statusHistory: { status: 'pending', timestamp: new Date(), actor: 'vendor' }
-            }
-        },
-        { new: true }
-    );
-
-    if (!booking) {
-        throw new ApiError(400, 'You missed your order! This booking has already been accepted by another vendor.');
-    }
+    // Create the booking record
+    booking = await Booking.create({
+        ...lead.toObject(),
+        _id: lead._id, // Keep the same ID for socket compatibility
+        bookingID: lead.leadID,
+        vendor: vendorId,
+        status: 'pending',
+        otp: { startOTP: '1234', completionOTP: null },
+        statusHistory: [{ status: 'pending', timestamp: new Date(), actor: 'vendor' }],
+        ...(gracePeriodEnd && { gracePeriodEnd })
+    });
 
     // ── Emit acceptance update IMMEDIATELY after locking ──
     try {
@@ -212,6 +201,19 @@ const markOnTheWay = async (vendorId, bookingId) => {
         throw new ApiError(400, 'Booking must be in pending status to mark as on the way');
     }
 
+    // ── Timing Guard: Enable only within 2 hours of scheduled time ──
+    const scheduledAt = new Date(booking.scheduledDate);
+    const timeParts = booking.scheduledTime.split(':').map(Number);
+    scheduledAt.setHours(timeParts[0], timeParts[1] || 0, 0, 0);
+
+    const now = new Date();
+    const diffMs = scheduledAt.getTime() - now.getTime();
+    const diffHours = diffMs / (1000 * 60 * 60);
+
+    if (diffHours > 2) {
+        throw new ApiError(400, `You can only mark "On the Way" within 2 hours of the scheduled time (${booking.scheduledTime}).`);
+    }
+
     booking.status = 'on_the_way';
     booking.statusHistory.push({ status: 'on_the_way', timestamp: new Date(), actor: 'vendor' });
     booking.markModified('statusHistory');
@@ -238,6 +240,18 @@ const markArrived = async (vendorId, bookingId) => {
 
     if (booking.status !== 'on_the_way') {
         throw new ApiError(400, 'Booking must be on the way first');
+    }
+
+    // ── Distance Guard: 500m arrival threshold ──
+    const vendor = await Vendor.findById(vendorId).select('liveLocation');
+    if (vendor?.liveLocation?.coordinates && booking.location?.latitude) {
+        const [vLng, vLat] = vendor.liveLocation.coordinates;
+        const { latitude: bLat, longitude: bLng } = booking.location;
+        
+        const distance = calculateDistance(vLat, vLng, bLat, bLng);
+        if (distance > 0.5) { // 500 meters
+            throw new ApiError(400, `Arrival denied. You are ${(distance * 1000).toFixed(0)}m away. Please reach the customer's location first.`);
+        }
     }
 
     booking.status = 'arrived';
@@ -766,8 +780,9 @@ const createBooking = async (userId, bookingData) => {
     const calculatedBasePrice = processedServices.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
     const calculatedTotalPrice = calculatedBasePrice + calculatedTravelCharge;
 
-    const booking = await Booking.create({
-        bookingID: generateBookingID(),
+    const bookingID = generateBookingID();
+    const lead = await Lead.create({
+        leadID: bookingID,
         user: userId,
         services: processedServices,
         scheduledDate: new Date(date),
@@ -778,39 +793,42 @@ const createBooking = async (userId, bookingData) => {
             basePrice: calculatedBasePrice,
             travelCharge: calculatedTravelCharge 
         },
-        status: 'pending_acceptance',
-        statusHistory: [{ status: 'pending_acceptance', timestamp: new Date(), actor: 'user' }]
+        status: 'searching'
     });
 
-    const searchTimeoutMins = (await adminService.getSetting('bookings.search_timeout_mins')) || 2;
-
     if (confirmation === true) {
-        searchVendors(booking, true).catch(console.error);
+        searchVendors(lead, true).catch(console.error);
     }
 
     return {
-        booking,
-        message: 'Booking created successfully'
+        booking: {
+            ...lead.toObject(),
+            bookingID: lead.leadID // for backward compatibility
+        },
+        message: 'Searching for vendors...'
     };
 };
 
-const searchVendors = async (booking, broadcast = false) => {
-    const radius = (await adminService.getSetting('bookings.vendor_search_radius_km')) || 5;
+const searchVendors = async (leadOrBooking, broadcast = false) => {
+    // 1. Determine Identity and Radius
+    const isLead = !leadOrBooking.statusHistory; // Leads don't have statusHistory in my schema
+    const retryCount = leadOrBooking.retryCount || 0;
+    const radiusTiers = [5, 10, 15];
+    const radiusInKm = radiusTiers[Math.min(retryCount, radiusTiers.length - 1)];
 
-    const serviceIds = booking.services.map(s => s.service);
+    const serviceIds = leadOrBooking.services.map(s => s.service);
     const ignoredVendors = [
-        ...(booking.rejectedVendors || []),
-        ...(booking.laterVendors || [])
+        ...(leadOrBooking.rejectedVendors || []),
+        ...(leadOrBooking.laterVendors || [])
     ].map(id => id.toString());
 
     // ── Busy vendor exclusion logic ──
-    const currentRange = await getBookingTimeRange(booking);
+    const currentRange = await getBookingTimeRange(leadOrBooking);
     const busyVendorIds = [];
 
     if (currentRange) {
-        // Find all accepted/ongoing bookings for the same day
         const activeBookings = await Booking.find({
-            scheduledDate: booking.scheduledDate,
+            scheduledDate: leadOrBooking.scheduledDate,
             status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] },
             vendor: { $exists: true, $ne: null }
         }).populate('services.service');
@@ -818,8 +836,6 @@ const searchVendors = async (booking, broadcast = false) => {
         for (const activeBooking of activeBookings) {
             const range = await getBookingTimeRange(activeBooking);
             if (!range) continue;
-
-            // Check for overlap: max(start1, start2) < min(end1, end2)
             const overlap = Math.max(currentRange.start, range.start) < Math.min(currentRange.end, range.end);
             if (overlap) {
                 busyVendorIds.push(activeBooking.vendor.toString());
@@ -827,12 +843,22 @@ const searchVendors = async (booking, broadcast = false) => {
         }
     }
 
+    // ── Geospatial Query ──
     const query = {
         isOnline: true,
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
-        selectedServices: { $in: serviceIds }
+        selectedServices: { $in: serviceIds },
+        liveLocation: {
+            $nearSphere: {
+                $geometry: {
+                    type: "Point",
+                    coordinates: [leadOrBooking.location.longitude, leadOrBooking.location.latitude]
+                },
+                $maxDistance: radiusInKm * 1000 // Convert km to meters
+            }
+        }
     };
 
     const nins = [...new Set([...ignoredVendors, ...busyVendorIds])];
@@ -848,91 +874,63 @@ const searchVendors = async (booking, broadcast = false) => {
             const io = getIo();
             let broadcastCount = 0;
 
-            const populatedBooking = await Booking.findById(booking._id)
-                .populate('services.service', 'title photo adminPrice approxCompletionTime')
-                .populate('proposedServices.service', 'title photo adminPrice approxCompletionTime')
-                .populate('userRequestedServices.service', 'title photo adminPrice approxCompletionTime')
-                .populate('user', 'name phoneNumber photo');
+            // Fetch latest data for broadcast
+            const populatedLead = isLead 
+                ? await Lead.findById(leadOrBooking._id).populate('services.service', 'title photo adminPrice approxCompletionTime').populate('user', 'name phoneNumber photo')
+                : await Booking.findById(leadOrBooking._id).populate('services.service', 'title photo adminPrice approxCompletionTime').populate('user', 'name phoneNumber photo');
 
-            // Calculate total estimated duration by summing all services' approxCompletionTime * quantity
+            if (!populatedLead) return [];
+
             let totalDurationMins = 0;
-            if (populatedBooking && populatedBooking.services) {
-                populatedBooking.services.forEach(item => {
-                    const duration = item.service?.approxCompletionTime || 0;
-                    totalDurationMins += duration * (item.quantity || 1);
-                });
-            }
+            populatedLead.services.forEach(item => {
+                totalDurationMins += (item.service?.approxCompletionTime || 0) * (item.quantity || 1);
+            });
 
-            const bookingPayload = {
-                ...populatedBooking.toObject(),
+            const payload = {
+                ...(populatedLead.toObject()),
+                bookingID: isLead ? populatedLead.leadID : populatedLead.bookingID,
                 totalDurationMins,
+                radius: radiusInKm
             };
 
             vendors.forEach(v => {
                 const socketIds = getVendorSockets(v._id);
                 if (socketIds && socketIds.length > 0) {
-                    socketIds.forEach(socketId => {
-                        io.to(socketId).emit('new_booking_request', bookingPayload);
-                    });
+                    socketIds.forEach(socketId => io.to(socketId).emit('new_booking_request', payload));
                     broadcastCount++;
                 }
             });
 
             const { emitToUser } = require('../../socket');
             if (broadcastCount > 0) {
-                emitToUser(booking.user, 'booking_search_update', {
-                    bookingId: booking._id,
-                    bookingID: booking.bookingID,
+                emitToUser(leadOrBooking.user, 'booking_search_update', {
+                    bookingId: leadOrBooking._id,
                     status: 'searching',
+                    radius: radiusInKm,
                     vendorCount: broadcastCount,
-                    message: `Searching for vendors... notified ${broadcastCount} available vendor(s).`
-                });
-            } else {
-                emitToUser(booking.user, 'booking_search_update', {
-                    bookingId: booking._id,
-                    bookingID: booking.bookingID,
-                    status: 'no_vendors_available',
-                    message: 'No vendors are currently available in your area. You can try retrying in a few minutes.'
+                    message: `Searching in ${radiusInKm}km radius... notified ${broadcastCount} vendors.`
                 });
             }
 
-            console.log(`📡 Broadcasted booking ${booking._id} to ${broadcastCount} vendors via WebSocket.`);
-
-            // ── Search Timeout & Retry (Task 11) ──
-            const searchTimeoutMins = (await adminService.getSetting('bookings.search_timeout_mins')) || 2;
-            const maxRetries = 3; // Optional limit
-            
-            setTimeout(async function retryBroadcast() {
-                try {
-                    const currentBooking = await Booking.findById(booking._id);
-                    // If still pending acceptance, notify user and RE-BROADCAST (Task 11)
-                    if (currentBooking && currentBooking.status === 'pending_acceptance') {
-                        console.log(`📡 [RETRY] Re-broadcasting booking ${booking._id} (2-min window reached)`);
-                        
-                        // Recursive broadcast if needed, or just emit again
-                        searchVendors(currentBooking, true).catch(console.error);
-
-                        emitToUser(booking.user, 'booking_search_update', {
-                            bookingId: booking._id,
-                            bookingID: booking.bookingID,
-                            status: 'retrying',
-                            message: `Still searching... re-notifying available vendors.`
-                        });
+            // ── Schedule Search Expansion (Retries) ──
+            if (retryCount < radiusTiers.length - 1) {
+                const searchTimeoutMins = (await adminService.getSetting('bookings.search_timeout_mins')) || 2;
+                setTimeout(async () => {
+                    const current = isLead ? await Lead.findById(leadOrBooking._id) : await Booking.findById(leadOrBooking._id);
+                    if (current && (current.status === 'searching' || current.status === 'pending_acceptance')) {
+                        current.retryCount = (current.retryCount || 0) + 1;
+                        await current.save();
+                        searchVendors(current, true).catch(console.error);
                     }
-                } catch (err) {
-                    console.error('Error during scheduled search retry:', err);
-                }
-            }, searchTimeoutMins * 60 * 1000);
+                }, searchTimeoutMins * 60 * 1000);
+            }
             
         } catch (error) {
             console.error('Socket.io error during broadcast:', error.message);
         }
     }
 
-    return vendors.map(v => ({
-        vendorId: v._id,
-        distance: 0 // Placeholder for real distance calculation
-    }));
+    return vendors.map(v => ({ vendorId: v._id }));
 };
 
 const rejectLead = async (vendorId, bookingId) => {
