@@ -1438,7 +1438,7 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
  * Get Subscription Status for Mobile App
  */
 const getSubscriptionStatus = async (vendorId) => {
-    const vendor = await Vendor.findById(vendorId).populate('selectedCategories selectedSubcategories selectedServiceTypes selectedServices');
+    const vendor = await Vendor.findById(vendorId).populate('selectedCategories selectedSubcategories selectedServiceTypes selectedServices membership.category');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const now = new Date();
@@ -1454,37 +1454,36 @@ const getSubscriptionStatus = async (vendorId) => {
         daysRemaining = Math.ceil(diff / (1000 * 60 * 60 * 24));
     }
 
+    // Accumulate all hierarchy IDs
+    const categoryIds = new Set();
+    const subcategoryIds = new Set();
+    const serviceTypeIds = new Set();
+    const serviceIds = new Set();
+
+    if (vendor.membership?.category) categoryIds.add(String(vendor.membership.category._id || vendor.membership.category));
+    if (vendor.selectedCategories) vendor.selectedCategories.forEach(c => categoryIds.add(String(c._id || c)));
+    if (vendor.selectedSubcategories) vendor.selectedSubcategories.forEach(s => subcategoryIds.add(String(s._id || s)));
+    if (vendor.selectedServiceTypes) vendor.selectedServiceTypes.forEach(st => serviceTypeIds.add(String(st._id || st)));
+    if (vendor.selectedServices) vendor.selectedServices.forEach(s => serviceIds.add(String(s._id || s)));
+
+    const query = { $or: [] };
+    if (categoryIds.size > 0) query.$or.push({ category: { $in: Array.from(categoryIds) } });
+    if (subcategoryIds.size > 0) query.$or.push({ subcategory: { $in: Array.from(subcategoryIds) } });
+    if (serviceTypeIds.size > 0) query.$or.push({ serviceType: { $in: Array.from(serviceTypeIds) } });
+    if (serviceIds.size > 0) query.$or.push({ _id: { $in: Array.from(serviceIds) } });
+
+    let finalServices = [];
+    if (query.$or.length > 0) {
+        const Service = require('../../models/Service.model');
+        finalServices = await Service.find(query);
+    }
+
     // Determine the list of services across all levels of hierarchy
-    let serviceList = [];
-    
-    if (vendor.selectedCategories && vendor.selectedCategories.length > 0) {
-        vendor.selectedCategories.forEach(cat => {
-            if (cat && cat.name) {
-                serviceList.push({ serviceId: cat.name, isActive: isRenActive, daysRemaining });
-            }
-        });
-    }
-    if (vendor.selectedSubcategories && vendor.selectedSubcategories.length > 0) {
-        vendor.selectedSubcategories.forEach(sub => {
-            if (sub && sub.name) {
-                serviceList.push({ serviceId: sub.name, isActive: isRenActive, daysRemaining });
-            }
-        });
-    }
-    if (vendor.selectedServiceTypes && vendor.selectedServiceTypes.length > 0) {
-        vendor.selectedServiceTypes.forEach(st => {
-            if (st && st.name) {
-                serviceList.push({ serviceId: st.name, isActive: isRenActive, daysRemaining });
-            }
-        });
-    }
-    if (vendor.selectedServices && vendor.selectedServices.length > 0) {
-        vendor.selectedServices.forEach(svc => {
-            if (svc && svc.title) {
-                serviceList.push({ serviceId: svc.title, isActive: isRenActive, daysRemaining });
-            }
-        });
-    }
+    let serviceList = finalServices.map(svc => ({
+        serviceId: svc.title,
+        isActive: isRenActive,
+        daysRemaining: daysRemaining
+    }));
 
     // Remove duplicates by serviceId name if any
     const uniqueMap = new Map();
