@@ -2649,6 +2649,17 @@ async function userRejectExtraServices(userId, bookingId, rejectedServiceIds, re
 }
 
 /**
+ * Check if a vendor has any active bookings that require location tracking
+ */
+const hasActiveBookings = async (vendorId) => {
+    const count = await Booking.countDocuments({
+        vendor: vendorId,
+        status: { $in: ['on_the_way', 'arrived', 'ongoing'] }
+    });
+    return count > 0;
+};
+
+/**
  * Broadcast vendor live location to users with active bookings
  */
 const broadcastVendorLocation = async (vendorId, lat, lng) => {
@@ -2720,5 +2731,6 @@ module.exports = {
     vendorRejectExtraServices,
     userConfirmExtraServices,
     userRejectExtraServices,
+    hasActiveBookings,
     broadcastVendorLocation
 };
