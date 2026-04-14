@@ -57,5 +57,9 @@ router.get('/bookings/:id', adminController.getBookingDetails);
 const coinRoutes = require('./coin.route');
 router.use('/coins', coinRoutes);
 
+// Coupon management
+const couponRoutes = require('./coupon.route');
+router.use('/coupons', couponRoutes);
+
 module.exports = router;
 

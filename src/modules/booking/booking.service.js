@@ -745,6 +745,7 @@ const createBooking = async (userId, bookingData) => {
             throw new ApiError(400, 'FIRST_BOOKING_OTP_REQUIRED');
         }
     }
+    
 
     const processedServices = [];
     for (const item of services) {

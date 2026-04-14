@@ -1100,10 +1100,19 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
 
 
     if (vendor.isVerified) {
-        vendor.membership.startDate = new Date();
-        const expiryDate = new Date();
+        const now = new Date();
+        vendor.membership.startDate = vendor.membership.startDate || now;
+        const expiryDate = new Date(vendor.membership.startDate);
         expiryDate.setMonth(expiryDate.getMonth() + (vendor.membership.durationMonths || 3));
         vendor.membership.expiryDate = expiryDate;
+
+        // Initialize service renewal window
+        vendor.serviceRenewal = vendor.serviceRenewal || {};
+        vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || now;
+        const renExpiry = new Date(vendor.serviceRenewal.startDate);
+        renExpiry.setDate(renExpiry.getDate() + 30);
+        vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiry;
+
         vendor.registrationStep = 'COMPLETED';
     } else {
         vendor.registrationStep = 'MEMBERSHIP_PAID';
