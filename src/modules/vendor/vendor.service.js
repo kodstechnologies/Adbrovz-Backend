@@ -100,6 +100,7 @@ const getAllVendors = async () => {
             select: 'name price membershipFee membershipCharge category',
             populate: { path: 'category', select: 'name' }
         })
+        .populate('selectedServiceTypes', 'name')
         .populate({
             path: 'selectedServices',
             select: 'title adminPrice membershipFee membershipCharge subcategory category serviceType',
@@ -401,10 +402,30 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount } = {}) 
 
 /**
  * Step 2: Select services and calculate membership fee
+ * Accepts all field name variations from the app frontend:
+ *   categoryId / selectedCategory
+ *   subcategoryIds / selectedSubcategories
+ *   serviceTypeIds / selectedType / selectedServiceTypes
+ *   serviceIds / selectedService / selectedServices
  */
-const selectServices = async (vendorId, { categoryId, subcategoryIds, serviceIds, durationMonths }) => {
+const selectServices = async (vendorId, body) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    // Normalize field names — accept every variation the frontend might send
+    const categoryId = body.categoryId || body.selectedCategory || body.category;
+    const subcategoryIds = body.subcategoryIds || body.selectedSubcategories || body.subcategories;
+    const serviceTypeIds = body.serviceTypeIds || body.selectedType || body.selectedServiceTypes || body.serviceTypes;
+    const serviceIds = body.serviceIds || body.selectedService || body.selectedServices || body.services;
+    const durationMonths = Number(body.durationMonths || 3);
+
+    console.log('[selectServices] Normalized inputs:', {
+        categoryId,
+        subcategoryIds,
+        serviceTypeIds,
+        serviceIds,
+        durationMonths
+    });
 
     if (durationMonths % 3 !== 0) {
         throw new ApiError(400, 'Duration must be in multiples of 3 months');
@@ -414,31 +435,50 @@ const selectServices = async (vendorId, { categoryId, subcategoryIds, serviceIds
     let services = [];
     let category = null;
 
-    if (subcategoryIds) {
-        const parsedSubcategoryIds = parseArrayInput(subcategoryIds);
-        subcategories = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).populate('category', 'name');
-        if (subcategories.length > 0) {
-            category = category || subcategories[0].category;
-            vendor.selectedSubcategories = parsedSubcategoryIds;
-        }
-    }
-
-    if (serviceIds) {
-        const parsedServiceIds = parseArrayInput(serviceIds);
-        services = await Service.find({ _id: { $in: parsedServiceIds } }).populate('category', 'name');
-        if (services.length > 0) {
-            category = category || services[0].category;
-            vendor.selectedServices = parsedServiceIds;
-        }
-    }
-
-    if (!category && categoryId) {
+    // 1. Resolve category
+    if (categoryId) {
         category = await Category.findById(categoryId);
         if (!category) throw new ApiError(404, 'Category not found');
+        const catIdStr = String(category._id);
+        if (!vendor.selectedCategories.map(id => String(id)).includes(catIdStr)) {
+            vendor.selectedCategories.push(category._id);
+        }
     }
 
-    // Ensure category is also in selectedCategories
-    if (category) {
+    // 2. Resolve subcategories
+    if (subcategoryIds) {
+        const parsedSubcategoryIds = parseArrayInput(subcategoryIds);
+        if (parsedSubcategoryIds.length > 0) {
+            subcategories = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).populate('category', 'name');
+            if (subcategories.length > 0) {
+                category = category || subcategories[0].category;
+                vendor.selectedSubcategories = parsedSubcategoryIds;
+            }
+        }
+    }
+
+    // 3. Resolve service types
+    if (serviceTypeIds) {
+        const parsedServiceTypeIds = parseArrayInput(serviceTypeIds);
+        if (parsedServiceTypeIds.length > 0) {
+            vendor.selectedServiceTypes = parsedServiceTypeIds;
+        }
+    }
+
+    // 4. Resolve services
+    if (serviceIds) {
+        const parsedServiceIds = parseArrayInput(serviceIds);
+        if (parsedServiceIds.length > 0) {
+            services = await Service.find({ _id: { $in: parsedServiceIds } }).populate('category', 'name');
+            if (services.length > 0) {
+                category = category || services[0].category;
+                vendor.selectedServices = parsedServiceIds;
+            }
+        }
+    }
+
+    // Ensure category is in selectedCategories if resolved from subcategories/services
+    if (category && !categoryId) {
         const catIdStr = String(category._id);
         if (!vendor.selectedCategories.map(id => String(id)).includes(catIdStr)) {
             vendor.selectedCategories.push(category._id);
@@ -461,24 +501,33 @@ const selectServices = async (vendorId, { categoryId, subcategoryIds, serviceIds
     const totalPrice = Number(subtotal + gstAmount);
 
     // Update vendor
-    vendor.membership.category = category._id; // Set primary category for dashboard
+    if (category) {
+        vendor.membership.category = category._id; // Set primary category for dashboard
+        vendor.membership.renewalCharge = category.renewalCharge || 0;
+        vendor.serviceRenewal = {
+            fee: category.renewalCharge || 0,
+        };
+    }
     vendor.membership.fee = totalPrice;
     vendor.membership.durationMonths = durationMonths;
     vendor.membership.subtotal = subtotal; // Optional: store subtotal
     vendor.membership.gstAmount = gstAmount; // Optional: store GST
-    vendor.membership.renewalCharge = category.renewalCharge || 0;
-    vendor.serviceRenewal = {
-        fee: category.renewalCharge || 0,
-    };
     vendor.registrationStep = 'SERVICES_SELECTED';
 
     await vendor.save();
 
+    console.log('[selectServices] Saved vendor selections:', {
+        selectedCategories: vendor.selectedCategories,
+        selectedSubcategories: vendor.selectedSubcategories,
+        selectedServiceTypes: vendor.selectedServiceTypes,
+        selectedServices: vendor.selectedServices
+    });
+
     return {
         totalPrice,
         durationMonths,
-        categoryMembershipFee: category.membershipFee || 0,
-        categoryRenewalCharge: category.renewalCharge || 0,
+        categoryMembershipFee: category?.membershipFee || 0,
+        categoryRenewalCharge: category?.renewalCharge || 0,
         subcategories: subcategories.map(s => ({
             id: s._id,
             name: s.name,
@@ -1337,10 +1386,11 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
     if (uploadedDocs.workState) vendor.workState = uploadedDocs.workState;
     if (uploadedDocs.zipcode) vendor.zipcode = uploadedDocs.zipcode;
 
-    // Update array fields (workPincodes, categories, subcategories, services)
+    // Update array fields (workPincodes, categories, subcategories, service types, services)
     if (uploadedDocs.workPincodes) vendor.workPincodes = uploadedDocs.workPincodes;
     if (uploadedDocs.selectedCategories) vendor.selectedCategories = uploadedDocs.selectedCategories;
     if (uploadedDocs.selectedSubcategories) vendor.selectedSubcategories = uploadedDocs.selectedSubcategories;
+    if (uploadedDocs.selectedServiceTypes || uploadedDocs.selectedType) vendor.selectedServiceTypes = uploadedDocs.selectedServiceTypes || uploadedDocs.selectedType;
     if (uploadedDocs.selectedServices) vendor.selectedServices = uploadedDocs.selectedServices;
 
     docTypes.forEach(doc => {

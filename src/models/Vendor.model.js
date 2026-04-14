@@ -69,6 +69,10 @@ const vendorSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Subcategory',
     }],
+    selectedServiceTypes: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ServiceType',
+    }],
     selectedServices: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Service',
