@@ -1438,7 +1438,7 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
  * Get Subscription Status for Mobile App
  */
 const getSubscriptionStatus = async (vendorId) => {
-    const vendor = await Vendor.findById(vendorId).populate('selectedServices selectedSubcategories');
+    const vendor = await Vendor.findById(vendorId).populate('selectedCategories selectedSubcategories selectedServiceTypes selectedServices');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const now = new Date();
@@ -1454,21 +1454,42 @@ const getSubscriptionStatus = async (vendorId) => {
         daysRemaining = Math.ceil(diff / (1000 * 60 * 60 * 24));
     }
 
-    // Determine the list of services (using subcategories if present, else services)
+    // Determine the list of services across all levels of hierarchy
     let serviceList = [];
-    if (vendor.selectedSubcategories && vendor.selectedSubcategories.length > 0) {
-        serviceList = vendor.selectedSubcategories.map(sub => ({
-            serviceId: sub.name,
-            isActive: isRenActive,
-            daysRemaining: daysRemaining
-        }));
-    } else if (vendor.selectedServices && vendor.selectedServices.length > 0) {
-        serviceList = vendor.selectedServices.map(svc => ({
-            serviceId: svc.title,
-            isActive: isRenActive,
-            daysRemaining: daysRemaining
-        }));
+    
+    if (vendor.selectedCategories && vendor.selectedCategories.length > 0) {
+        vendor.selectedCategories.forEach(cat => {
+            if (cat && cat.name) {
+                serviceList.push({ serviceId: cat.name, isActive: isRenActive, daysRemaining });
+            }
+        });
     }
+    if (vendor.selectedSubcategories && vendor.selectedSubcategories.length > 0) {
+        vendor.selectedSubcategories.forEach(sub => {
+            if (sub && sub.name) {
+                serviceList.push({ serviceId: sub.name, isActive: isRenActive, daysRemaining });
+            }
+        });
+    }
+    if (vendor.selectedServiceTypes && vendor.selectedServiceTypes.length > 0) {
+        vendor.selectedServiceTypes.forEach(st => {
+            if (st && st.name) {
+                serviceList.push({ serviceId: st.name, isActive: isRenActive, daysRemaining });
+            }
+        });
+    }
+    if (vendor.selectedServices && vendor.selectedServices.length > 0) {
+        vendor.selectedServices.forEach(svc => {
+            if (svc && svc.title) {
+                serviceList.push({ serviceId: svc.title, isActive: isRenActive, daysRemaining });
+            }
+        });
+    }
+
+    // Remove duplicates by serviceId name if any
+    const uniqueMap = new Map();
+    serviceList.forEach(s => uniqueMap.set(s.serviceId, s));
+    serviceList = Array.from(uniqueMap.values());
 
     // Summary
     const activeServiceCount = serviceList.filter(s => s.isActive).length;
