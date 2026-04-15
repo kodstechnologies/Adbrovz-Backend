@@ -965,6 +965,7 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
                 payload.user.longitude = payload.location.longitude;
             }
 
+            const notifiedIds = [];
             vendors.forEach(v => {
                 const socketIds = getVendorSockets(v._id);
                 console.log(`[DEBUG] Vendor ${v._id} - socketIds:`, socketIds);
@@ -974,10 +975,20 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
                         io.to(socketId).emit('new_booking_request', payload);
                     });
                     broadcastCount++;
+                    notifiedIds.push(v._id);
                 } else {
                     console.log(`[DEBUG] Vendor ${v._id} has no active sockets - SKIPPED`);
                 }
             });
+
+            // Persist notified vendors to DB
+            if (notifiedIds.length > 0) {
+                const model = isLead ? Lead : Booking;
+                await model.findByIdAndUpdate(leadOrBooking._id, {
+                    $addToSet: { notifiedVendors: { $each: notifiedIds } }
+                });
+                console.log(`[DEBUG] Persisted ${notifiedIds.length} notified vendor IDs to database for ${isLead ? 'Lead' : 'Booking'} ${leadOrBooking._id}`);
+            }
 
             const { emitToUser } = require('../../socket');
             emitToUser(leadOrBooking.user, 'booking_search_update', {
