@@ -1029,6 +1029,7 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
     return vendors.map(v => ({ vendorId: v._id }));
 };
 
+const rejectLead = async (vendorId, bookingId) => {
     let target = await Lead.findById(bookingId);
     if (!target) target = await Booking.findById(bookingId);
     
@@ -1054,6 +1055,7 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
     };
 };
 
+const markLeadLater = async (vendorId, bookingId) => {
     let target = await Lead.findById(bookingId);
     if (!target) target = await Booking.findById(bookingId);
     
