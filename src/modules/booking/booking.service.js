@@ -779,6 +779,10 @@ const createBooking = async (userId, bookingData) => {
         throw new ApiError(400, 'At least one service is required');
     }
 
+    if (!latitude || !longitude) {
+        throw new ApiError(400, 'Coordinates (Latitude and Longitude) are required for vendor discovery');
+    }
+
     const user = await User.findById(userId);
     if (user.bannedUntil && user.bannedUntil > new Date()) {
         throw new ApiError(403, `You are temporarily banned from making bookings until ${user.bannedUntil.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} due to multiple cancellations.`);
@@ -870,8 +874,21 @@ const createBooking = async (userId, bookingData) => {
 };
 
 const searchVendors = async (leadOrBooking, broadcast = false) => {
+    if (!leadOrBooking.location?.latitude || !leadOrBooking.location?.longitude) {
+        console.error(`[ERROR] searchVendors: Missing coordinates for ${leadOrBooking._id}. Search aborted.`);
+        if (broadcast) {
+            const { emitToUser } = require('../../socket');
+            emitToUser(leadOrBooking.user, 'booking_search_update', {
+                bookingId: leadOrBooking._id,
+                status: 'failed',
+                message: 'Vendor search failed: Missing location coordinates.'
+            });
+        }
+        return [];
+    }
+
     // 1. Determine Identity and Radius
-    const isLead = !leadOrBooking.statusHistory; // Leads don't have statusHistory in my schema
+    const isLead = !leadOrBooking.statusHistory;
     const retryCount = leadOrBooking.retryCount || 0;
     const radiusTiers = [5, 10, 15];
     const radiusInKm = radiusTiers[Math.min(retryCount, radiusTiers.length - 1)];
