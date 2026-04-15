@@ -29,11 +29,6 @@ const config = {
   SMS_COUNTRY_API_KEY: process.env.SMS_COUNTRY_API_KEY,
   SMS_COUNTRY_SENDER_ID: process.env.SMS_COUNTRY_SENDER_ID || 'ADBRVZ',
 
-  // Firebase
-  FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
-  FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-  FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL,
-
   // Razorpay
   RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID,
   RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET,

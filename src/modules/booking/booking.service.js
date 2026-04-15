@@ -904,7 +904,6 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
 
     // ── Geospatial Query ──
     const query = {
-        isOnline: true,
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
@@ -981,15 +980,15 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
             });
 
             const { emitToUser } = require('../../socket');
-            if (broadcastCount > 0) {
-                emitToUser(leadOrBooking.user, 'booking_search_update', {
-                    bookingId: leadOrBooking._id,
-                    status: 'searching',
-                    radius: radiusInKm,
-                    vendorCount: broadcastCount,
-                    message: `Searching in ${radiusInKm}km radius... notified ${broadcastCount} vendors.`
-                });
-            }
+            emitToUser(leadOrBooking.user, 'booking_search_update', {
+                bookingId: leadOrBooking._id,
+                status: 'searching',
+                radius: radiusInKm,
+                vendorCount: broadcastCount,
+                message: broadcastCount > 0 
+                  ? `Searching in ${radiusInKm}km radius... notified ${broadcastCount} vendors.`
+                  : `Searching in ${radiusInKm}km radius... no vendors online nearby right now.`
+            });
 
             // ── Schedule Search Expansion (Retries: 2/2/1 mins for total of 5 mins) ──
             if (retryCount < radiusTiers.length - 1) {

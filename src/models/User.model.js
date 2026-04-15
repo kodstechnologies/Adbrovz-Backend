@@ -55,11 +55,7 @@ const userSchema = new mongoose.Schema(
     failedAttempts: {
       type: Number,
       default: 0,
-    },
-    deviceToken: {
-      type: String,
-    },
-    lastLogin: {
+    },    lastLogin: {
       type: Date,
     },
     deletedAt: {
