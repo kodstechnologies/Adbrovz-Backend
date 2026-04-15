@@ -21,7 +21,7 @@ const { v4: uuidv4 } = require('uuid');
  */
 const requestLead = async (
     userId,
-    { subcategoryId, address, pincode, scheduledDate, scheduledTime }
+    { subcategoryId, address, latitude, longitude, pincode, scheduledDate, scheduledTime }
 ) => {
     const todayStr = new Date().toDateString();
 
@@ -47,7 +47,7 @@ const requestLead = async (
         statusHistory: [{ status: 'pending_acceptance', timestamp: new Date(), actor: 'user' }],
         scheduledDate: scheduledDate || new Date(),
         scheduledTime: scheduledTime || '00:00',
-        location: { address, pincode }
+        location: { address, latitude, longitude, pincode }
     });
 
 
@@ -578,6 +578,12 @@ const _formatBooking = (bookingDoc, role) => {
         canGiveFeedback: bookingObj.status === 'completed'
     };
 
+    // Give lat/long directly in the user object for easier frontend mapping
+    if (bookingObj.user && bookingObj.location) {
+        bookingObj.user.latitude = bookingObj.location.latitude;
+        bookingObj.user.longitude = bookingObj.location.longitude;
+    }
+
     return bookingObj;
 };
 
@@ -818,6 +824,9 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
     const radiusInKm = radiusTiers[Math.min(retryCount, radiusTiers.length - 1)];
 
     const serviceIds = leadOrBooking.services.map(s => s.service);
+    const services = await Service.find({ _id: { $in: serviceIds } }).select('category');
+    const categoryIds = [...new Set(services.map(s => s.category.toString()))];
+
     const ignoredVendors = [
         ...(leadOrBooking.rejectedVendors || []),
         ...(leadOrBooking.laterVendors || [])
@@ -841,7 +850,7 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
-        selectedServices: { $in: serviceIds },
+        selectedCategories: { $in: categoryIds },
         liveLocation: {
             $nearSphere: {
                 $geometry: {
@@ -884,6 +893,12 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
                 totalDurationMins,
                 radius: radiusInKm
             };
+
+            // Explicitly expose user logic for the socket broadcast
+            if (payload.user && payload.location) {
+                payload.user.latitude = payload.location.latitude;
+                payload.user.longitude = payload.location.longitude;
+            }
 
             vendors.forEach(v => {
                 const socketIds = getVendorSockets(v._id);
