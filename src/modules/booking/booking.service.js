@@ -920,7 +920,7 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
     }
 
     // ── Geospatial Query ──
-    const query = {
+    const geoQuery = {
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
@@ -938,16 +938,30 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
 
     const nins = [...new Set([...ignoredVendors, ...busyVendorIds])];
     if (nins.length > 0) {
-        query._id = { $nin: nins };
+        geoQuery._id = { $nin: nins };
     }
 
-    const vendors = await Vendor.find(query).select('_id');
+    let vendors = await Vendor.find(geoQuery).select('_id');
+    console.log(`[DEBUG] searchVendors - Geo query found ${vendors.length} vendors within ${radiusInKm}km`);
 
-    console.log(`[DEBUG] searchVendors - Found ${vendors.length} vendors matching criteria`);
-    console.log(`[DEBUG] searchVendors - Query:`, JSON.stringify(query, (key, val) => {
-        if (key === 'liveLocation') return '[nearSphere query]';
-        return val;
-    }, 2));
+    // ── Fallback: If no geo results, notify all verified vendors in the category ──
+    // This handles the common case where vendors haven't shared their GPS location yet
+    if (vendors.length === 0) {
+        console.warn(`[SEARCH] No vendors found within ${radiusInKm}km geo radius. Falling back to category-based search (all online/verified vendors).`);
+        const fallbackQuery = {
+            isVerified: true,
+            isSuspended: false,
+            isBlocked: false,
+            selectedCategories: { $in: categoryIds },
+        };
+        if (nins.length > 0) {
+            fallbackQuery._id = { $nin: nins };
+        }
+        vendors = await Vendor.find(fallbackQuery).select('_id');
+        console.log(`[DEBUG] searchVendors - Fallback category query found ${vendors.length} vendors`);
+    }
+
+    console.log(`[DEBUG] searchVendors - Found ${vendors.length} vendors matching criteria (categoryIds: ${categoryIds.join(', ')})`);
 
     if (broadcast) {
         try {
