@@ -10,6 +10,7 @@ const { upload, uploadToCloudinary } = require('../../middlewares/cloudinary.mid
 router.use(authenticate);
 
 router.get('/profile', userController.getProfile);
+router.get('/coupons', userController.getMyCoupons);
 // Admin routes
 router.get('/', userController.getUsers);
 router.get('/:userId/coins', userController.getUserCoins);
