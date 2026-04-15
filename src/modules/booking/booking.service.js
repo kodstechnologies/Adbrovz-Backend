@@ -83,59 +83,90 @@ const acceptLead = async (vendorId, bookingId) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    // ── Atomic Lock: Try to find and delete the Lead ──
-    // This ensures only one vendor can successfully "claim" the lead.
-    const lead = await Lead.findOneAndDelete({ ...query, status: 'searching' });
-    
+    // ── Atomic Lock: Try to find and claim an active lead or pending booking ──
+    // This ensures only one vendor can successfully "claim" the request.
+    let lead = await Lead.findOneAndDelete({ ...query, status: 'searching' });
     let booking;
 
     if (!lead) {
-        // If lead not found, check if it was already converted to a booking
-        const existingBooking = await Booking.findOne(query);
-        if (existingBooking) {
-            throw new ApiError(400, 'You missed your order! This booking has already been accepted by another vendor.');
+        // If no lead found, check if it already exists as a Booking in 'pending_acceptance' status
+        booking = await Booking.findOne({ ...query, status: 'pending_acceptance' });
+        
+        if (!booking) {
+            // Check if it was already accepted by someone else (not in pending_acceptance anymore)
+            const acceptedBooking = await Booking.findOne(query);
+            if (acceptedBooking) {
+                throw new ApiError(400, 'You missed your order! This booking has already been accepted by another vendor.');
+            }
+            throw new ApiError(404, 'Booking not found or already expired.');
         }
-        throw new ApiError(404, 'Lead not found or already expired.');
+
+        // It is a pending booking, we claim it. 
+        // We update the status to prevent others from claiming it during the rest of this function's execution.
+        // (In a high-concurrency environment, you'd use findOneAndUpdate with status check).
+        const updated = await Booking.findOneAndUpdate(
+            { _id: booking._id, status: 'pending_acceptance' },
+            { $set: { status: 'pending' } },
+            { new: true }
+        );
+
+        if (!updated) {
+            throw new ApiError(400, 'You missed your order! This booking was just accepted by another vendor.');
+        }
+        booking = updated;
     }
 
-    // ── Lead found! Convert to a permanent Booking ──
-    
-    // Schedule overlap check
+    // ── Schedule overlap check ──
     const overlapping = await Booking.findOne({
         vendor: vendorId,
-        scheduledDate: lead.scheduledDate,
-        scheduledTime: lead.scheduledTime,
-        status: { $nin: ['cancelled', 'completed'] }
+        scheduledDate: lead ? lead.scheduledDate : booking.scheduledDate,
+        scheduledTime: lead ? lead.scheduledTime : booking.scheduledTime,
+        status: { $nin: ['cancelled', 'completed'] },
+        _id: { $ne: booking ? booking._id : null }
     });
     if (overlapping) {
-        // Restore lead if possible (though findOneAndDelete is final, we could re-create)
-        // But better to just block.
-        await Lead.create(lead.toObject()); // Rollback delete
+        if (lead) await Lead.create(lead.toObject()); // Rollback lead delete
+        else {
+            // Rollback booking status if possible, though it's safer to just return error
+            await Booking.findByIdAndUpdate(booking._id, { status: 'pending_acceptance' });
+        }
         throw new ApiError(400, 'You already have a booking at this date and time slot.');
     }
 
-    // Grace period calculations
+    // ── Finalize Booking Record ──
     const graceMins = (await adminService.getSetting('bookings.grace_period_mins')) || 30;
     let gracePeriodEnd = null;
-    if (lead.scheduledDate && lead.scheduledTime) {
-        const [hours, minutes] = lead.scheduledTime.split(':').map(Number);
-        const schedDate = new Date(lead.scheduledDate);
+    const source = lead || booking;
+
+    if (source.scheduledDate && source.scheduledTime) {
+        const [hours, minutes] = source.scheduledTime.split(':').map(Number);
+        const schedDate = new Date(source.scheduledDate);
         schedDate.setHours(hours || 0, minutes || 0, 0, 0);
         gracePeriodEnd = new Date(schedDate.getTime() + graceMins * 60 * 1000);
     }
 
-    // Create the booking record
-    booking = await Booking.create({
-        ...lead.toObject(),
-        _id: lead._id, // Keep the same ID for socket compatibility
-        bookingID: lead.leadID,
-        vendor: vendorId,
-        category: lead.category,
-        status: 'pending',
-        otp: { startOTP: '1234', completionOTP: null },
-        statusHistory: [{ status: 'pending', timestamp: new Date(), actor: 'vendor' }],
-        ...(gracePeriodEnd && { gracePeriodEnd })
-    });
+    if (lead) {
+        // Convert Lead to a permanent Booking (retro-compatibility)
+        booking = await Booking.create({
+            ...lead.toObject(),
+            _id: lead._id, // Keep the same ID for socket compatibility
+            bookingID: lead.leadID,
+            vendor: vendorId,
+            category: lead.category,
+            status: 'pending',
+            otp: { startOTP: '1234', completionOTP: null },
+            statusHistory: [{ status: 'pending', timestamp: new Date(), actor: 'vendor' }],
+            ...(gracePeriodEnd && { gracePeriodEnd })
+        });
+    } else {
+        // Finalize existing Booking
+        booking.vendor = vendorId;
+        booking.otp = { startOTP: '1234', completionOTP: null };
+        if (gracePeriodEnd) booking.gracePeriodEnd = gracePeriodEnd;
+        booking.statusHistory.push({ status: 'pending', timestamp: new Date(), actor: 'vendor' });
+        booking.markModified('statusHistory');
+        await booking.save();
+    }
 
     // ── Emit acceptance update IMMEDIATELY after locking ──
     try {
@@ -806,8 +837,8 @@ const createBooking = async (userId, bookingData) => {
     const calculatedTotalPrice = calculatedBasePrice + calculatedTravelCharge;
 
     const bookingID = generateBookingID();
-    const lead = await Lead.create({
-        leadID: bookingID,
+    const booking = await Booking.create({
+        bookingID: bookingID,
         user: userId,
         category: leadCategory,
         services: processedServices,
@@ -819,21 +850,21 @@ const createBooking = async (userId, bookingData) => {
             basePrice: calculatedBasePrice,
             travelCharge: calculatedTravelCharge 
         },
-        status: 'searching'
+        status: 'pending_acceptance',
+        statusHistory: [{ status: 'pending_acceptance', timestamp: new Date(), actor: 'user' }]
     });
 
     if (confirmation === true) {
-        searchVendors(lead, true).catch(console.error);
+        searchVendors(booking, true).catch(console.error);
+    } else {
+        searchVendors(booking, true).catch(console.error);
     }
 
-    const populatedLead = await Lead.findById(lead._id).populate('category');
-    const formattedLead = _formatBooking(populatedLead, 'user');
+    const populatedBooking = await Booking.findById(booking._id).populate('category');
+    const formattedBooking = _formatBooking(populatedBooking, 'user');
 
     return {
-        booking: {
-            ...formattedLead,
-            bookingID: formattedLead.leadID // for backward compatibility
-        },
+        booking: formattedBooking,
         message: 'Searching for vendors...'
     };
 };
@@ -896,6 +927,12 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
 
     const vendors = await Vendor.find(query).select('_id');
 
+    console.log(`[DEBUG] searchVendors - Found ${vendors.length} vendors matching criteria`);
+    console.log(`[DEBUG] searchVendors - Query:`, JSON.stringify(query, (key, val) => {
+        if (key === 'liveLocation') return '[nearSphere query]';
+        return val;
+    }, 2));
+
     if (broadcast) {
         try {
             const { getVendorSockets, getIo } = require('../../socket');
@@ -910,9 +947,11 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
             if (!populatedLead) return [];
 
             let totalDurationMins = 0;
-            populatedLead.services.forEach(item => {
-                totalDurationMins += (item.service?.approxCompletionTime || 0) * (item.quantity || 1);
-            });
+            if (populatedLead.services && populatedLead.services.length > 0) {
+                populatedLead.services.forEach(item => {
+                    totalDurationMins += (item.service?.approxCompletionTime || 0) * (item.quantity || 1);
+                });
+            }
 
             const payload = {
                 ...(populatedLead.toObject()),
@@ -929,9 +968,15 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
 
             vendors.forEach(v => {
                 const socketIds = getVendorSockets(v._id);
+                console.log(`[DEBUG] Vendor ${v._id} - socketIds:`, socketIds);
                 if (socketIds && socketIds.length > 0) {
-                    socketIds.forEach(socketId => io.to(socketId).emit('new_booking_request', payload));
+                    socketIds.forEach(socketId => {
+                        console.log(`[DEBUG] Emitting new_booking_request to socket ${socketId}`);
+                        io.to(socketId).emit('new_booking_request', payload);
+                    });
                     broadcastCount++;
+                } else {
+                    console.log(`[DEBUG] Vendor ${v._id} has no active sockets - SKIPPED`);
                 }
             });
 
@@ -984,51 +1029,58 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
     return vendors.map(v => ({ vendorId: v._id }));
 };
 
-const rejectLead = async (vendorId, bookingId) => {
-    const booking = await Booking.findById(bookingId);
-    if (!booking) throw new ApiError(404, 'Booking not found');
+    let target = await Lead.findById(bookingId);
+    if (!target) target = await Booking.findById(bookingId);
+    
+    if (!target) throw new ApiError(404, 'Booking/Lead not found');
 
     const vendorIdStr = vendorId.toString();
 
     // Add to rejected if not already there
-    if (!booking.rejectedVendors.some(id => id.toString() === vendorIdStr)) {
-        booking.rejectedVendors.push(vendorId);
+    if (!target.rejectedVendors.some(id => id.toString() === vendorIdStr)) {
+        target.rejectedVendors.push(vendorId);
     }
 
     // Always remove from laterVendors when rejecting
-    booking.laterVendors = booking.laterVendors.filter(id => id.toString() !== vendorIdStr);
+    if (target.laterVendors) {
+        target.laterVendors = target.laterVendors.filter(id => id.toString() !== vendorIdStr);
+    }
 
-    await booking.save();
+    await target.save();
 
     return {
-        booking,
+        booking: target,
         message: 'Booking rejected and removed from your list'
     };
 };
 
-const markLeadLater = async (vendorId, bookingId) => {
-    const booking = await Booking.findById(bookingId);
-    if (!booking) throw new ApiError(404, 'Booking not found');
+    let target = await Lead.findById(bookingId);
+    if (!target) target = await Booking.findById(bookingId);
+    
+    if (!target) throw new ApiError(404, 'Booking/Lead not found');
 
-    // Only allow if it's still pending acceptance
-    if (booking.status !== 'pending_acceptance') {
+    // Only allow if it's still searching or pending acceptance
+    const isAvailable = target.status === 'searching' || target.status === 'pending_acceptance';
+    if (!isAvailable) {
         throw new ApiError(400, 'Booking is no longer available');
     }
 
     const vendorIdStr = vendorId.toString();
 
     // Add to later if not already there
-    if (!booking.laterVendors.some(id => id.toString() === vendorIdStr)) {
-        booking.laterVendors.push(vendorId);
+    if (!target.laterVendors.some(id => id.toString() === vendorIdStr)) {
+        target.laterVendors.push(vendorId);
     }
 
     // Remove from rejected if it was there
-    booking.rejectedVendors = booking.rejectedVendors.filter(id => id.toString() !== vendorIdStr);
+    if (target.rejectedVendors) {
+        target.rejectedVendors = target.rejectedVendors.filter(id => id.toString() !== vendorIdStr);
+    }
 
-    await booking.save();
+    await target.save();
 
     return {
-        booking,
+        booking: target,
         message: 'Booking marked for later successfully'
     };
 };
