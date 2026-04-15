@@ -25,6 +25,9 @@ const requestLead = async (
 ) => {
     const todayStr = new Date().toDateString();
 
+    const subcategory = await mongoose.model('Subcategory').findById(subcategoryId).populate('category');
+    const leadCategory = subcategory?.category?._id;
+
     const potentialVendors = await Vendor.find({
         isVerified: true,
         isSuspended: false,
@@ -47,6 +50,7 @@ const requestLead = async (
         statusHistory: [{ status: 'pending_acceptance', timestamp: new Date(), actor: 'user' }],
         scheduledDate: scheduledDate || new Date(),
         scheduledTime: scheduledTime || '00:00',
+        category: leadCategory,
         location: { address, latitude, longitude, pincode }
     });
 
@@ -126,6 +130,7 @@ const acceptLead = async (vendorId, bookingId) => {
         _id: lead._id, // Keep the same ID for socket compatibility
         bookingID: lead.leadID,
         vendor: vendorId,
+        category: lead.category,
         status: 'pending',
         otp: { startOTP: '1234', completionOTP: null },
         statusHistory: [{ status: 'pending', timestamp: new Date(), actor: 'vendor' }],
@@ -584,6 +589,10 @@ const _formatBooking = (bookingDoc, role) => {
         bookingObj.user.longitude = bookingObj.location.longitude;
     }
 
+    if (bookingObj.category) {
+        bookingObj.categoryName = bookingObj.category.title || bookingObj.category.name || "N/A";
+    }
+
     return bookingObj;
 };
 
@@ -618,6 +627,7 @@ const getBookingDetails = async (bookingId, userId, role) => {
         .populate('proposedServices.service')
         .populate('userRequestedServices.service')
         .populate('rejectedServices.service')
+        .populate('category')
         .populate('vendor', 'name phoneNumber photo')
         .populate('user', 'name phoneNumber photo');
 
@@ -754,10 +764,18 @@ const createBooking = async (userId, bookingData) => {
     
 
     const processedServices = [];
-    for (const item of services) {
+    let leadCategory = null;
+
+    for (let i = 0; i < services.length; i++) {
+        const item = services[i];
         // Fetch hierarchical pricing (Service -> ServiceType -> Subcategory -> Category)
+        const serviceData = await Service.findById(item.serviceId).populate('category');
         const { adminPrice, coupon, discount } = await _getHierarchicalPricing(item.serviceId);
         
+        if (i === 0 && serviceData) {
+            leadCategory = serviceData.category?._id;
+        }
+
         if (adminPrice === 0) {
             // Log a warning or handle as unpriced
             console.log(`[WARNING] Service ${item.serviceId} has 0 adminPrice across hierarchy`);
@@ -791,6 +809,7 @@ const createBooking = async (userId, bookingData) => {
     const lead = await Lead.create({
         leadID: bookingID,
         user: userId,
+        category: leadCategory,
         services: processedServices,
         scheduledDate: new Date(date),
         scheduledTime: time,
@@ -807,10 +826,13 @@ const createBooking = async (userId, bookingData) => {
         searchVendors(lead, true).catch(console.error);
     }
 
+    const populatedLead = await Lead.findById(lead._id).populate('category');
+    const formattedLead = _formatBooking(populatedLead, 'user');
+
     return {
         booking: {
-            ...lead.toObject(),
-            bookingID: lead.leadID // for backward compatibility
+            ...formattedLead,
+            bookingID: formattedLead.leadID // for backward compatibility
         },
         message: 'Searching for vendors...'
     };
@@ -822,10 +844,15 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
     const retryCount = leadOrBooking.retryCount || 0;
     const radiusTiers = [5, 10, 15];
     const radiusInKm = radiusTiers[Math.min(retryCount, radiusTiers.length - 1)];
-
-    const serviceIds = leadOrBooking.services.map(s => s.service);
-    const services = await Service.find({ _id: { $in: serviceIds } }).select('category');
-    const categoryIds = [...new Set(services.map(s => s.category.toString()))];
+    
+    let categoryIds = [];
+    if (leadOrBooking.category) {
+        categoryIds = [leadOrBooking.category.toString()];
+    } else {
+        const serviceIds = leadOrBooking.services.map(s => s.service);
+        const services = await Service.find({ _id: { $in: serviceIds } }).select('category');
+        categoryIds = [...new Set(services.map(s => s.category.toString()))];
+    }
 
     const ignoredVendors = [
         ...(leadOrBooking.rejectedVendors || []),

@@ -12,6 +12,10 @@ const leadSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
+    category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Category',
+    },
     services: [{
       service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service', required: true },
       quantity: { type: Number, default: 1 },
