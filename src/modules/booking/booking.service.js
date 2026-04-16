@@ -16,6 +16,8 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
+const RADIUS_TIERS = [2, 4, 5];
+
 /**
  * Request a lead (User initiates)
  */
@@ -890,7 +892,7 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
     // 1. Determine Identity and Radius
     const isLead = !leadOrBooking.statusHistory;
     const retryCount = leadOrBooking.retryCount || 0;
-    const radiusTiers = [2, 4, 5];
+    const radiusTiers = RADIUS_TIERS;
     const radiusInKm = radiusTiers[Math.min(retryCount, radiusTiers.length - 1)];
     
     let categoryIds = [];
@@ -1024,6 +1026,7 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
             const { emitToUser } = require('../../socket');
             emitToUser(leadOrBooking.user, 'booking_search_update', {
                 bookingId: leadOrBooking._id,
+                bookingID: leadOrBooking.leadID || leadOrBooking.bookingID,
                 status: 'searching',
                 radius: radiusInKm,
                 vendorCount: broadcastCount,
@@ -1055,8 +1058,9 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
                         
                         emitToUser(leadOrBooking.user, 'booking_search_update', {
                             bookingId: leadOrBooking._id,
-                            status: 'no_vendors_found',
-                            message: `Could not find any vendors within ${radiusTiers[radiusTiers.length - 1]}km after 5 minutes of searching. Please try again manually.`
+                            bookingID: leadOrBooking.leadID || leadOrBooking.bookingID,
+                            status: 'no_vendors_available',
+                            message: `Could not find any vendors within ${RADIUS_TIERS[RADIUS_TIERS.length - 1]}km after 5 minutes of searching. Please try again manually.`
                         });
                     }
                 }, 1 * 60 * 1000); // Wait 1 more min for the 5km tier before stopping
@@ -1601,7 +1605,7 @@ const retrySearchVendors = async (userId, bookingId) => {
         found: nearby.length > 0,
         count: nearby.length,
         message: nearby.length > 0
-            ? `Search restarted from ${radiusTiers[0]}km radius. Please wait.`
+            ? `Search restarted from ${RADIUS_TIERS[0]}km radius. Please wait.`
             : 'No vendors are currently available nearby.'
     };
 };
