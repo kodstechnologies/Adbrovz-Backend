@@ -231,7 +231,7 @@ const getCompletedHistory = asyncHandler(async (req, res) => {
  * Retry vendor search
  */
 const retrySearch = asyncHandler(async (req, res) => {
-    const userId = req.user?.userId;
+    const userId = req.user?.id || req.user?._id || req.user?.userId;
     const { id } = req.params;
 
     const result = await bookingService.retrySearchVendors(userId, id);

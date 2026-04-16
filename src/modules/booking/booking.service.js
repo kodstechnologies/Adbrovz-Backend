@@ -890,7 +890,7 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
     // 1. Determine Identity and Radius
     const isLead = !leadOrBooking.statusHistory;
     const retryCount = leadOrBooking.retryCount || 0;
-    const radiusTiers = [5, 10, 15];
+    const radiusTiers = [2, 4, 5];
     const radiusInKm = radiusTiers[Math.min(retryCount, radiusTiers.length - 1)];
     
     let categoryIds = [];
@@ -1034,7 +1034,7 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
 
             // ── Schedule Search Expansion (Retries: 2/2/1 mins for total of 5 mins) ──
             if (retryCount < radiusTiers.length - 1) {
-                // Tier 0 (5km) -> 2 mins, Tier 1 (10km) -> 2 mins, Tier 2 (15km) -> 1 min (final)
+                // Tier 0 (2km) -> 2 mins, Tier 1 (4km) -> 2 mins, Tier 2 (5km) -> 1 min (final)
                 const delayMins = retryCount < 2 ? 2 : 1;
                 
                 setTimeout(async () => {
@@ -1056,10 +1056,10 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
                         emitToUser(leadOrBooking.user, 'booking_search_update', {
                             bookingId: leadOrBooking._id,
                             status: 'no_vendors_found',
-                            message: 'Could not find any vendors within 15km after 5 minutes of searching. Please try again manually.'
+                            message: `Could not find any vendors within ${radiusTiers[radiusTiers.length - 1]}km after 5 minutes of searching. Please try again manually.`
                         });
                     }
-                }, 1 * 60 * 1000); // Wait 1 more min for the 15km tier before stopping
+                }, 1 * 60 * 1000); // Wait 1 more min for the 5km tier before stopping
             }
             
         } catch (error) {
@@ -1567,6 +1567,9 @@ const retrySearchVendors = async (userId, bookingId) => {
     }
 
     if (!target) throw new ApiError(404, 'Booking/Lead not found');
+    
+    console.log(`[DEBUG] retrySearchVendors: Found ${target.leadID ? 'Lead' : 'Booking'} ${target._id} with status ${target.status}`);
+
 
     if (target.status !== 'pending_acceptance' && target.status !== 'searching' && target.status !== 'expired' && target.status !== 'no_vendors_available') {
         throw new ApiError(400, 'Retry allowed only for pending search requests');
@@ -1575,7 +1578,22 @@ const retrySearchVendors = async (userId, bookingId) => {
     // Reset status and retryCount for tiered search reset
     target.status = target.leadID ? 'searching' : 'pending_acceptance';
     target.retryCount = 0;
+
+    // IMPORTANT: Clear previous interactions so vendors are notified again
+    target.laterVendors = [];
+    target.rejectedVendors = [];
+    
+    if (target.statusHistory) {
+      target.statusHistory.push({
+        status: target.status,
+        timestamp: new Date(),
+        actor: 'user',
+        reason: 'User retried vendor search'
+      });
+    }
+
     await target.save();
+    console.log(`[DEBUG] retrySearchVendors: Status reset to ${target.status}, exclusion lists cleared.`);
 
     const nearby = await searchVendors(target, true);
 
@@ -1583,7 +1601,7 @@ const retrySearchVendors = async (userId, bookingId) => {
         found: nearby.length > 0,
         count: nearby.length,
         message: nearby.length > 0
-            ? `Search restarted from 5km radius. Please wait.`
+            ? `Search restarted from ${radiusTiers[0]}km radius. Please wait.`
             : 'No vendors are currently available nearby.'
     };
 };
