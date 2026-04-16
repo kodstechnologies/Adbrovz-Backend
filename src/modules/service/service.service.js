@@ -146,6 +146,15 @@ const getServicesByServiceTypeId = async (serviceTypeId, options = {}) => {
     const formattedServices = services.map(service => {
         const doc = service.toJSON();
         const pricing = _calculateServicePricing(service);
+        
+        // Convert populated fields back to string IDs to maintain schema structure
+        if (doc.serviceType && doc.serviceType.id) doc.serviceType = doc.serviceType.id;
+        else if (doc.serviceType && doc.serviceType._id) doc.serviceType = doc.serviceType._id.toString();
+        if (doc.subcategory && doc.subcategory.id) doc.subcategory = doc.subcategory.id;
+        else if (doc.subcategory && doc.subcategory._id) doc.subcategory = doc.subcategory._id.toString();
+        if (doc.category && doc.category.id) doc.category = doc.category.id;
+        else if (doc.category && doc.category._id) doc.category = doc.category._id.toString();
+
         return {
             ...doc,
             adminPrice: pricing.adminPrice,
@@ -155,8 +164,8 @@ const getServicesByServiceTypeId = async (serviceTypeId, options = {}) => {
     });
 
     return {
-        categoryId: serviceType.category,
-        subcategoryId: serviceType.subcategory,
+        categoryId: serviceType.category?._id ? serviceType.category._id.toString() : serviceType.category,
+        subcategoryId: serviceType.subcategory?._id ? serviceType.subcategory._id.toString() : serviceType.subcategory,
         services: formattedServices,
         pagination: {
             page,
@@ -202,7 +211,7 @@ const getServicesByTypes = async (typeIds, options = {}) => {
 
     // Group services by service type ID
     const groupedServices = services.reduce((acc, service) => {
-        const typeId = service.serviceType?._id?.toString() || 'Other';
+        const typeId = service.serviceType?._id?.toString() || service.serviceType?.toString() || 'Other';
         if (!acc[typeId]) {
             acc[typeId] = {
                 serviceTypeId: typeId,
@@ -214,6 +223,14 @@ const getServicesByTypes = async (typeIds, options = {}) => {
         const doc = service.toJSON();
         const pricing = _calculateServicePricing(service);
         
+        // Convert populated fields back to string IDs
+        if (doc.serviceType && doc.serviceType.id) doc.serviceType = doc.serviceType.id;
+        else if (doc.serviceType && doc.serviceType._id) doc.serviceType = doc.serviceType._id.toString();
+        if (doc.subcategory && doc.subcategory.id) doc.subcategory = doc.subcategory.id;
+        else if (doc.subcategory && doc.subcategory._id) doc.subcategory = doc.subcategory._id.toString();
+        if (doc.category && doc.category.id) doc.category = doc.category.id;
+        else if (doc.category && doc.category._id) doc.category = doc.category._id.toString();
+
         acc[typeId].servicesGroup.push({
             ...doc,
             adminPrice: pricing.adminPrice,
@@ -228,7 +245,7 @@ const getServicesByTypes = async (typeIds, options = {}) => {
     const result = Object.values(groupedServices);
 
     return {
-        categoryId: services.length > 0 ? services[0].category : null,
+        categoryId: services.length > 0 ? (services[0].category?._id ? services[0].category._id.toString() : services[0].category) : null,
         data: result,
         pagination: {
             page,
@@ -276,6 +293,15 @@ const getServicesBySubcategoryId = async (subcategoryId, options = {}) => {
     const formattedServices = services.map(service => {
         const doc = service.toJSON();
         const pricing = _calculateServicePricing(service);
+        
+        // Convert populated fields back to string IDs
+        if (doc.serviceType && doc.serviceType.id) doc.serviceType = doc.serviceType.id;
+        else if (doc.serviceType && doc.serviceType._id) doc.serviceType = doc.serviceType._id.toString();
+        if (doc.subcategory && doc.subcategory.id) doc.subcategory = doc.subcategory.id;
+        else if (doc.subcategory && doc.subcategory._id) doc.subcategory = doc.subcategory._id.toString();
+        if (doc.category && doc.category.id) doc.category = doc.category.id;
+        else if (doc.category && doc.category._id) doc.category = doc.category._id.toString();
+
         return {
             ...doc,
             adminPrice: pricing.adminPrice,
@@ -285,7 +311,7 @@ const getServicesBySubcategoryId = async (subcategoryId, options = {}) => {
     });
 
     return {
-        categoryId: subcategory.category,
+        categoryId: subcategory.category?._id ? subcategory.category._id.toString() : subcategory.category,
         services: formattedServices,
         pagination: {
             page,
@@ -342,6 +368,16 @@ const globalSearch = async (query) => {
     const formattedServices = services.map(service => {
         const doc = service.toJSON();
         const pricing = _calculateServicePricing(service);
+        
+        // Retain original behavior in globalSearch, but strip out the pricing sub-fields if desired as strings,
+        // Wait, for globalSearch, they probably want string IDs as well to be consistent. Let's do that.
+        if (doc.serviceType && doc.serviceType.id) doc.serviceType = doc.serviceType.id;
+        else if (doc.serviceType && doc.serviceType._id) doc.serviceType = doc.serviceType._id.toString();
+        if (doc.subcategory && doc.subcategory.id) doc.subcategory = doc.subcategory.id;
+        else if (doc.subcategory && doc.subcategory._id) doc.subcategory = doc.subcategory._id.toString();
+        if (doc.category && doc.category.id) doc.category = doc.category.id;
+        else if (doc.category && doc.category._id) doc.category = doc.category._id.toString();
+
         return {
             ...doc,
             adminPrice: pricing.adminPrice,
@@ -372,6 +408,11 @@ const getAllServices = async () => {
             doc.isActive = true;
         }
         const pricing = _calculateServicePricing(s);
+        
+        // Optionally revert to string IDs if they are not specifically expected as objects
+        // However getAllServices relies on populated names, so we'll just remove serviceCharge/discount wrapper if needed.
+        // Since we didn't add serviceCharge to 'category' here, let's leave it intact.
+        
         doc.adminPrice = pricing.adminPrice;
         doc.discountPercentage = pricing.discountPercentage;
         doc.discountPrice = pricing.discountPrice;
