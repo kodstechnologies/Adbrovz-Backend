@@ -33,6 +33,10 @@ const serviceSchema = new mongoose.Schema(
     serviceCharge: {
       type: Number,
     },
+    bookingPrice: {
+      type: Number,
+      default: 0,
+    },
     isAdminPriced: {
       type: Boolean,
       default: false,

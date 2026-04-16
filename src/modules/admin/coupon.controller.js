@@ -86,7 +86,12 @@ exports.verifyCoupon = async (req, res) => {
             return res.status(200).json({ success: true, valid: false, message: 'Coupon has expired' });
         }
 
-        if (!coupon.isForAllUsers) {
+        if (coupon.isForAllUsers) {
+            const user = await User.findById(userId);
+            if (user && user.createdAt > coupon.createdAt) {
+                return res.status(200).json({ success: true, valid: false, message: 'This coupon is only for users who joined before ' + new Date(coupon.createdAt).toLocaleDateString() });
+            }
+        } else {
             const isApplicable = (coupon.applicableUsers || []).some((u) => u.toString() === userId.toString());
             if (!isApplicable) {
                 return res.status(200).json({ success: true, valid: false, message: 'This coupon is not applicable for this user' });
@@ -132,7 +137,12 @@ exports.applyCoupon = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Coupon has expired' });
         }
 
-        if (!coupon.isForAllUsers) {
+        if (coupon.isForAllUsers) {
+            const user = await User.findById(userId);
+            if (user && user.createdAt > coupon.createdAt) {
+                return res.status(400).json({ success: false, message: 'This coupon is only for users who joined before ' + new Date(coupon.createdAt).toLocaleDateString() });
+            }
+        } else {
             const isApplicable = (coupon.applicableUsers || []).some((u) => u.toString() === userId.toString());
             if (!isApplicable) {
                 return res.status(400).json({ success: false, message: 'This coupon is not applicable for this user' });

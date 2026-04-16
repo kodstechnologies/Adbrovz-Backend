@@ -17,13 +17,12 @@ const MESSAGES = require('../../constants/messages');
  * =========================
  */
 
-/**
- * Helper to calculate hierarchical pricing for a service
- */
 const _calculateServicePricing = (service) => {
-    // Determine the base price top-down or bottom-up
-    // Priority: Service -> ServiceType -> Subcategory -> Category
-    const adminPrice = service.serviceCharge || 
+    const adminPrice = service.bookingPrice || 
+                      service.serviceType?.bookingPrice || 
+                      service.subcategory?.bookingPrice || 
+                      service.category?.bookingPrice ||
+                      service.serviceCharge || 
                       service.serviceType?.serviceCharge || 
                       service.subcategory?.serviceCharge || 
                       service.category?.serviceCharge || 0;
@@ -135,11 +134,11 @@ const getServicesByServiceTypeId = async (serviceTypeId, options = {}) => {
         .skip(skip)
         .limit(limit)
         .select(
-            'title description photo approxCompletionTime serviceCharge isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType subcategory category'
+            'title description photo approxCompletionTime serviceCharge bookingPrice isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType subcategory category'
         )
-        .populate('serviceType', 'serviceCharge discount coupon')
-        .populate('subcategory', 'serviceCharge discount coupon')
-        .populate('category', 'serviceCharge discount coupon');
+        .populate('serviceType', 'serviceCharge bookingPrice discount coupon')
+        .populate('subcategory', 'serviceCharge bookingPrice discount coupon')
+        .populate('category', 'serviceCharge bookingPrice discount coupon');
 
     const total = await Service.countDocuments(query);
 
@@ -196,16 +195,15 @@ const getServicesByTypes = async (typeIds, options = {}) => {
     }
 
     const services = await Service.find(query)
-        .populate('serviceType', 'name')
         .sort({ title: 1 })
         .skip(skip)
         .limit(limit)
         .select(
-            'title description photo approxCompletionTime serviceCharge isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType subcategory category'
+            'title description photo approxCompletionTime serviceCharge bookingPrice isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType subcategory category'
         )
-        .populate('serviceType', 'name serviceCharge discount coupon')
-        .populate('subcategory', 'serviceCharge discount coupon')
-        .populate('category', 'serviceCharge discount coupon');
+        .populate('serviceType', 'name serviceCharge bookingPrice discount coupon')
+        .populate('subcategory', 'serviceCharge bookingPrice discount coupon')
+        .populate('category', 'serviceCharge bookingPrice discount coupon');
 
     const total = await Service.countDocuments(query);
 
@@ -282,11 +280,11 @@ const getServicesBySubcategoryId = async (subcategoryId, options = {}) => {
         .skip(skip)
         .limit(limit)
         .select(
-            'title description photo approxCompletionTime serviceCharge isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType subcategory category'
+            'title description photo approxCompletionTime serviceCharge bookingPrice isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType subcategory category'
         )
-        .populate('serviceType', 'serviceCharge discount coupon')
-        .populate('subcategory', 'serviceCharge discount coupon')
-        .populate('category', 'serviceCharge discount coupon');
+        .populate('serviceType', 'serviceCharge bookingPrice discount coupon')
+        .populate('subcategory', 'serviceCharge bookingPrice discount coupon')
+        .populate('category', 'serviceCharge bookingPrice discount coupon');
 
     const total = await Service.countDocuments(query);
 
@@ -356,11 +354,11 @@ const globalSearch = async (query) => {
             .limit(10),
 
         Service.find({ title: searchRegex })
-            .populate('category', 'name serviceCharge discount coupon')
-            .populate('subcategory', 'name serviceCharge discount coupon')
-            .populate('serviceType', 'name serviceCharge discount coupon')
+            .populate('category', 'name serviceCharge bookingPrice discount coupon')
+            .populate('subcategory', 'name serviceCharge bookingPrice discount coupon')
+            .populate('serviceType', 'name serviceCharge bookingPrice discount coupon')
             .select(
-                'title description photo serviceCharge approxCompletionTime category subcategory serviceType discount coupon'
+                'title description photo serviceCharge bookingPrice approxCompletionTime category subcategory serviceType discount coupon'
             )
             .limit(20)
     ]);
@@ -634,14 +632,11 @@ const createService = async (data) => {
         }
     }
 
-    // Normalize serviceCharge and set isAdminPriced
-    if (data.serviceCharge === '' || data.serviceCharge === undefined || data.serviceCharge === null || data.serviceCharge === 'null') {
-        data.serviceCharge = 0;
-        data.isAdminPriced = false;
-    } else {
-        data.serviceCharge = Number(data.serviceCharge);
-        data.isAdminPriced = data.serviceCharge > 0;
-    }
+    // Normalize prices and set isAdminPriced
+    const normalizePrice = (val) => (val === '' || val === undefined || val === null || val === 'null' ? 0 : Number(val));
+    data.serviceCharge = normalizePrice(data.serviceCharge);
+    data.bookingPrice = normalizePrice(data.bookingPrice);
+    data.isAdminPriced = data.serviceCharge > 0 || data.bookingPrice > 0;
 
     return await Service.create(data);
 };
@@ -667,14 +662,11 @@ const updateService = async (serviceId, data) => {
         }
     }
 
-    // Normalize serviceCharge and set isAdminPriced
-    if (data.serviceCharge === '' || data.serviceCharge === undefined || data.serviceCharge === null || data.serviceCharge === 'null') {
-        data.serviceCharge = 0;
-        data.isAdminPriced = false;
-    } else {
-        data.serviceCharge = Number(data.serviceCharge);
-        data.isAdminPriced = data.serviceCharge > 0;
-    }
+    // Normalize prices and set isAdminPriced
+    const normalizePrice = (val) => (val === '' || val === undefined || val === null || val === 'null' ? 0 : Number(val));
+    data.serviceCharge = normalizePrice(data.serviceCharge);
+    data.bookingPrice = normalizePrice(data.bookingPrice);
+    data.isAdminPriced = data.serviceCharge > 0 || data.bookingPrice > 0;
 
     return await Service.findByIdAndUpdate(serviceId, data, { new: true, runValidators: true });
 };
@@ -771,6 +763,7 @@ const getAllCategoriesWithSubcategories = async () => {
                 slotStartTime: 1,
                 slotEndTime: 1,
                 serviceCharge: 1,
+                bookingPrice: 1,
                 coupon: 1,
                 discount: 1,
                 membershipCharge: 1,

@@ -740,7 +740,11 @@ const _getHierarchicalPricing = async (serviceId) => {
     
     if (!service) return { adminPrice: 0, coupon: null, discount: 0 };
 
-    const adminPrice = service.serviceCharge || 
+    const adminPrice = service.bookingPrice || 
+                      service.serviceType?.bookingPrice || 
+                      service.subcategory?.bookingPrice || 
+                      service.category?.bookingPrice ||
+                      service.serviceCharge || 
                       service.serviceType?.serviceCharge || 
                       service.subcategory?.serviceCharge || 
                       service.category?.serviceCharge || 0;

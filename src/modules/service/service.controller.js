@@ -117,9 +117,12 @@ const getAllServices = asyncHandler(async (req, res) => {
 
 // Admin: Category Management
 const createCategory = asyncHandler(async (req, res) => {
-    console.log('DEBUG: createCategory req.body:', req.body);
     const data = { ...req.body };
-    // Cloudinary URL is already set in req.body.icon by uploadToCloudinary middleware
+    // Map adminPrice → serviceCharge (frontend uses adminPrice, model uses serviceCharge)
+    if (data.adminPrice !== undefined) {
+        data.serviceCharge = Number(data.adminPrice) || 0;
+        delete data.adminPrice;
+    }
     if (req.file && req.file.cloudinary) {
         data.icon = req.file.cloudinary.url;
     }
@@ -128,9 +131,12 @@ const createCategory = asyncHandler(async (req, res) => {
 });
 
 const updateCategory = asyncHandler(async (req, res) => {
-    console.log('DEBUG: updateCategory req.body:', req.body);
     const data = { ...req.body };
-    // Cloudinary URL is already set in req.body.icon by uploadToCloudinary middleware
+    // Map adminPrice → serviceCharge
+    if (data.adminPrice !== undefined) {
+        data.serviceCharge = Number(data.adminPrice) || 0;
+        delete data.adminPrice;
+    }
     if (req.file && req.file.cloudinary) {
         data.icon = req.file.cloudinary.url;
     }
@@ -146,7 +152,11 @@ const deleteCategory = asyncHandler(async (req, res) => {
 // Admin: Subcategory Management
 const createSubcategory = asyncHandler(async (req, res) => {
     const data = { ...req.body };
-    // Cloudinary URL is already set in req.body.icon by uploadToCloudinary middleware
+    // Map adminPrice → serviceCharge
+    if (data.adminPrice !== undefined) {
+        data.serviceCharge = Number(data.adminPrice) || 0;
+        delete data.adminPrice;
+    }
     if (req.file && req.file.cloudinary) {
         data.icon = req.file.cloudinary.url;
     }
@@ -156,7 +166,11 @@ const createSubcategory = asyncHandler(async (req, res) => {
 
 const updateSubcategory = asyncHandler(async (req, res) => {
     const data = { ...req.body };
-    // Cloudinary URL is already set in req.body.icon by uploadToCloudinary middleware
+    // Map adminPrice → serviceCharge
+    if (data.adminPrice !== undefined) {
+        data.serviceCharge = Number(data.adminPrice) || 0;
+        delete data.adminPrice;
+    }
     if (req.file && req.file.cloudinary) {
         data.icon = req.file.cloudinary.url;
     }
@@ -178,12 +192,24 @@ const getAdminServiceTypes = asyncHandler(async (req, res) => {
 });
 
 const createServiceType = asyncHandler(async (req, res) => {
-    const serviceType = await serviceService.createServiceType(req.body);
+    const data = { ...req.body };
+    // Map adminPrice → serviceCharge
+    if (data.adminPrice !== undefined) {
+        data.serviceCharge = Number(data.adminPrice) || 0;
+        delete data.adminPrice;
+    }
+    const serviceType = await serviceService.createServiceType(data);
     res.status(201).json(new ApiResponse(201, serviceType, 'Service type created successfully'));
 });
 
 const updateServiceType = asyncHandler(async (req, res) => {
-    const serviceType = await serviceService.updateServiceType(req.params.serviceTypeId, req.body);
+    const data = { ...req.body };
+    // Map adminPrice → serviceCharge
+    if (data.adminPrice !== undefined) {
+        data.serviceCharge = Number(data.adminPrice) || 0;
+        delete data.adminPrice;
+    }
+    const serviceType = await serviceService.updateServiceType(req.params.serviceTypeId, data);
     res.status(200).json(new ApiResponse(200, serviceType, 'Service type updated successfully'));
 });
 
@@ -194,27 +220,29 @@ const deleteServiceType = asyncHandler(async (req, res) => {
 
 // Admin: Service Management
 const createService = asyncHandler(async (req, res) => {
-    console.log('DEBUG: createService req.body:', req.body);
-    console.log('DEBUG: createService req.file:', req.file);
     const serviceData = { ...req.body };
-
-    // Cloudinary URL is already set in req.body.photo by uploadToCloudinary middleware
+    // Map adminPrice → serviceCharge
+    if (serviceData.adminPrice !== undefined) {
+        serviceData.serviceCharge = Number(serviceData.adminPrice) || 0;
+        delete serviceData.adminPrice;
+    }
     if (req.file && req.file.cloudinary) {
         serviceData.photo = req.file.cloudinary.url;
     }
-
     const service = await serviceService.createService(serviceData);
     res.status(201).json(new ApiResponse(201, service, 'Service created successfully'));
 });
 
 const updateService = asyncHandler(async (req, res) => {
     const updateData = { ...req.body };
-
-    // Cloudinary URL is already set in req.body.photo by uploadToCloudinary middleware
+    // Map adminPrice → serviceCharge
+    if (updateData.adminPrice !== undefined) {
+        updateData.serviceCharge = Number(updateData.adminPrice) || 0;
+        delete updateData.adminPrice;
+    }
     if (req.file && req.file.cloudinary) {
         updateData.photo = req.file.cloudinary.url;
     }
-
     const service = await serviceService.updateService(req.params.serviceId, updateData);
     res.status(200).json(new ApiResponse(200, service, 'Service updated successfully'));
 });

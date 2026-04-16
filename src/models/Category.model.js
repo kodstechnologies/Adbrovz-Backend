@@ -39,6 +39,10 @@ const categorySchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    bookingPrice: {
+      type: Number,
+      default: 0,
+    },
     coupon: {
       type: String,
       trim: true,
