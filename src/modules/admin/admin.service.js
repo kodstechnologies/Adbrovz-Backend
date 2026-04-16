@@ -14,6 +14,7 @@ const CoinTransaction = require('../../models/CoinTransaction.model');
 const PaymentRecord = require('../../models/PaymentRecord.model');
 const ApiError = require('../../utils/ApiError');
 const { DEFAULT_SETTINGS } = require('../../constants/settings');
+const Lead = require('../../models/Lead.model');
 
 const getDashboardStats = async () => {
   try {
@@ -158,6 +159,10 @@ const getDashboardStats = async () => {
           subcategories: totalSubcategories,
           serviceTypes: totalServiceTypes,
           services: totalServices
+      },
+      leadsStats: {
+        activeLeads: await Lead.countDocuments({ status: 'searching' }),
+        totalLeadsToday: await Lead.countDocuments({ createdAt: { $gte: new Date().setHours(0, 0, 0, 0) } })
       },
       weekData,
       vendorPerf,
@@ -758,6 +763,102 @@ const getVendorPaymentHistory = async (vendorId) => {
     .populate('planId', 'name price validityDays');
 };
 
+const getAllAuditLogs = async (query = {}) => {
+  const { limit = 20, skip = 0, search = '', action } = query;
+  const filter = {};
+
+  if (action) filter.action = action;
+  if (search) {
+    const userMatches = await User.find({ name: { $regex: search, $options: 'i' } }).select('_id');
+    filter.$or = [
+      { action: { $regex: search, $options: 'i' } },
+      { user: { $in: userMatches.map(u => u._id) } }
+    ];
+  }
+
+  const [logs, total] = await Promise.all([
+    AuditLog.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip))
+      .populate('user', 'name phoneNumber role'),
+    AuditLog.countDocuments(filter)
+  ]);
+
+  return { logs, total, limit: parseInt(limit), skip: parseInt(skip) };
+};
+
+const getAllLeads = async (query = {}) => {
+  const { limit = 20, skip = 0, status } = query;
+  const filter = {};
+  if (status) filter.status = status;
+
+  const [leads, total] = await Promise.all([
+    Lead.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip))
+      .populate('user', 'name phoneNumber')
+      .populate('category subcategory serviceType'),
+    Lead.countDocuments(filter)
+  ]);
+
+  return { leads, total, limit: parseInt(limit), skip: parseInt(skip) };
+};
+
+const getGlobalTransactions = async (query = {}) => {
+  const { limit = 20, skip = 0, type } = query;
+  
+  // We want to combine both Membership (PaymentRecord) and Coin Purchases (CoinTransaction - only credit)
+  // For simplicity in a unified table, we'll fetch both and merge or just return them separately if the UI handles it.
+  // Let's return a unified structure.
+
+  const [membershipPayments, coinPurchases] = await Promise.all([
+    PaymentRecord.find({})
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip))
+      .populate('vendor', 'name phoneNumber')
+      .populate('planId', 'name price'),
+    CoinTransaction.find({ type: 'credit', provider: 'razorpay' }) // Only external purchases
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip))
+      .populate('user', 'name phoneNumber')
+  ]);
+
+  // Map to unified format
+  const unified = [
+    ...membershipPayments.map(p => ({
+      id: p._id,
+      entity: p.vendor?.name || 'Unknown Vendor',
+      type: 'Membership',
+      detail: p.planId?.name || 'N/A',
+      amount: p.amount,
+      status: p.status,
+      createdAt: p.createdAt,
+      source: 'PaymentRecord'
+    })),
+    ...coinPurchases.map(c => ({
+      id: c._id,
+      entity: c.user?.name || 'Unknown User',
+      type: 'Coins',
+      detail: `${c.amount} Credits`,
+      amount: c.amount, // If 1 coin = 1 rs, adjust if different
+      status: 'completed', // CoinTransactions are usually created after success
+      createdAt: c.createdAt,
+      source: 'CoinTransaction'
+    }))
+  ].sort((a, b) => b.createdAt - a.createdAt);
+
+  return { 
+    transactions: unified.slice(0, parseInt(limit)), 
+    total: await PaymentRecord.countDocuments() + await CoinTransaction.countDocuments({ type: 'credit', provider: 'razorpay' }),
+    limit: parseInt(limit),
+    skip: parseInt(skip)
+  };
+};
+
 module.exports = {
   getDashboardStats,
   getAllUsers,
@@ -783,4 +884,7 @@ module.exports = {
   exportBookingsCSV,
   exportAuditLogsCSV,
   getVendorPaymentHistory,
+  getAllAuditLogs,
+  getAllLeads,
+  getGlobalTransactions
 };

@@ -35,6 +35,15 @@ const getAuditLogsByAction = asyncHandler(async (req, res) => {
   );
 });
 
+// Get all audit logs
+const getAllAuditLogs = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const result = await adminService.getAllAuditLogs(req.query);
+  res.status(200).json(
+    new ApiResponse(200, result, 'All audit logs retrieved successfully')
+  );
+});
+
 // Get dashboard stats
 const getDashboard = asyncHandler(async (req, res) => {
   const adminService = require('./admin.service');
@@ -251,6 +260,24 @@ const getVendorPaymentHistory = asyncHandler(async (req, res) => {
   );
 });
 
+// Get all leads
+const getAllLeads = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const result = await adminService.getAllLeads(req.query);
+  res.status(200).json(
+    new ApiResponse(200, result, 'Leads retrieved successfully')
+  );
+});
+
+// Get global transactions
+const getGlobalTransactions = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const result = await adminService.getGlobalTransactions(req.query);
+  res.status(200).json(
+    new ApiResponse(200, result, 'Global transactions retrieved successfully')
+  );
+});
+
 module.exports = {
   getDashboard,
   getUsers,
@@ -276,5 +303,8 @@ module.exports = {
   getBookingDetails,
   exportBookings,
   exportAuditLogs,
-  getVendorPaymentHistory
+  getVendorPaymentHistory,
+  getAllAuditLogs,
+  getAllLeads,
+  getGlobalTransactions
 };

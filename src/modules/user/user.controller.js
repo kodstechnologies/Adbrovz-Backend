@@ -116,6 +116,95 @@ const getMyCoupons = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, result, 'Coupons retrieved successfully'));
 });
 
+// Verify a coupon code for a specific user
+const verifyCoupon = asyncHandler(async (req, res) => {
+  const { code, userId } = req.body;
+
+  if (!code) throw new ApiError(400, 'Coupon code is required');
+  if (!userId) throw new ApiError(400, 'User ID is required');
+
+  const coupon = await Coupon.findOne({ code: code.toUpperCase() });
+  
+  if (!coupon) {
+    return res.status(200).json(new ApiResponse(404, { valid: false }, 'Invalid coupon code'));
+  }
+
+  if (!coupon.isActive) {
+    return res.status(200).json(new ApiResponse(400, { valid: false }, 'Coupon is inactive'));
+  }
+
+  const now = new Date();
+  const validityEnd = new Date(coupon.createdAt);
+  validityEnd.setDate(validityEnd.getDate() + coupon.validityDays);
+
+  if (now > validityEnd) {
+    return res.status(200).json(new ApiResponse(400, { valid: false }, 'Coupon has expired'));
+  }
+
+  if (!coupon.isForAllUsers) {
+    const isApplicable = coupon.applicableUsers.some((u) => u.toString() === userId.toString());
+    if (!isApplicable) {
+      return res.status(200).json(new ApiResponse(400, { valid: false }, 'This coupon is not applicable for this user'));
+    }
+  }
+
+  res.status(200).json(new ApiResponse(200, {
+    valid: true,
+    code: coupon.code,
+    discountType: coupon.discountType,
+    discountValue: coupon.discountValue
+  }, 'Coupon is valid'));
+});
+
+// Apply a coupon and calculate discount
+const applyCoupon = asyncHandler(async (req, res) => {
+  const { code, userId, orderAmount } = req.body;
+
+  if (!code) throw new ApiError(400, 'Coupon code is required');
+  if (!userId) throw new ApiError(400, 'User ID is required');
+  if (!orderAmount || orderAmount <= 0) throw new ApiError(400, 'Valid order amount is required');
+
+  const coupon = await Coupon.findOne({ code: code.toUpperCase() });
+
+  if (!coupon || !coupon.isActive) {
+    throw new ApiError(400, 'Invalid or inactive coupon code');
+  }
+
+  const now = new Date();
+  const validityEnd = new Date(coupon.createdAt);
+  validityEnd.setDate(validityEnd.getDate() + coupon.validityDays);
+
+  if (now > validityEnd) {
+    throw new ApiError(400, 'Coupon has expired');
+  }
+
+  if (!coupon.isForAllUsers) {
+    const isApplicable = coupon.applicableUsers.some((u) => u.toString() === userId.toString());
+    if (!isApplicable) {
+      throw new ApiError(400, 'This coupon is not applicable for this user');
+    }
+  }
+
+  let discount = 0;
+  if (coupon.discountType === 'amount') {
+    discount = coupon.discountValue;
+  } else if (coupon.discountType === 'percent') {
+    discount = (orderAmount * coupon.discountValue) / 100;
+  }
+
+  const finalAmount = Math.max(0, orderAmount - discount);
+
+  res.status(200).json(new ApiResponse(200, {
+    valid: true,
+    code: coupon.code,
+    discountType: coupon.discountType,
+    discountValue: coupon.discountValue,
+    discount,
+    originalAmount: orderAmount,
+    finalAmount
+  }, 'Coupon applied successfully'));
+});
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -124,4 +213,6 @@ module.exports = {
   exportUsersToCSV,
   getUserCoins,
   getMyCoupons,
+  verifyCoupon,
+  applyCoupon,
 };

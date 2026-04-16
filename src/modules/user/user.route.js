@@ -11,6 +11,8 @@ router.use(authenticate);
 
 router.get('/profile', userController.getProfile);
 router.get('/coupons', userController.getMyCoupons);
+router.post('/coupons/verify', userController.verifyCoupon);
+router.post('/coupons/apply', userController.applyCoupon);
 // Admin routes
 router.get('/', userController.getUsers);
 router.get('/:userId/coins', userController.getUserCoins);

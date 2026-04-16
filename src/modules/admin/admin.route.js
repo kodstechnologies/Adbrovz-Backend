@@ -21,8 +21,15 @@ router.patch('/users/:userId/status', adminController.updateUserStatus);
 router.delete('/users/:userId', adminController.deleteUser);
 
 // Audit log routes
+router.get('/audit-logs', adminController.getAllAuditLogs);
 router.get('/audit-logs/user/:userId', adminController.getUserAuditLogs);
 router.get('/audit-logs/action/:action', adminController.getAuditLogsByAction);
+
+// Leads monitoring
+router.get('/leads', adminController.getAllLeads);
+
+// Transactions
+router.get('/transactions', adminController.getGlobalTransactions);
 
 // Credit Plan management routes
 router.post('/credit-plans', adminController.createCreditPlan);
@@ -60,6 +67,7 @@ router.use('/coins', coinRoutes);
 // Coupon management
 const couponRoutes = require('./coupon.route');
 router.use('/coupons', couponRoutes);
+
 
 module.exports = router;
 
