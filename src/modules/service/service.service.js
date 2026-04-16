@@ -12,6 +12,42 @@ const MESSAGES = require('../../constants/messages');
  */
 
 /**
+ * =========================
+ * PUBLIC APIs
+ * =========================
+ */
+
+/**
+ * Helper to calculate hierarchical pricing for a service
+ */
+const _calculateServicePricing = (service) => {
+    // Determine the base price top-down or bottom-up
+    // Priority: Service -> ServiceType -> Subcategory -> Category
+    const adminPrice = service.serviceCharge || 
+                      service.serviceType?.serviceCharge || 
+                      service.subcategory?.serviceCharge || 
+                      service.category?.serviceCharge || 0;
+
+    const discountPercentage = service.discount || 
+                    service.serviceType?.discount || 
+                    service.subcategory?.discount || 
+                    service.category?.discount || 0;
+
+    let discountPrice = adminPrice;
+    if (adminPrice > 0 && discountPercentage > 0) {
+        discountPrice = adminPrice - (adminPrice * (discountPercentage / 100));
+        // Round to 2 decimal places to avoid float issues
+        discountPrice = Math.round(discountPrice * 100) / 100;
+    }
+
+    return {
+        adminPrice: adminPrice,
+        discountPercentage: discountPercentage,
+        discountPrice: discountPrice
+    };
+};
+
+/**
  * Get all categories
  */
 const getAllCategories = async () => {
@@ -99,15 +135,29 @@ const getServicesByServiceTypeId = async (serviceTypeId, options = {}) => {
         .skip(skip)
         .limit(limit)
         .select(
-            'title description photo approxCompletionTime serviceCharge isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount'
-        );
+            'title description photo approxCompletionTime serviceCharge isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType subcategory category'
+        )
+        .populate('serviceType', 'serviceCharge discount coupon')
+        .populate('subcategory', 'serviceCharge discount coupon')
+        .populate('category', 'serviceCharge discount coupon');
 
     const total = await Service.countDocuments(query);
+
+    const formattedServices = services.map(service => {
+        const doc = service.toJSON();
+        const pricing = _calculateServicePricing(service);
+        return {
+            ...doc,
+            adminPrice: pricing.adminPrice,
+            discountPercentage: pricing.discountPercentage,
+            discountPrice: pricing.discountPrice
+        };
+    });
 
     return {
         categoryId: serviceType.category,
         subcategoryId: serviceType.subcategory,
-        services,
+        services: formattedServices,
         pagination: {
             page,
             limit,
@@ -142,8 +192,11 @@ const getServicesByTypes = async (typeIds, options = {}) => {
         .skip(skip)
         .limit(limit)
         .select(
-            'title description photo approxCompletionTime serviceCharge isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType category'
-        );
+            'title description photo approxCompletionTime serviceCharge isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType subcategory category'
+        )
+        .populate('serviceType', 'name serviceCharge discount coupon')
+        .populate('subcategory', 'serviceCharge discount coupon')
+        .populate('category', 'serviceCharge discount coupon');
 
     const total = await Service.countDocuments(query);
 
@@ -157,7 +210,17 @@ const getServicesByTypes = async (typeIds, options = {}) => {
                 servicesGroup: []
             };
         }
-        acc[typeId].servicesGroup.push(service);
+        
+        const doc = service.toJSON();
+        const pricing = _calculateServicePricing(service);
+        
+        acc[typeId].servicesGroup.push({
+            ...doc,
+            adminPrice: pricing.adminPrice,
+            discountPercentage: pricing.discountPercentage,
+            discountPrice: pricing.discountPrice
+        });
+        
         return acc;
     }, {});
 
@@ -202,14 +265,28 @@ const getServicesBySubcategoryId = async (subcategoryId, options = {}) => {
         .skip(skip)
         .limit(limit)
         .select(
-            'title description photo approxCompletionTime serviceCharge isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled'
-        );
+            'title description photo approxCompletionTime serviceCharge isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType subcategory category'
+        )
+        .populate('serviceType', 'serviceCharge discount coupon')
+        .populate('subcategory', 'serviceCharge discount coupon')
+        .populate('category', 'serviceCharge discount coupon');
 
     const total = await Service.countDocuments(query);
 
+    const formattedServices = services.map(service => {
+        const doc = service.toJSON();
+        const pricing = _calculateServicePricing(service);
+        return {
+            ...doc,
+            adminPrice: pricing.adminPrice,
+            discountPercentage: pricing.discountPercentage,
+            discountPrice: pricing.discountPrice
+        };
+    });
+
     return {
         categoryId: subcategory.category,
-        services,
+        services: formattedServices,
         pagination: {
             page,
             limit,
@@ -253,18 +330,30 @@ const globalSearch = async (query) => {
             .limit(10),
 
         Service.find({ title: searchRegex })
-            .populate('category', 'name')
-            .populate('subcategory', 'name')
+            .populate('category', 'name serviceCharge discount coupon')
+            .populate('subcategory', 'name serviceCharge discount coupon')
+            .populate('serviceType', 'name serviceCharge discount coupon')
             .select(
-                'title description photo serviceCharge approxCompletionTime category subcategory'
+                'title description photo serviceCharge approxCompletionTime category subcategory serviceType discount coupon'
             )
             .limit(20)
     ]);
 
+    const formattedServices = services.map(service => {
+        const doc = service.toJSON();
+        const pricing = _calculateServicePricing(service);
+        return {
+            ...doc,
+            adminPrice: pricing.adminPrice,
+            discountPercentage: pricing.discountPercentage,
+            discountPrice: pricing.discountPrice
+        };
+    });
+
     return {
         categories,
         subcategories,
-        services
+        services: formattedServices
     };
 };
 
@@ -282,6 +371,10 @@ const getAllServices = async () => {
         if (doc.isActive === undefined) {
             doc.isActive = true;
         }
+        const pricing = _calculateServicePricing(s);
+        doc.adminPrice = pricing.adminPrice;
+        doc.discountPercentage = pricing.discountPercentage;
+        doc.discountPrice = pricing.discountPrice;
         return doc;
     });
 };
