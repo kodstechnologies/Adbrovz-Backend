@@ -807,53 +807,82 @@ const getAllLeads = async (query = {}) => {
 };
 
 const getGlobalTransactions = async (query = {}) => {
-  const { limit = 20, skip = 0, type } = query;
+  const { limit = 20, skip = 0, type, search = '' } = query;
   
-  // We want to combine both Membership (PaymentRecord) and Coin Purchases (CoinTransaction - only credit)
-  // For simplicity in a unified table, we'll fetch both and merge or just return them separately if the UI handles it.
-  // Let's return a unified structure.
+  const prFilter = {};
+  const ctFilter = { type: 'credit' }; 
+
+  if (search) {
+    const userMatches = await User.find({ name: { $regex: search, $options: 'i' } }).select('_id');
+    const vendorMatches = await Vendor.find({ name: { $regex: search, $options: 'i' } }).select('_id');
+    
+    prFilter.$or = [
+      { orderId: { $regex: search, $options: 'i' } },
+      { paymentId: { $regex: search, $options: 'i' } },
+      { vendor: { $in: vendorMatches.map(v => v._id) } }
+    ];
+    
+    ctFilter.$or = [
+       { targetId: { $in: [...userMatches.map(u => u._id), ...vendorMatches.map(v => v._id)] } }
+    ];
+  }
+
+  const fetchPR = !type || type === 'all' || type === 'Membership';
+  const fetchCT = !type || type === 'all' || type === 'Coins';
 
   const [membershipPayments, coinPurchases] = await Promise.all([
-    PaymentRecord.find({})
+    fetchPR ? PaymentRecord.find(prFilter)
       .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip(parseInt(skip))
+      .limit(parseInt(limit) + parseInt(skip))
       .populate('vendor', 'name phoneNumber')
-      .populate('planId', 'name price'),
-    CoinTransaction.find({ type: 'credit', provider: 'razorpay' }) // Only external purchases
+      .populate('planId', 'name price') : Promise.resolve([]),
+    fetchCT ? CoinTransaction.find(ctFilter)
       .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip(parseInt(skip))
-      .populate('user', 'name phoneNumber')
+      .limit(parseInt(limit) + parseInt(skip))
+      .populate({ path: 'targetId', select: 'name phoneNumber' }) : Promise.resolve([])
   ]);
 
-  // Map to unified format
   const unified = [
-    ...membershipPayments.map(p => ({
+    ...(membershipPayments || []).map(p => ({
       id: p._id,
       entity: p.vendor?.name || 'Unknown Vendor',
       type: 'Membership',
-      detail: p.planId?.name || 'N/A',
+      purpose: p.purpose,
+      detail: p.planId?.name || p.purpose.replace(/_/g, ' '),
       amount: p.amount,
+      gstAmount: p.gstAmount || 0,
+      totalAmount: p.totalAmount || p.amount,
       status: p.status,
+      orderId: p.orderId,
+      paymentId: p.paymentId || 'N/A',
       createdAt: p.createdAt,
       source: 'PaymentRecord'
     })),
-    ...coinPurchases.map(c => ({
+    ...(coinPurchases || []).map(c => ({
       id: c._id,
-      entity: c.user?.name || 'Unknown User',
+      entity: c.targetId?.name || 'Unknown',
       type: 'Coins',
-      detail: `${c.amount} Credits`,
-      amount: c.amount, // If 1 coin = 1 rs, adjust if different
-      status: 'completed', // CoinTransactions are usually created after success
+      purpose: c.purpose,
+      detail: `${c.amount} Credits - ${c.purpose.replace(/_/g, ' ')}`,
+      amount: c.amount,
+      gstAmount: 0,
+      totalAmount: c.amount,
+      status: 'COMPLETED',
+      orderId: 'N/A', 
+      paymentId: 'N/A',
       createdAt: c.createdAt,
       source: 'CoinTransaction'
     }))
-  ].sort((a, b) => b.createdAt - a.createdAt);
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const transactions = unified.slice(parseInt(skip), parseInt(skip) + parseInt(limit));
+  
+  const total = (fetchPR ? await PaymentRecord.countDocuments(prFilter) : 0) + 
+                (fetchCT ? await CoinTransaction.countDocuments(ctFilter) : 0);
 
   return { 
-    transactions: unified.slice(0, parseInt(limit)), 
-    total: await PaymentRecord.countDocuments() + await CoinTransaction.countDocuments({ type: 'credit', provider: 'razorpay' }),
+    transactions, 
+    total,
     limit: parseInt(limit),
     skip: parseInt(skip)
   };

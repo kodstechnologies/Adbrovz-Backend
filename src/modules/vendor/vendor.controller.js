@@ -429,6 +429,17 @@ const activateAddCategory = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * Get available categories for purchase (Excluding already selected ones)
+ */
+const getPurchaseCategories = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const categories = await vendorService.getAvailablePurchaseCategories(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, categories, 'Available categories fetched successfully')
+    );
+});
+
 module.exports = {
     getAllVendors,
     getMembership,
@@ -464,5 +475,6 @@ module.exports = {
     createAddCategoryOrder,
     verifyAddCategoryPayment,
     activateAddCategory,
+    getPurchaseCategories,
 };
 

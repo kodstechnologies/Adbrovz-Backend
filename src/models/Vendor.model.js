@@ -205,6 +205,13 @@ const vendorSchema = new mongoose.Schema(
       type: Number,
       default: 3,
     },
+    categorySubscriptions: [{
+      category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
+      fee: { type: Number },
+      startDate: { type: Date },
+      expiryDate: { type: Date },
+      status: { type: String, enum: ['ACTIVE', 'EXPIRED'], default: 'ACTIVE' }
+    }],
     deletedAt: {
       type: Date,
     },
@@ -268,6 +275,25 @@ const vendorSchema = new mongoose.Schema(
                 const days = Math.ceil(minDiff / (1000 * 60 * 60 * 24));
                 ret.planValidity = days > 0 ? `${days}d remaining` : 'Expired';
             }
+        }
+
+        // Add status to categorySubscriptions
+        if (ret.categorySubscriptions && Array.isArray(ret.categorySubscriptions)) {
+          ret.categorySubscriptions = ret.categorySubscriptions.map(sub => {
+            const exp = sub.expiryDate ? new Date(sub.expiryDate) : null;
+            const isExpired = exp ? new Date() > exp : false;
+            let validity = 'N/A';
+            if (exp) {
+              const diff = exp - new Date();
+              const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+              validity = days > 0 ? `${days}d remaining` : 'Expired';
+            }
+            return {
+              ...sub,
+              isActive: !isExpired,
+              validity
+            };
+          });
         }
 
         delete ret.__v;
