@@ -12,6 +12,10 @@ router.use((req, res, next) => {
     next();
 });
 
+// Coupon management - mounted before global admin auth to allow role-based access within the module
+const couponRoutes = require('./coupon.route');
+router.use('/coupons', couponRoutes);
+
 router.use(authenticate);
 router.use(authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN));
 
@@ -59,14 +63,6 @@ router.get('/bookings/export', adminController.exportBookings);
 router.get('/audit-logs/export', adminController.exportAuditLogs);
 router.get('/bookings', adminController.getAllBookings);
 router.get('/bookings/:id', adminController.getBookingDetails);
-
-// Coin management
-const coinRoutes = require('./coin.route');
-router.use('/coins', coinRoutes);
-
-// Coupon management
-const couponRoutes = require('./coupon.route');
-router.use('/coupons', couponRoutes);
 
 
 module.exports = router;

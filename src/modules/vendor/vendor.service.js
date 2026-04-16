@@ -103,7 +103,7 @@ const getAllVendors = async () => {
         .populate('selectedServiceTypes', 'name')
         .populate({
             path: 'selectedServices',
-            select: 'title adminPrice membershipFee membershipCharge subcategory category serviceType',
+            select: 'title serviceCharge membershipFee membershipCharge subcategory category serviceType',
             populate: [
                 { path: 'category', select: 'name' },
                 { path: 'subcategory', select: 'name' },

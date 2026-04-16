@@ -740,10 +740,10 @@ const _getHierarchicalPricing = async (serviceId) => {
     
     if (!service) return { adminPrice: 0, coupon: null, discount: 0 };
 
-    const adminPrice = service.adminPrice || 
-                      service.serviceType?.adminPrice || 
-                      service.subcategory?.adminPrice || 
-                      service.category?.adminPrice || 0;
+    const adminPrice = service.serviceCharge || 
+                      service.serviceType?.serviceCharge || 
+                      service.subcategory?.serviceCharge || 
+                      service.category?.serviceCharge || 0;
 
     const coupon = service.coupon || 
                   service.serviceType?.coupon || 
@@ -973,8 +973,8 @@ const searchVendors = async (leadOrBooking, broadcast = false) => {
 
             // Fetch latest data for broadcast
             const populatedLead = isLead 
-                ? await Lead.findById(leadOrBooking._id).populate('services.service', 'title photo adminPrice approxCompletionTime').populate('user', 'name phoneNumber photo')
-                : await Booking.findById(leadOrBooking._id).populate('services.service', 'title photo adminPrice approxCompletionTime').populate('user', 'name phoneNumber photo');
+                ? await Lead.findById(leadOrBooking._id).populate('services.service', 'title serviceCharge photo').populate('user', 'name phoneNumber photo')
+                : await Booking.findById(leadOrBooking._id).populate('services.service', 'title serviceCharge photo').populate('user', 'name phoneNumber photo');
 
             if (!populatedLead) return [];
 
@@ -1147,7 +1147,7 @@ const getVendorBookingHistory = async (vendorId) => {
         status: { $in: ['pending', 'ongoing', 'completed', 'on_the_way', 'arrived', 'cancelled'] }
     })
         .select('-rejectedVendors -laterVendors')
-        .populate('services.service', 'title adminPrice photo')
+        .populate('services.service', 'title serviceCharge photo')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
 
@@ -1177,7 +1177,7 @@ const getVendorLaterBookings = async (vendorId) => {
         status: 'pending_acceptance'
     })
         .select('-rejectedVendors -laterVendors')
-        .populate('services.service', 'title adminPrice photo')
+        .populate('services.service', 'title serviceCharge photo')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
 
@@ -1236,9 +1236,9 @@ const cancelBooking = async (userId, bookingId, reason) => {
     await booking.save();
 
     const populatedBooking = await Booking.findById(booking._id)
-        .populate('services.service', 'title adminPrice photo')
-        .populate('proposedServices.service', 'title adminPrice photo')
-        .populate('userRequestedServices.service', 'title adminPrice photo')
+        .populate('services.service', 'title serviceCharge photo')
+        .populate('proposedServices.service', 'title serviceCharge photo')
+        .populate('userRequestedServices.service', 'title serviceCharge photo')
         .populate('vendor', 'name phoneNumber photo')
         .populate('user', 'name phoneNumber photo');
 
@@ -1291,9 +1291,9 @@ const vendorCancelBooking = async (vendorId, bookingId, reason) => {
     await booking.save();
 
     const populatedBooking = await Booking.findById(booking._id)
-        .populate('services.service', 'title adminPrice photo')
-        .populate('proposedServices.service', 'title adminPrice photo')
-        .populate('userRequestedServices.service', 'title adminPrice photo')
+        .populate('services.service', 'title serviceCharge photo')
+        .populate('proposedServices.service', 'title serviceCharge photo')
+        .populate('userRequestedServices.service', 'title serviceCharge photo')
         .populate('vendor', 'name phoneNumber photo')
         .populate('user', 'name phoneNumber photo');
 
@@ -1469,9 +1469,9 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
 
 const getBookingsByUser = async (userId) => {
     const bookings = await Booking.find({ user: userId })
-        .populate('services.service', 'title adminPrice photo')
-        .populate('proposedServices.service', 'title adminPrice photo')
-        .populate('userRequestedServices.service', 'title adminPrice photo')
+        .populate('services.service', 'title serviceCharge photo')
+        .populate('proposedServices.service', 'title serviceCharge photo')
+        .populate('userRequestedServices.service', 'title serviceCharge photo')
         .populate('vendor', 'name phoneNumber photo')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
@@ -1493,9 +1493,9 @@ const getBookingsByUser = async (userId) => {
 
 const getBookingsByVendor = async (vendorId) => {
     const bookings = await Booking.find({ vendor: vendorId })
-        .populate('services.service', 'title adminPrice photo')
-        .populate('proposedServices.service', 'title adminPrice photo')
-        .populate('userRequestedServices.service', 'title adminPrice photo')
+        .populate('services.service', 'title serviceCharge photo')
+        .populate('proposedServices.service', 'title serviceCharge photo')
+        .populate('userRequestedServices.service', 'title serviceCharge photo')
         .populate('user', 'name phoneNumber photo')
         .populate('vendor', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
@@ -1510,9 +1510,9 @@ const getCompletedBookingsByUser = async (userId) => {
         user: userId,
         status: 'completed'
     })
-        .populate('services.service', 'title adminPrice photo')
-        .populate('proposedServices.service', 'title adminPrice photo')
-        .populate('userRequestedServices.service', 'title adminPrice photo')
+        .populate('services.service', 'title serviceCharge photo')
+        .populate('proposedServices.service', 'title serviceCharge photo')
+        .populate('userRequestedServices.service', 'title serviceCharge photo')
         .populate('vendor', 'name phoneNumber photo')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
@@ -1545,7 +1545,7 @@ const getCancelledBookings = async (userId, role) => {
     }
 
     const bookings = await Booking.find(query)
-        .populate('services.service', 'title adminPrice photo')
+        .populate('services.service', 'title serviceCharge photo')
         .populate('vendor', 'name phoneNumber photo')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
@@ -1710,7 +1710,7 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
         if (item) {
             // Check if it was unpriced in Service model or if adminPrice is 0/null
             const serviceDoc = await Service.findById(item.service);
-            const isUnpriced = serviceDoc && (!serviceDoc.isAdminPriced || !serviceDoc.adminPrice || serviceDoc.adminPrice === 0);
+            const isUnpriced = serviceDoc && (!serviceDoc.isAdminPriced || !serviceDoc.serviceCharge || serviceDoc.serviceCharge === 0);
             
             if (isUnpriced || isExtraService) {
                 console.log(`[SOCKET] Updating price for service: ${item.service}`);
@@ -2050,7 +2050,7 @@ const addServicesToBooking = async (vendorId, bookingId, newServices) => {
         }
 
         const qty = item.quantity || 1;
-        const adminPrice = serviceDoc.adminPrice || null;
+        const adminPrice = serviceDoc.serviceCharge || null;
         const vendorPrice = adminPrice ? null : (item.price || null);
         const finalPrice = adminPrice
             ? adminPrice * qty
@@ -2072,7 +2072,7 @@ const addServicesToBooking = async (vendorId, bookingId, newServices) => {
 
     // Populate proposed services for the notification payload
     const populatedBooking = await Booking.findById(booking._id)
-        .populate('proposedServices.service', 'title photo adminPrice');
+        .populate('proposedServices.service', 'title photo serviceCharge');
 
     const { emitToUser, emitToVendor } = require('../../socket');
     const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
@@ -2401,7 +2401,7 @@ async function requestExtraServices(userId, bookingId, newServices) {
             throw new ApiError(404, `Service ${item.serviceId} not found`);
         }
         const qty = item.quantity || 1;
-        const adminPrice = serviceDoc.adminPrice || 0;
+        const adminPrice = serviceDoc.serviceCharge || 0;
         const vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
         const finalPrice = adminPrice > 0
             ? adminPrice * qty
@@ -2481,7 +2481,7 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
             if (!serviceDoc) continue;
 
             const qty = requestItem.quantity || 1;
-            const adminPrice = serviceDoc.adminPrice || 0;
+            const adminPrice = serviceDoc.serviceCharge || 0;
             const vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
 
             requestItem.adminPrice = adminPrice;
@@ -2512,7 +2512,7 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
     await booking.save();
 
     const populatedBooking = await Booking.findById(booking._id)
-        .populate('userRequestedServices.service', 'title photo adminPrice');
+        .populate('userRequestedServices.service', 'title photo serviceCharge');
 
     const { emitToUser, emitToVendor } = require('../../socket');
     const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
@@ -2586,7 +2586,7 @@ async function vendorAcceptExtraServices(vendorId, bookingId) {
     await booking.save();
 
     const populatedBooking = await Booking.findById(booking._id)
-        .populate('userRequestedServices.service', 'title photo adminPrice');
+        .populate('userRequestedServices.service', 'title photo serviceCharge');
 
     const { emitToUser, emitToVendor } = require('../../socket');
     const userPayload = await getBookingDetails(booking._id, booking.user, 'user');

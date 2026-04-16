@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const userController = require('./user.controller');
+const couponController = require('../admin/coupon.controller');
 const { authenticate } = require('../../middlewares/auth.middleware');
 const { validateUpdateProfile } = require('../../validators/user.validator');
 
@@ -10,9 +11,9 @@ const { upload, uploadToCloudinary } = require('../../middlewares/cloudinary.mid
 router.use(authenticate);
 
 router.get('/profile', userController.getProfile);
-router.get('/coupons', userController.getMyCoupons);
-router.post('/coupons/verify', userController.verifyCoupon);
-router.post('/coupons/apply', userController.applyCoupon);
+router.get('/coupons', couponController.getMyCoupons);
+router.post('/coupons/verify', couponController.verifyCoupon);
+router.post('/coupons/apply', couponController.applyCoupon);
 // Admin routes
 router.get('/', userController.getUsers);
 router.get('/:userId/coins', userController.getUserCoins);

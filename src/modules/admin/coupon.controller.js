@@ -59,3 +59,151 @@ exports.deleteCoupon = async (req, res) => {
         res.status(500).json({ success: false, message: 'Server error deleting coupon', error: error.message });
     }
 };
+
+// Verify a coupon code for a specific user
+exports.verifyCoupon = async (req, res) => {
+    try {
+        const { code, userId } = req.body;
+
+        if (!code) return res.status(400).json({ success: false, message: 'Coupon code is required' });
+        if (!userId) return res.status(400).json({ success: false, message: 'User ID is required' });
+
+        const coupon = await Coupon.findOne({ code: code.toUpperCase() });
+        
+        if (!coupon) {
+            return res.status(200).json({ success: true, valid: false, message: 'Invalid coupon code' });
+        }
+
+        if (!coupon.isActive) {
+            return res.status(200).json({ success: true, valid: false, message: 'Coupon is inactive' });
+        }
+
+        const now = new Date();
+        const validityEnd = new Date(coupon.createdAt);
+        validityEnd.setDate(validityEnd.getDate() + coupon.validityDays);
+
+        if (now > validityEnd) {
+            return res.status(200).json({ success: true, valid: false, message: 'Coupon has expired' });
+        }
+
+        if (!coupon.isForAllUsers) {
+            const isApplicable = (coupon.applicableUsers || []).some((u) => u.toString() === userId.toString());
+            if (!isApplicable) {
+                return res.status(200).json({ success: true, valid: false, message: 'This coupon is not applicable for this user' });
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            valid: true,
+            message: 'Coupon is valid',
+            data: {
+                code: coupon.code,
+                discountType: coupon.discountType,
+                discountValue: coupon.discountValue
+            }
+        });
+    } catch (error) {
+        console.error('Error in verifyCoupon:', error);
+        res.status(500).json({ success: false, message: 'Server error verifying coupon', error: error.message });
+    }
+};
+
+// Apply a coupon and calculate discount
+exports.applyCoupon = async (req, res) => {
+    try {
+        const { code, userId, orderAmount } = req.body;
+
+        if (!code) return res.status(400).json({ success: false, message: 'Coupon code is required' });
+        if (!userId) return res.status(400).json({ success: false, message: 'User ID is required' });
+        if (!orderAmount || orderAmount <= 0) return res.status(400).json({ success: false, message: 'Valid order amount is required' });
+
+        const coupon = await Coupon.findOne({ code: code.toUpperCase() });
+
+        if (!coupon || !coupon.isActive) {
+            return res.status(400).json({ success: false, message: 'Invalid or inactive coupon code' });
+        }
+
+        const now = new Date();
+        const validityEnd = new Date(coupon.createdAt);
+        validityEnd.setDate(validityEnd.getDate() + coupon.validityDays);
+
+        if (now > validityEnd) {
+            return res.status(400).json({ success: false, message: 'Coupon has expired' });
+        }
+
+        if (!coupon.isForAllUsers) {
+            const isApplicable = (coupon.applicableUsers || []).some((u) => u.toString() === userId.toString());
+            if (!isApplicable) {
+                return res.status(400).json({ success: false, message: 'This coupon is not applicable for this user' });
+            }
+        }
+
+        let discount = 0;
+        if (coupon.discountType === 'amount') {
+            discount = coupon.discountValue;
+        } else if (coupon.discountType === 'percent') {
+            discount = (orderAmount * coupon.discountValue) / 100;
+        }
+
+        const finalAmount = Math.max(0, orderAmount - discount);
+
+        res.status(200).json({
+            success: true,
+            message: 'Coupon applied successfully',
+            data: {
+                valid: true,
+                code: coupon.code,
+                discountType: coupon.discountType,
+                discountValue: coupon.discountValue,
+                discount,
+                originalAmount: orderAmount,
+                finalAmount
+            }
+        });
+    } catch (error) {
+        console.error('Error in applyCoupon:', error);
+        res.status(500).json({ success: false, message: 'Server error applying coupon', error: error.message });
+    }
+};
+
+// Get coupons available to the logged-in user
+exports.getMyCoupons = async (req, res) => {
+    try {
+        const userId = req.user.userId || req.user._id || req.user.id;
+        const now = new Date();
+
+        // Fetch all active coupons
+        const allCoupons = await Coupon.find({ isActive: true });
+
+        const availableCoupons = allCoupons.filter((coupon) => {
+            // Check expiry
+            const validityEnd = new Date(coupon.createdAt);
+            validityEnd.setDate(validityEnd.getDate() + coupon.validityDays);
+            if (now > validityEnd) return false;
+
+            // Check user applicability
+            if (coupon.isForAllUsers) return true;
+            return (coupon.applicableUsers || []).some((u) => u.toString() === userId.toString());
+        });
+
+        const result = availableCoupons.map((coupon) => ({
+            id: coupon._id,
+            code: coupon.code,
+            discountType: coupon.discountType,
+            discountValue: coupon.discountValue,
+            isForAllUsers: coupon.isForAllUsers,
+            validityDays: coupon.validityDays,
+            expiresAt: (() => {
+                const d = new Date(coupon.createdAt);
+                d.setDate(d.getDate() + coupon.validityDays);
+                return d;
+            })(),
+        }));
+
+        res.status(200).json({ success: true, message: 'Coupons retrieved successfully', data: result });
+    } catch (error) {
+        console.error('Error in getMyCoupons:', error);
+        res.status(500).json({ success: false, message: 'Server error retrieving coupons', error: error.message });
+    }
+};

@@ -36,7 +36,7 @@ const getDashboardData = async () => {
                 subcategory: section.subcategory._id
             })
                 .limit(section.limit)
-                .select('title description photo approxCompletionTime adminPrice isAdminPriced category subcategory')
+                .select('title description photo approxCompletionTime serviceCharge isAdminPriced category subcategory')
                 .populate('category', '_id name')
                 .populate('subcategory', '_id name');
 
@@ -251,7 +251,7 @@ const getBestServices = async () => {
                 title: '$service.title',
                 description: '$service.description',
                 photo: '$service.photo',
-                adminPrice: '$service.adminPrice',
+                adminPrice: '$service.serviceCharge',
                 isAdminPriced: '$service.isAdminPriced',
                 approxCompletionTime: '$service.approxCompletionTime',
                 avgRating: { $round: ['$avgRating', 1] },
@@ -269,7 +269,7 @@ const getBestServices = async () => {
 
         const additionalServices = await Service.find({ _id: { $nin: excludeIds } })
             .limit(limit)
-            .select('title description photo approxCompletionTime adminPrice isAdminPriced category subcategory')
+            .select('title description photo approxCompletionTime serviceCharge isAdminPriced category subcategory')
             .populate('category', '_id name')
             .populate('subcategory', '_id name');
 
@@ -278,7 +278,7 @@ const getBestServices = async () => {
             title: s.title,
             description: s.description,
             photo: s.photo,
-            adminPrice: s.adminPrice,
+            adminPrice: s.serviceCharge,
             isAdminPriced: s.isAdminPriced,
             approxCompletionTime: s.approxCompletionTime,
             avgRating: 0,
