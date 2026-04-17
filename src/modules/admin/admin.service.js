@@ -12,6 +12,7 @@ const CreditPlan = require('../../models/CreditPlan.model');
 const CoinTransaction = require('../../models/CoinTransaction.model');
 const PaymentRecord = require('../../models/PaymentRecord.model');
 const ApiError = require('../../utils/ApiError');
+const { DEFAULT_SETTINGS } = require('../../constants/settings');
 
 const getDashboardStats = async () => {
   try {

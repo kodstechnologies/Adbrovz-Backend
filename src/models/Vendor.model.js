@@ -239,7 +239,11 @@ const vendorSchema = new mongoose.Schema(
           const isMemExpired = memExp ? now > memExp : true;
           const isRenExpired = renExp ? now > renExp : true;
           
-          if (!memExp || !renExp) {
+          // It's EXPIRED if either the membership expires or (if present) the service renewal expires
+          const isMemExpired = memExp ? now > memExp : true;
+          const isRenExpired = renExp ? now > renExp : false; // Only mark as expired if it exists and is in the past
+          
+          if (!memExp) {
             ret.membership.planStatus = 'UNPAID';
             ret.membership.validity = 'UNPAID';
           } else if (isMemExpired || isRenExpired) {
@@ -247,9 +251,9 @@ const vendorSchema = new mongoose.Schema(
              ret.membership.validity = 'Expired';
           } else {
              ret.membership.planStatus = 'PAID';
-             // Show whichever validity is closer to expiring
+             // Show whichever validity is closer to expiring (if renExp exists)
              const memDiff = memExp - now;
-             const renDiff = renExp - now;
+             const renDiff = renExp ? renExp - now : Infinity;
              const minDiff = Math.min(memDiff, renDiff);
              const days = Math.ceil(minDiff / (1000 * 60 * 60 * 24));
              ret.membership.validity = days > 0 ? `${days}d remaining` : 'Expired';
@@ -261,16 +265,16 @@ const vendorSchema = new mongoose.Schema(
         const renExp = ret.serviceRenewal?.expiryDate ? new Date(ret.serviceRenewal.expiryDate) : null;
         const now = new Date();
         
-        if (!memExp || !renExp) {
+        if (!memExp) {
             ret.planValidity = 'UNPAID';
         } else {
             const isMemExpired = now > memExp;
-            const isRenExpired = now > renExp;
+            const isRenExpired = renExp ? now > renExp : false;
             if (isMemExpired || isRenExpired) {
                 ret.planValidity = 'Expired';
             } else {
                 const memDiff = memExp - now;
-                const renDiff = renExp - now;
+                const renDiff = renExp ? renExp - now : Infinity;
                 const minDiff = Math.min(memDiff, renDiff);
                 const days = Math.ceil(minDiff / (1000 * 60 * 60 * 24));
                 ret.planValidity = days > 0 ? `${days}d remaining` : 'Expired';
@@ -331,12 +335,12 @@ vendorSchema.virtual('status').get(function () {
 
 // Subscription/Plan status virtual
 vendorSchema.virtual('planStatus').get(function () {
-  if (!this.membership || !this.membership.expiryDate || !this.serviceRenewal || !this.serviceRenewal.expiryDate) return 'UNPAID';
+  if (!this.membership || !this.membership.expiryDate) return 'UNPAID';
   const now = new Date();
   const memExpiry = new Date(this.membership.expiryDate);
-  const renExpiry = new Date(this.serviceRenewal.expiryDate);
+  const renExpiry = this.serviceRenewal?.expiryDate ? new Date(this.serviceRenewal.expiryDate) : null;
   
-  if (now > memExpiry || now > renExpiry) return 'EXPIRED';
+  if (now > memExpiry || (renExpiry && now > renExpiry)) return 'EXPIRED';
   return 'PAID';
 });
 
