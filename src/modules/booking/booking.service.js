@@ -16,7 +16,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
-const RADIUS_TIERS = [2, 4, 5];
+const RADIUS_TIERS = [5, 15, 50]; // Progressive search expansion
 
 /**
  * Request a lead (User initiates)
@@ -147,28 +147,54 @@ const acceptLead = async (vendorId, bookingId) => {
         }
     }
 
-    if (lead) {
-        // Convert Lead to a permanent Booking (retro-compatibility)
-        booking = await Booking.create({
-            ...lead.toObject(),
-            _id: lead._id, // Keep the same ID for socket compatibility
-            bookingID: lead.leadID,
-            vendor: vendorId,
-            category: lead.category,
-            status: 'pending',
-            otp: { startOTP: '1234', completionOTP: null },
-            statusHistory: [{ status: 'pending', timestamp: new Date(), actor: 'vendor' }],
-            ...(gracePeriodEnd && { gracePeriodEnd })
-        });
-    } else {
-        // Finalize existing Booking
-        booking.vendor = vendorId;
-        booking.otp = { startOTP: '1234', completionOTP: null };
-        if (gracePeriodEnd) booking.gracePeriodEnd = gracePeriodEnd;
-        booking.statusHistory.push({ status: 'pending', timestamp: new Date(), actor: 'vendor' });
-        booking.markModified('statusHistory');
-        await booking.save();
-    }
+        // ── Calculate travel charge based on distance ──
+        let distance = 0;
+        const vendor = await Vendor.findById(vendorId).select('liveLocation');
+        if (vendor?.liveLocation?.coordinates && source.location?.latitude) {
+            const [vLng, vLat] = vendor.liveLocation.coordinates;
+            const { latitude: bLat, longitude: bLng } = source.location;
+            distance = calculateDistance(vLat, vLng, bLat, bLng);
+        }
+
+        const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 0;
+        const travelCharge = distance * perKmCharge;
+
+        if (lead) {
+            // Convert Lead to a permanent Booking (retro-compatibility)
+            booking = await Booking.create({
+                ...lead.toObject(),
+                _id: lead._id, // Keep the same ID for socket compatibility
+                bookingID: lead.leadID,
+                vendor: vendorId,
+                category: lead.category,
+                status: 'pending',
+                otp: { startOTP: '1234', completionOTP: null },
+                statusHistory: [{ status: 'pending', timestamp: new Date(), actor: 'vendor' }],
+                pricing: {
+                    ...lead.pricing,
+                    travelCharge: travelCharge,
+                    totalPrice: (lead.pricing?.basePrice || 0) + travelCharge
+                },
+                ...(gracePeriodEnd && { gracePeriodEnd })
+            });
+        } else {
+            // Finalize existing Booking
+            booking.vendor = vendorId;
+            booking.otp = { startOTP: '1234', completionOTP: null };
+            if (gracePeriodEnd) booking.gracePeriodEnd = gracePeriodEnd;
+            booking.statusHistory.push({ status: 'pending', timestamp: new Date(), actor: 'vendor' });
+            
+            // Update travel charge and total price
+            booking.pricing = {
+                ...booking.pricing,
+                travelCharge: travelCharge,
+                totalPrice: (booking.pricing?.basePrice || 0) + travelCharge
+            };
+            
+            booking.markModified('statusHistory');
+            booking.markModified('pricing');
+            await booking.save();
+        }
 
     // ── Emit acceptance update IMMEDIATELY after locking ──
     try {
@@ -851,13 +877,11 @@ const createBooking = async (userId, bookingData) => {
         });
     }
 
-    const baseTravelCharge = (await adminService.getSetting('pricing.travel_charge')) || 0;
-    const perKmCharge = (await adminService.getSetting('pricing.per_km_charge')) || 0;
+    const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 0;
     
-    // Calculate travel charge (Task 9)
-    // If distance is provided, use perKmCharge; otherwise use baseTravelCharge
+    // Calculate initial travel charge
     const distanceKm = bookingData.distance || 0;
-    const calculatedTravelCharge = distanceKm > 0 ? (perKmCharge * distanceKm) : baseTravelCharge;
+    const calculatedTravelCharge = distanceKm * perKmCharge;
 
     const calculatedBasePrice = processedServices.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
     const calculatedTotalPrice = calculatedBasePrice + calculatedTravelCharge;

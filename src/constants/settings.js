@@ -15,10 +15,6 @@ const DEFAULT_SETTINGS = {
         value: 30,
         description: 'Time vendor has to arrive after scheduled time.',
     },
-    'bookings.vendor_search_radius_km': {
-        value: 5,
-        description: 'Primary radius for searching vendors around a location.',
-    },
     'bookings.daily_leads_limit': {
         value: 5,
         description: 'Maximum number of leads a vendor can receive per day.',
@@ -59,17 +55,9 @@ const DEFAULT_SETTINGS = {
         value: 18,
         description: 'GST percentage for vendor membership fee.',
     },
-    'pricing.travel_charge': {
-        value: 50,
-        description: 'Base travel fee applied when a vendor marks arrived.',
-    },
     'pricing.travel_charge_per_km': {
         value: 10,
-        description: 'Additional charge per kilometer beyond free tier.',
-    },
-    'pricing.travel_charge_free_tier_km': {
-        value: 5,
-        description: 'Distance in KM up to which no travel charge is applied.',
+        description: 'Charge per kilometer applied to the total distance.',
     },
     'app.min_version': {
         value: '1.0.0',
@@ -98,10 +86,6 @@ const DEFAULT_SETTINGS = {
     'pricing.accept_lead_coin_cost': {
         value: 10,
         description: 'Coins deducted from vendor when accepting a lead.',
-    },
-    'pricing.company_fee': {
-        value: 0,
-        description: 'Entry fee charged to companies.',
     },
     'pricing.credit_restore_rule': {
         value: 'manual',
