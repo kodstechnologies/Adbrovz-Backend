@@ -149,7 +149,6 @@ const acceptLead = async (vendorId, bookingId) => {
 
         // ── Calculate travel charge based on distance ──
         let distance = 0;
-        const vendor = await Vendor.findById(vendorId).select('liveLocation');
         if (vendor?.liveLocation?.coordinates && source.location?.latitude) {
             const [vLng, vLat] = vendor.liveLocation.coordinates;
             const { latitude: bLat, longitude: bLng } = source.location;
