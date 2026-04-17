@@ -1,48 +1,6 @@
 const asyncHandler = require('../../utils/asyncHandler');
 const ApiResponse = require('../../utils/ApiResponse');
-const auditService = require('../../services/audit.service');
 
-// Get audit logs for a user
-const getUserAuditLogs = asyncHandler(async (req, res) => {
-  const { userId } = req.params;
-  const { limit = 50, skip = 0, action } = req.query;
-
-  const logs = await auditService.getUserAuditLogs(userId, {
-    limit: parseInt(limit, 10),
-    skip: parseInt(skip, 10),
-    action,
-  });
-
-  res.status(200).json(
-    new ApiResponse(200, logs, 'Audit logs retrieved successfully')
-  );
-});
-
-// Get audit logs by action type
-const getAuditLogsByAction = asyncHandler(async (req, res) => {
-  const { action } = req.params;
-  const { limit = 100, skip = 0, startDate, endDate } = req.query;
-
-  const logs = await auditService.getAuditLogsByAction(action, {
-    limit: parseInt(limit, 10),
-    skip: parseInt(skip, 10),
-    startDate,
-    endDate,
-  });
-
-  res.status(200).json(
-    new ApiResponse(200, logs, 'Audit logs retrieved successfully')
-  );
-});
-
-// Get all audit logs
-const getAllAuditLogs = asyncHandler(async (req, res) => {
-  const adminService = require('./admin.service');
-  const result = await adminService.getAllAuditLogs(req.query);
-  res.status(200).json(
-    new ApiResponse(200, result, 'All audit logs retrieved successfully')
-  );
-});
 
 // Get dashboard stats
 const getDashboard = asyncHandler(async (req, res) => {
@@ -242,14 +200,6 @@ const exportBookings = asyncHandler(async (req, res) => {
   res.status(200).send(csv);
 });
 
-const exportAuditLogs = asyncHandler(async (req, res) => {
-  const adminService = require('./admin.service');
-  const csv = await adminService.exportAuditLogsCSV(req.query);
-
-  res.header('Content-Type', 'text/csv');
-  res.attachment(`audit_logs_export_${new Date().toISOString().split('T')[0]}.csv`);
-  res.status(200).send(csv);
-});
 
 const getVendorPaymentHistory = asyncHandler(async (req, res) => {
   const { vendorId } = req.params;
@@ -260,14 +210,6 @@ const getVendorPaymentHistory = asyncHandler(async (req, res) => {
   );
 });
 
-// Get all leads
-const getAllLeads = asyncHandler(async (req, res) => {
-  const adminService = require('./admin.service');
-  const result = await adminService.getAllLeads(req.query);
-  res.status(200).json(
-    new ApiResponse(200, result, 'Leads retrieved successfully')
-  );
-});
 
 // Get global transactions
 const getGlobalTransactions = asyncHandler(async (req, res) => {
@@ -283,8 +225,6 @@ module.exports = {
   getUsers,
   updateUserStatus,
   deleteUser,
-  getUserAuditLogs,
-  getAuditLogsByAction,
   createCreditPlan,
   getCreditPlans,
   updateCreditPlan,
@@ -302,9 +242,6 @@ module.exports = {
   getAllBookings,
   getBookingDetails,
   exportBookings,
-  exportAuditLogs,
   getVendorPaymentHistory,
-  getAllAuditLogs,
-  getAllLeads,
   getGlobalTransactions
 };

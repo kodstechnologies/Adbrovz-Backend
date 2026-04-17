@@ -5,7 +5,6 @@ const Service = require('../../models/Service.model');
 const Booking = require('../../models/Booking.model');
 const Vendor = require('../../models/Vendor.model');
 const User = require('../../models/User.model');
-const AuditLog = require('../../models/AuditLog.model');
 const GlobalConfig = require('../../models/GlobalConfig.model');
 const Dispute = require('../../models/Dispute.model');
 const Feedback = require('../../models/Feedback.model');
@@ -13,8 +12,6 @@ const CreditPlan = require('../../models/CreditPlan.model');
 const CoinTransaction = require('../../models/CoinTransaction.model');
 const PaymentRecord = require('../../models/PaymentRecord.model');
 const ApiError = require('../../utils/ApiError');
-const { DEFAULT_SETTINGS } = require('../../constants/settings');
-const Lead = require('../../models/Lead.model');
 
 const getDashboardStats = async () => {
   try {
@@ -160,10 +157,6 @@ const getDashboardStats = async () => {
           serviceTypes: totalServiceTypes,
           services: totalServices
       },
-      leadsStats: {
-        activeLeads: await Lead.countDocuments({ status: 'searching' }),
-        totalLeadsToday: await Lead.countDocuments({ createdAt: { $gte: new Date().setHours(0, 0, 0, 0) } })
-      },
       weekData,
       vendorPerf,
       peakHours: {
@@ -223,23 +216,6 @@ const updateUserStatus = async (userId, status, adminId) => {
   user.status = status;
   await user.save();
 
-  // Log the action
-  try {
-    await AuditLog.create({
-      user: adminId,
-      userModel: 'Admin',
-      action: 'user_status_updated',
-      details: {
-        targetUser: userId,
-        oldStatus,
-        newStatus: status
-      }
-    });
-  } catch (logError) {
-    console.error('Audit logging failed:', logError.message);
-    // Don't fail the primary action (status update) if logging fails
-  }
-
   return user;
 };
 
@@ -252,20 +228,6 @@ const deleteUser = async (userId, adminId) => {
   user.deletedAt = new Date();
   user.status = 'SUSPENDED';
   await user.save();
-
-  try {
-    await AuditLog.create({
-      user: adminId,
-      userModel: 'Admin',
-      action: 'user_deleted',
-      details: {
-        targetUser: userId,
-        reason: 'Admin deleted user'
-      }
-    });
-  } catch (logError) {
-    console.error('Audit logging failed:', logError.message);
-  }
 
   return user;
 };
@@ -734,28 +696,6 @@ const exportBookingsCSV = async (query = {}) => {
   return parse(bookings, { fields });
 };
 
-const exportAuditLogsCSV = async (query = {}) => {
-  const { limit = 10000, skip = 0, action } = query;
-  const filter = action ? { action } : {};
-  const logs = await AuditLog.find(filter)
-    .sort({ createdAt: -1 })
-    .limit(limit)
-    .skip(skip)
-    .populate('user', 'name username');
-
-  const { parse } = require('json2csv');
-
-  const fields = [
-    { label: 'Date', value: (row) => new Date(row.createdAt).toLocaleString() },
-    { label: 'Action', value: 'action' },
-    { label: 'Performed By', value: (row) => row.user?.name || row.user?.username || 'System' },
-    { label: 'User Model', value: 'userModel' },
-    { label: 'IP Address', value: 'ip' },
-    { label: 'Details', value: (row) => JSON.stringify(row.details) }
-  ];
-
-  return parse(logs, { fields });
-};
 
 const getVendorPaymentHistory = async (vendorId) => {
   return await PaymentRecord.find({ vendor: vendorId })
@@ -763,48 +703,6 @@ const getVendorPaymentHistory = async (vendorId) => {
     .populate('planId', 'name price validityDays');
 };
 
-const getAllAuditLogs = async (query = {}) => {
-  const { limit = 20, skip = 0, search = '', action } = query;
-  const filter = {};
-
-  if (action) filter.action = action;
-  if (search) {
-    const userMatches = await User.find({ name: { $regex: search, $options: 'i' } }).select('_id');
-    filter.$or = [
-      { action: { $regex: search, $options: 'i' } },
-      { user: { $in: userMatches.map(u => u._id) } }
-    ];
-  }
-
-  const [logs, total] = await Promise.all([
-    AuditLog.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip(parseInt(skip))
-      .populate('user', 'name phoneNumber role'),
-    AuditLog.countDocuments(filter)
-  ]);
-
-  return { logs, total, limit: parseInt(limit), skip: parseInt(skip) };
-};
-
-const getAllLeads = async (query = {}) => {
-  const { limit = 20, skip = 0, status } = query;
-  const filter = {};
-  if (status) filter.status = status;
-
-  const [leads, total] = await Promise.all([
-    Lead.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip(parseInt(skip))
-      .populate('user', 'name phoneNumber')
-      .populate('category subcategory serviceType'),
-    Lead.countDocuments(filter)
-  ]);
-
-  return { leads, total, limit: parseInt(limit), skip: parseInt(skip) };
-};
 
 const getGlobalTransactions = async (query = {}) => {
   const { limit = 20, skip = 0, type, search = '' } = query;
@@ -910,10 +808,29 @@ module.exports = {
   updateMembershipPricing,
   getAllBookings,
   getBookingDetails,
+module.exports = {
+  getDashboardStats,
+  getAllUsers,
+  updateUserStatus,
+  deleteUser,
+  createCreditPlan,
+  getCreditPlans,
+  updateCreditPlan,
+  deleteCreditPlan,
+  verifyVendor,
+  verifyVendorDocument,
+  verifyAllVendorDocuments,
+  toggleVendorSuspension,
+  rejectVendorAccount,
+  getEligibleVendors,
+  getGlobalSettings,
+  updateGlobalSettings,
+  getSetting,
+  getMembershipPricing,
+  updateMembershipPricing,
+  getAllBookings,
+  getBookingDetails,
   exportBookingsCSV,
-  exportAuditLogsCSV,
   getVendorPaymentHistory,
-  getAllAuditLogs,
-  getAllLeads,
   getGlobalTransactions
 };

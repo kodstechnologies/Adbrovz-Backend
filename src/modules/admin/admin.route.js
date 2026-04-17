@@ -24,13 +24,6 @@ router.get('/users', adminController.getUsers);
 router.patch('/users/:userId/status', adminController.updateUserStatus);
 router.delete('/users/:userId', adminController.deleteUser);
 
-// Audit log routes
-router.get('/audit-logs', adminController.getAllAuditLogs);
-router.get('/audit-logs/user/:userId', adminController.getUserAuditLogs);
-router.get('/audit-logs/action/:action', adminController.getAuditLogsByAction);
-
-// Leads monitoring
-router.get('/leads', adminController.getAllLeads);
 
 // Transactions
 router.get('/transactions', adminController.getGlobalTransactions);
@@ -60,7 +53,6 @@ router.patch('/membership-pricing', adminController.updateMembershipPricing);
 
 // Bookings management
 router.get('/bookings/export', adminController.exportBookings);
-router.get('/audit-logs/export', adminController.exportAuditLogs);
 router.get('/bookings', adminController.getAllBookings);
 router.get('/bookings/:id', adminController.getBookingDetails);
 
