@@ -1625,6 +1625,8 @@ const getServiceRenewalFeeDetails = async (vendorId) => {
 
     return {
         vendorId: vendor._id,
+        subtotal: serviceSubtotal,
+        gstAmount: 0,
         totalFee,
         serviceRenewal: {
             fee: serviceSubtotal,
@@ -1890,7 +1892,7 @@ const createServiceRenewalOrder = async (vendorId) => {
             orderId: razorpayOrder.id,
             purpose: 'SERVICE_RENEWAL',
             amount: feeDetails.subtotal,
-            gstAmount: feeDetails.gstAmount,
+            gstAmount: feeDetails.gstAmount || 0,
             totalAmount: feeDetails.totalFee,
             validityDays: 30, // Service renewal is always 30 days
             status: 'PENDING'
@@ -2172,7 +2174,7 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
     let razorpayOrder;
     try {
         razorpayOrder = await getRazorpay().orders.create({
-            amount: Math.round(feeDetails.totalCharge * 100),
+            amount: Math.round(feeDetails.totalWithGst * 100),
             currency: 'INR',
             receipt: `add_cat_${vendorId.toString().slice(-10)}_${Date.now()}`,
             notes: {
@@ -2187,7 +2189,8 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
             orderId: razorpayOrder.id,
             purpose: 'CATEGORY_PURCHASE',
             amount: feeDetails.totalCharge,
-            totalAmount: feeDetails.totalCharge,
+            gstAmount: feeDetails.gstAmount || 0,
+            totalAmount: feeDetails.totalWithGst,
             status: 'PENDING',
             metadata: {
                 ...feeDetails.breakdown,
