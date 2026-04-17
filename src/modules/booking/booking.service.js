@@ -141,10 +141,10 @@ const acceptLead = async (vendorId, bookingId) => {
     const source = lead || booking;
 
     if (source.scheduledDate && source.scheduledTime) {
-        const [hours, minutes] = source.scheduledTime.split(':').map(Number);
-        const schedDate = new Date(source.scheduledDate);
-        schedDate.setHours(hours || 0, minutes || 0, 0, 0);
-        gracePeriodEnd = new Date(schedDate.getTime() + graceMins * 60 * 1000);
+        const scheduledAtIST = _getScheduledDateTimeIST(source.scheduledDate, source.scheduledTime);
+        if (scheduledAtIST) {
+            gracePeriodEnd = new Date(scheduledAtIST.getTime() + graceMins * 60 * 1000);
+        }
     }
 
     if (lead) {
@@ -240,12 +240,14 @@ const markOnTheWay = async (vendorId, bookingId) => {
     }
 
     // ── Timing Guard: Enable only within 2 hours of scheduled time ──
-    const scheduledAt = new Date(booking.scheduledDate);
-    const timeParts = booking.scheduledTime.split(':').map(Number);
-    scheduledAt.setHours(timeParts[0], timeParts[1] || 0, 0, 0);
+    const scheduledAtIST = _getScheduledDateTimeIST(booking.scheduledDate, booking.scheduledTime);
+    
+    if (!scheduledAtIST) {
+        throw new ApiError(500, 'Invalid scheduling data');
+    }
 
     const now = new Date();
-    const diffMs = scheduledAt.getTime() - now.getTime();
+    const diffMs = scheduledAtIST.getTime() - now.getTime();
     const diffHours = diffMs / (1000 * 60 * 60);
 
     if (diffHours > 2) {
@@ -444,6 +446,20 @@ const findBookingByUser = async (bookingId, userId) => {
 /**
  * Get full booking details with population
  */
+
+/**
+ * Helper to construct a Date object representing a specific IST time.
+ */
+const _getScheduledDateTimeIST = (date, timeString) => {
+    if (!date || !timeString) return null;
+    const dateObj = new Date(date);
+    // Get YYYY-MM-DD in IST
+    const istDateStr = dateObj.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const [hours, minutes] = timeString.split(':').map(Number);
+    // Construct ISO string with IST offset (+05:30)
+    const isoStr = `${istDateStr}T${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00+05:30`;
+    return new Date(isoStr);
+};
 
 /**
  * Helper to consistently format a booking object (convert to IST, handle OTP visibility, etc.)
@@ -1207,12 +1223,8 @@ const cancelBooking = async (userId, bookingId, reason) => {
 
     const lockMins = (await adminService.getSetting('bookings.cancellation_lock_mins')) || 60;
     
-    // Combine scheduledDate and scheduledTime into a proper Date object
-    const scheduledDateTime = new Date(booking.scheduledDate);
-    if (booking.scheduledTime) {
-        const [hours, minutes] = booking.scheduledTime.split(':').map(Number);
-        scheduledDateTime.setHours(hours || 0, minutes || 0, 0, 0);
-    }
+    // Combine scheduledDate and scheduledTime into a proper Date object in IST
+    const scheduledDateTime = _getScheduledDateTimeIST(booking.scheduledDate, booking.scheduledTime);
 
     const now = new Date();
     const diffMs = scheduledDateTime - now;
@@ -1317,10 +1329,9 @@ const vendorCancelBooking = async (vendorId, bookingId, reason) => {
  * excluding windows that overlap with existing bookings.
  */
 const getAvailableSlots = async (vendorId, date, excludeBookingId) => {
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(date);
-    dayEnd.setHours(23, 59, 59, 999);
+    const istDateStr = new Date(date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const dayStart = new Date(`${istDateStr}T00:00:00+05:30`);
+    const dayEnd = new Date(`${istDateStr}T23:59:59.999+05:30`);
 
     // Fetch all vendor's active bookings on that day
     const vendorBookings = await Booking.find({
@@ -1342,8 +1353,7 @@ const getAvailableSlots = async (vendorId, date, excludeBookingId) => {
     const slotDurationMs = 60 * 60 * 1000; // 1 hour window to check
     for (let h = 8; h < 20; h++) {
         for (let m = 0; m < 60; m += 30) {
-            const slotStart = new Date(date);
-            slotStart.setHours(h, m, 0, 0);
+            const slotStart = new Date(`${istDateStr}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+05:30`);
             const slotEnd = new Date(slotStart.getTime() + slotDurationMs);
 
             const overlaps = busyWindows.some(w =>
@@ -1380,9 +1390,7 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
 
     // --- 2-hour cutoff: cannot reschedule within 2 hours of scheduled start ---
     if (booking.scheduledDate && booking.scheduledTime) {
-        const [hours, mins] = booking.scheduledTime.split(':').map(Number);
-        const scheduledStart = new Date(booking.scheduledDate);
-        scheduledStart.setHours(hours || 0, mins || 0, 0, 0);
+        const scheduledStart = _getScheduledDateTimeIST(booking.scheduledDate, booking.scheduledTime);
 
         const now = new Date();
         const diffMs = scheduledStart - now;
