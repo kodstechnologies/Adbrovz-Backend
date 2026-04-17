@@ -1,11 +1,9 @@
 const User = require('../../models/User.model');
 const ApiError = require('../../utils/ApiError');
 const MESSAGES = require('../../constants/messages');
-const auditService = require('../../services/audit.service');
 const Booking = require('../../models/Booking.model');
 const Notification = require('../../models/Notification.model');
 const Dispute = require('../../models/Dispute.model');
-const AuditLog = require('../../models/AuditLog.model');
 
 const getUserById = async (userId) => {
   const user = await User.findById(userId).select('-pin -failedAttempts -lockUntil');
@@ -53,29 +51,13 @@ const deleteUser = async (userId, req = null) => {
     throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
   }
 
-  // Audit log - Account deleted (before deletion)
-  if (req) {
-    const { ip, userAgent } = auditService.getRequestInfo(req);
-    await auditService.createAuditLog({
-      action: 'account_deleted',
-      userId: user._id,
-      userModel: 'User',
-      details: {
-        phoneNumber: user.phoneNumber,
-        userID: user.userID,
-        deletedAt: new Date(),
-      },
-      ip,
-      userAgent,
-    });
-  }
+
 
   // Delete related data (personal data cleanup)
   await Promise.all([
     Booking.deleteMany({ user: userId }),
     Notification.deleteMany({ user: userId }),
-    Dispute.deleteMany({ user: userId }),
-    AuditLog.deleteMany({ user: userId, userModel: 'User', action: { $ne: 'account_deleted' } })
+    Dispute.deleteMany({ user: userId })
   ]);
 
   // Finally delete the user

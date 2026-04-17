@@ -66,17 +66,6 @@ const userResetPIN = asyncHandler(async (req, res) => {
 });
 
 const userLogout = asyncHandler(async (req, res) => {
-  const auditService = require('../../services/audit.service');
-  if (req.user) {
-    const { ip, userAgent } = auditService.getRequestInfo(req);
-    await auditService.createAuditLog({
-      action: 'logout',
-      userId: req.user.userId,
-      userModel: 'User',
-      ip,
-      userAgent,
-    });
-  }
   res.status(200).json(new ApiResponse(200, null, MESSAGES.AUTH.LOGOUT_SUCCESS));
 });
 
@@ -122,17 +111,6 @@ const vendorResetPIN = asyncHandler(async (req, res) => {
 });
 
 const vendorLogout = asyncHandler(async (req, res) => {
-  const auditService = require('../../services/audit.service');
-  if (req.user) {
-    const { ip, userAgent } = auditService.getRequestInfo(req);
-    await auditService.createAuditLog({
-      action: 'logout',
-      userId: req.user.userId,
-      userModel: 'Vendor',
-      ip,
-      userAgent,
-    });
-  }
   res.status(200).json(new ApiResponse(200, null, MESSAGES.AUTH.LOGOUT_SUCCESS));
 });
 
@@ -149,17 +127,6 @@ const adminLogin = asyncHandler(async (req, res) => {
 });
 
 const adminLogout = asyncHandler(async (req, res) => {
-  const auditService = require('../../services/audit.service');
-  if (req.user) {
-    const { ip, userAgent } = auditService.getRequestInfo(req);
-    await auditService.createAuditLog({
-      action: 'logout',
-      userId: req.user.userId,
-      userModel: 'Admin',
-      ip,
-      userAgent,
-    });
-  }
   res.status(200).json(new ApiResponse(200, null, MESSAGES.AUTH.LOGOUT_SUCCESS));
 });
 

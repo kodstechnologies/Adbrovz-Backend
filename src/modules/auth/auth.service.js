@@ -5,7 +5,6 @@ const { generateToken, generateRefreshToken } = require('../../utils/jwt');
 const { generateOTP } = require('../../utils/otp');
 const cacheService = require('../../services/cache.service');
 const smsService = require('../../services/sms.service');
-const auditService = require('../../services/audit.service');
 const User = require('../../models/User.model');
 const Vendor = require('../../models/Vendor.model');
 const Admin = require('../../models/Admin.model');
@@ -201,22 +200,6 @@ const completeUserSignup = async ({ signupId, pin, confirmPin, acceptedPolicies 
 
   // Delete signup session
   await cacheService.del(signupKey);
-
-  // Audit log
-  if (req) {
-    const { ip, userAgent } = auditService.getRequestInfo(req);
-    await auditService.createAuditLog({
-      action: 'profile_updated',
-      userId: user._id,
-      userModel: 'User',
-      details: {
-        signupStep: 'PIN_SUBMITTED',
-        verificationMethod: 'AUTO_VERIFIED',
-      },
-      ip,
-      userAgent,
-    });
-  }
 
   // Generate tokens for auto-login
   const token = generateToken({ userId: user._id, role: user.role });
@@ -601,21 +584,10 @@ const adminLogin = async ({ username, password }, req = null) => {
   // Update last login and history
   admin.lastLogin = new Date();
   if (req) {
-    const { ip, userAgent } = auditService.getRequestInfo(req);
+    const ip = req.ip || (req.connection && req.connection.remoteAddress) || '';
+    const userAgent = req.headers ? req.headers['user-agent'] : '';
     admin.loginHistory.push({
       timestamp: new Date(),
-      ip,
-      userAgent,
-    });
-
-    // Audit log
-    await auditService.createAuditLog({
-      action: 'login',
-      userId: admin._id,
-      userModel: 'Admin',
-      details: {
-        method: 'username_password',
-      },
       ip,
       userAgent,
     });
@@ -650,22 +622,6 @@ const superAdminResetPassword = async (adminId, { newPassword, confirmPassword }
 
   admin.password = await hashPassword(newPassword);
   await admin.save();
-
-  // Audit log
-  if (req) {
-    const { ip, userAgent } = auditService.getRequestInfo(req);
-    await auditService.createAuditLog({
-      action: 'profile_updated',
-      userId: admin._id,
-      userModel: 'Admin',
-      details: {
-        updateType: 'PASSWORD_RESET_BY_SUPER_ADMIN',
-        performerId: req.user?.userId,
-      },
-      ip,
-      userAgent,
-    });
-  }
 
   return { message: 'Admin password reset successfully' };
 };
@@ -711,22 +667,6 @@ const verifySignupOTP = async (phoneNumber, otp, role = 'user', req = null) => {
   // For user, generate tokens
   const token = generateToken({ userId: user._id, role: user.role });
   const refreshToken = generateRefreshToken({ userId: user._id });
-
-  // Audit log - User signup completed
-  if (req) {
-    const { ip, userAgent } = auditService.getRequestInfo(req);
-    await auditService.createAuditLog({
-      action: 'login', // First login after signup
-      userId: user._id,
-      userModel: 'User',
-      details: {
-        signupCompleted: true,
-        verificationMethod: 'OTP',
-      },
-      ip,
-      userAgent,
-    });
-  }
 
   return {
     user: {
@@ -986,24 +926,6 @@ const resetPIN = async (phoneNumber, otp, newPin, confirmPin, role = 'user', req
   const otpKey = `otp:reset:${phoneNumber}`;
   await cacheService.del(otpKey);
 
-  // Audit log - PIN reset
-  if (req) {
-    const { ip, userAgent } = auditService.getRequestInfo(req);
-    const actor = userProfile || vendorProfile;
-    await auditService.createAuditLog({
-      action: 'profile_updated',
-      userId: actor._id,
-      userModel: userProfile ? 'User' : 'Vendor',
-      details: {
-        updateType: 'PIN_RESET',
-        resetMethod: 'DIRECT',
-        roleReset: role
-      },
-      ip,
-      userAgent,
-    });
-  }
-
   return { message: 'PIN reset successfully' };
 };
 
@@ -1089,23 +1011,6 @@ const completeResetPIN = async ({ resetId, newPin, confirmPin, acceptedPolicies 
   }
 
   await Promise.all(updatePromises);
-
-  // Audit log - PIN reset
-  if (req) {
-    const { ip, userAgent } = auditService.getRequestInfo(req);
-    const actor = userProfile || vendorProfile;
-    await auditService.createAuditLog({
-      action: 'profile_updated',
-      userId: actor._id,
-      userModel: userProfile ? 'User' : 'Vendor',
-      details: {
-        updateType: 'PIN_RESET',
-        resetMethod: 'OTP_VERIFIED',
-      },
-      ip,
-      userAgent,
-    });
-  }
 
   // Success! Delete session
   await cacheService.del(resetKey);

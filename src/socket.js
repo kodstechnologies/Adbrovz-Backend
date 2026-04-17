@@ -122,7 +122,7 @@ const initSocket = (server) => {
                 if (!bookingId) throw new Error('Booking ID is required');
 
                 const bookingService = require('./modules/booking/booking.service');
-                const result = await bookingService.acceptLead(vendorId, bookingId);
+                const result = await bookingService.acceptBooking(vendorId, bookingId);
                 socket.emit('booking_accepted_success', result);
             } catch (error) {
                 console.error(`[SOCKET] accept_booking error: ${error.message}`);
@@ -139,7 +139,7 @@ const initSocket = (server) => {
                 if (!bookingId) throw new Error('Booking ID is required');
 
                 const bookingService = require('./modules/booking/booking.service');
-                const result = await bookingService.rejectLead(vendorId, bookingId);
+                const result = await bookingService.rejectBooking(vendorId, bookingId);
                 socket.emit('booking_rejected_success', result);
             } catch (error) {
                 socket.emit('booking_error', { action: 'reject_booking', message: error.message });
@@ -155,7 +155,7 @@ const initSocket = (server) => {
                 if (!bookingId) throw new Error('Booking ID is required');
 
                 const bookingService = require('./modules/booking/booking.service');
-                const result = await bookingService.markLeadLater(vendorId, bookingId);
+                const result = await bookingService.markBookingLater(vendorId, bookingId);
                 socket.emit('booking_later_success', result);
             } catch (error) {
                 socket.emit('booking_error', { action: 'later_booking', message: error.message });

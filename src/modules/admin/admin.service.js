@@ -786,28 +786,7 @@ const getGlobalTransactions = async (query = {}) => {
   };
 };
 
-module.exports = {
-  getDashboardStats,
-  getAllUsers,
-  updateUserStatus,
-  deleteUser,
-  createCreditPlan,
-  getCreditPlans,
-  updateCreditPlan,
-  deleteCreditPlan,
-  verifyVendor,
-  verifyVendorDocument,
-  verifyAllVendorDocuments,
-  toggleVendorSuspension,
-  rejectVendorAccount,
-  getEligibleVendors,
-  getGlobalSettings,
-  updateGlobalSettings,
-  getSetting,
-  getMembershipPricing,
-  updateMembershipPricing,
-  getAllBookings,
-  getBookingDetails,
+
 module.exports = {
   getDashboardStats,
   getAllUsers,
