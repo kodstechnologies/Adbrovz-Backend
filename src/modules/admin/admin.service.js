@@ -344,11 +344,18 @@ const updateGlobalSettings = async (settings, adminId) => {
   const updatedSettings = [];
 
   for (const [key, value] of Object.entries(settings)) {
+    // Determine the type from DEFAULT_SETTINGS
+    let processedValue = value;
+    if (DEFAULT_SETTINGS[key] && typeof DEFAULT_SETTINGS[key].value === 'number') {
+      processedValue = Number(value);
+      if (isNaN(processedValue)) processedValue = DEFAULT_SETTINGS[key].value;
+    }
+
     const setting = await GlobalConfig.findOneAndUpdate(
       { key },
       {
         $set: {
-          value,
+          value: processedValue,
           lastUpdatedBy: adminId,
           description: DEFAULT_SETTINGS[key]?.description || ''
         },
