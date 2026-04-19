@@ -115,14 +115,49 @@ const getAllServices = asyncHandler(async (req, res) => {
     );
 });
 
+// Helper to map frontend fee names to backend model names
+const _mapServiceData = (data) => {
+    const mapped = { ...data };
+    
+    // Map adminPrice → serviceCharge 
+    if (mapped.adminPrice !== undefined) {
+        mapped.serviceCharge = Number(mapped.adminPrice) || 0;
+        delete mapped.adminPrice;
+    }
+    
+    // Map membershipFee → membershipCharge
+    if (mapped.membershipFee !== undefined) {
+        mapped.membershipCharge = Number(mapped.membershipFee) || 0;
+        delete mapped.membershipFee;
+    }
+    
+    // Map concurrencyFee → serviceRenewalCharge
+    if (mapped.concurrencyFee !== undefined) {
+        mapped.serviceRenewalCharge = Number(mapped.concurrencyFee) || 0;
+        delete mapped.concurrencyFee;
+    }
+    
+    // Map renewalCharge → membershipRenewalCharge (UI label: Renewal Membership Charge)
+    if (mapped.renewalCharge !== undefined) {
+        const val = Number(mapped.renewalCharge) || 0;
+        mapped.membershipRenewalCharge = val;
+        mapped.renewalCharge = val; // Set both for safety
+    }
+
+    // Cast other numeric fields
+    const numericFields = ['bookingPrice', 'order', 'discount', 'price'];
+    numericFields.forEach(field => {
+        if (mapped[field] !== undefined) {
+            mapped[field] = Number(mapped[field]) || 0;
+        }
+    });
+
+    return mapped;
+};
+
 // Admin: Category Management
 const createCategory = asyncHandler(async (req, res) => {
-    const data = { ...req.body };
-    // Map adminPrice → serviceCharge (frontend uses adminPrice, model uses serviceCharge)
-    if (data.adminPrice !== undefined) {
-        data.serviceCharge = Number(data.adminPrice) || 0;
-        delete data.adminPrice;
-    }
+    const data = _mapServiceData(req.body);
     if (req.file && req.file.cloudinary) {
         data.icon = req.file.cloudinary.url;
     }
@@ -131,12 +166,7 @@ const createCategory = asyncHandler(async (req, res) => {
 });
 
 const updateCategory = asyncHandler(async (req, res) => {
-    const data = { ...req.body };
-    // Map adminPrice → serviceCharge
-    if (data.adminPrice !== undefined) {
-        data.serviceCharge = Number(data.adminPrice) || 0;
-        delete data.adminPrice;
-    }
+    const data = _mapServiceData(req.body);
     if (req.file && req.file.cloudinary) {
         data.icon = req.file.cloudinary.url;
     }
@@ -151,12 +181,7 @@ const deleteCategory = asyncHandler(async (req, res) => {
 
 // Admin: Subcategory Management
 const createSubcategory = asyncHandler(async (req, res) => {
-    const data = { ...req.body };
-    // Map adminPrice → serviceCharge
-    if (data.adminPrice !== undefined) {
-        data.serviceCharge = Number(data.adminPrice) || 0;
-        delete data.adminPrice;
-    }
+    const data = _mapServiceData(req.body);
     if (req.file && req.file.cloudinary) {
         data.icon = req.file.cloudinary.url;
     }
@@ -165,12 +190,7 @@ const createSubcategory = asyncHandler(async (req, res) => {
 });
 
 const updateSubcategory = asyncHandler(async (req, res) => {
-    const data = { ...req.body };
-    // Map adminPrice → serviceCharge
-    if (data.adminPrice !== undefined) {
-        data.serviceCharge = Number(data.adminPrice) || 0;
-        delete data.adminPrice;
-    }
+    const data = _mapServiceData(req.body);
     if (req.file && req.file.cloudinary) {
         data.icon = req.file.cloudinary.url;
     }
@@ -192,23 +212,13 @@ const getAdminServiceTypes = asyncHandler(async (req, res) => {
 });
 
 const createServiceType = asyncHandler(async (req, res) => {
-    const data = { ...req.body };
-    // Map adminPrice → serviceCharge
-    if (data.adminPrice !== undefined) {
-        data.serviceCharge = Number(data.adminPrice) || 0;
-        delete data.adminPrice;
-    }
+    const data = _mapServiceData(req.body);
     const serviceType = await serviceService.createServiceType(data);
     res.status(201).json(new ApiResponse(201, serviceType, 'Service type created successfully'));
 });
 
 const updateServiceType = asyncHandler(async (req, res) => {
-    const data = { ...req.body };
-    // Map adminPrice → serviceCharge
-    if (data.adminPrice !== undefined) {
-        data.serviceCharge = Number(data.adminPrice) || 0;
-        delete data.adminPrice;
-    }
+    const data = _mapServiceData(req.body);
     const serviceType = await serviceService.updateServiceType(req.params.serviceTypeId, data);
     res.status(200).json(new ApiResponse(200, serviceType, 'Service type updated successfully'));
 });
@@ -220,12 +230,7 @@ const deleteServiceType = asyncHandler(async (req, res) => {
 
 // Admin: Service Management
 const createService = asyncHandler(async (req, res) => {
-    const serviceData = { ...req.body };
-    // Map adminPrice → serviceCharge
-    if (serviceData.adminPrice !== undefined) {
-        serviceData.serviceCharge = Number(serviceData.adminPrice) || 0;
-        delete serviceData.adminPrice;
-    }
+    const serviceData = _mapServiceData(req.body);
     if (req.file && req.file.cloudinary) {
         serviceData.photo = req.file.cloudinary.url;
     }
@@ -234,12 +239,7 @@ const createService = asyncHandler(async (req, res) => {
 });
 
 const updateService = asyncHandler(async (req, res) => {
-    const updateData = { ...req.body };
-    // Map adminPrice → serviceCharge
-    if (updateData.adminPrice !== undefined) {
-        updateData.serviceCharge = Number(updateData.adminPrice) || 0;
-        delete updateData.adminPrice;
-    }
+    const updateData = _mapServiceData(req.body);
     if (req.file && req.file.cloudinary) {
         updateData.photo = req.file.cloudinary.url;
     }

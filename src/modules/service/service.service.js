@@ -52,7 +52,7 @@ const _calculateServicePricing = (service) => {
 const getAllCategories = async () => {
     const categories = await Category.find({})
         .sort({ order: 1, name: 1 })
-        .select('name description icon defaultFreeCredits slotStartTime slotEndTime serviceRenewalCharge membershipRenewalCharge renewalCharge');
+        .select('name description icon defaultFreeCredits slotStartTime slotEndTime serviceCharge bookingPrice membershipCharge serviceRenewalCharge membershipRenewalCharge renewalCharge');
     return categories;
 };
 
@@ -62,7 +62,7 @@ const getAllCategories = async () => {
 const getSubcategoriesByCategoryId = async (categoryId) => {
     const subcategories = await Subcategory.find({ category: categoryId })
         .sort({ order: 1, name: 1 })
-        .select('name description icon order price serviceCharge coupon discount membershipCharge serviceRenewalCharge membershipRenewalCharge renewalCharge');
+        .select('name description icon order price serviceCharge bookingPrice coupon discount membershipCharge serviceRenewalCharge membershipRenewalCharge renewalCharge');
 
     return subcategories;
 };
@@ -75,7 +75,7 @@ const getServiceTypesBySubcategoryId = async (subcategoryId) => {
         .populate('category', 'name')
         .populate('subcategory', 'name')
         .sort({ order: 1, name: 1 })
-        .select('name description photo order serviceCharge coupon discount membershipCharge serviceRenewalCharge membershipRenewalCharge category subcategory');
+        .select('name description photo order serviceCharge bookingPrice coupon discount membershipCharge serviceRenewalCharge membershipRenewalCharge category subcategory');
 
     return serviceTypes;
 };
@@ -134,7 +134,7 @@ const getServicesByServiceTypeId = async (serviceTypeId, options = {}) => {
         .skip(skip)
         .limit(limit)
         .select(
-            'title description photo approxCompletionTime serviceCharge bookingPrice isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType subcategory category'
+            'title description photo approxCompletionTime serviceCharge bookingPrice isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType subcategory category membershipCharge serviceRenewalCharge membershipRenewalCharge renewalCharge'
         )
         .populate('serviceType', 'serviceCharge bookingPrice discount coupon')
         .populate('subcategory', 'serviceCharge bookingPrice discount coupon')
@@ -199,7 +199,7 @@ const getServicesByTypes = async (typeIds, options = {}) => {
         .skip(skip)
         .limit(limit)
         .select(
-            'title description photo approxCompletionTime serviceCharge bookingPrice isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType subcategory category'
+            'title description photo approxCompletionTime serviceCharge bookingPrice isAdminPriced moreInfo quantityEnabled priceAdjustmentEnabled coupon discount serviceType subcategory category membershipCharge serviceRenewalCharge membershipRenewalCharge renewalCharge'
         )
         .populate('serviceType', 'name serviceCharge bookingPrice discount coupon')
         .populate('subcategory', 'serviceCharge bookingPrice discount coupon')
