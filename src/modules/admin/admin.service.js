@@ -12,7 +12,8 @@ const CreditPlan = require('../../models/CreditPlan.model');
 const CoinTransaction = require('../../models/CoinTransaction.model');
 const PaymentRecord = require('../../models/PaymentRecord.model');
 const ApiError = require('../../utils/ApiError');
-const { DEFAULT_SETTINGS } = require('../../constants/settings');
+// DEFAULT_SETTINGS will be required locally in functions to avoid circularity/initialization issues
+
 
 const getDashboardStats = async () => {
   try {
@@ -313,6 +314,7 @@ const getEligibleVendors = async () => {
 };
 
 const getGlobalSettings = async () => {
+  const { DEFAULT_SETTINGS } = require('../../constants/settings');
   const dbSettings = await GlobalConfig.find({});
   const settingsMap = {};
 
@@ -338,6 +340,7 @@ const getGlobalSettings = async () => {
 };
 
 const updateGlobalSettings = async (settings, adminId) => {
+  const { DEFAULT_SETTINGS } = require('../../constants/settings');
   const updatedSettings = [];
 
   for (const [key, value] of Object.entries(settings)) {
@@ -360,6 +363,7 @@ const updateGlobalSettings = async (settings, adminId) => {
 };
 
 const getSetting = async (key) => {
+  const { DEFAULT_SETTINGS } = require('../../constants/settings');
   const setting = await GlobalConfig.findOne({ key });
   if (setting) return setting.value;
   return DEFAULT_SETTINGS[key]?.value;

@@ -235,17 +235,15 @@ const vendorSchema = new mongoose.Schema(
           const memExp = ret.membership.expiryDate ? new Date(ret.membership.expiryDate) : null;
           const renExp = ret.serviceRenewal?.expiryDate ? new Date(ret.serviceRenewal.expiryDate) : null;
           
-          // It's EXPIRED if either the membership expires or the service renewal expires
-          const isMemExpired = memExp ? now > memExp : true;
-          const isRenExpired = renExp ? now > renExp : true;
-          
           // It's EXPIRED if either the membership expires or (if present) the service renewal expires
-          const isMemExpired = memExp ? now > memExp : true;
+          const isMemExpired = memExp ? now > memExp : false;
           const isRenExpired = renExp ? now > renExp : false; // Only mark as expired if it exists and is in the past
           
           if (!memExp) {
-            ret.membership.planStatus = 'UNPAID';
-            ret.membership.validity = 'UNPAID';
+            // Check if they have paid but not yet verified (expiryDate is set on verification)
+            const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep);
+            ret.membership.planStatus = hasPaid ? 'PAID' : 'UNPAID';
+            ret.membership.validity = hasPaid ? 'Pending Review' : 'UNPAID';
           } else if (isMemExpired || isRenExpired) {
              ret.membership.planStatus = 'EXPIRED';
              ret.membership.validity = 'Expired';
@@ -258,6 +256,12 @@ const vendorSchema = new mongoose.Schema(
              const days = Math.ceil(minDiff / (1000 * 60 * 60 * 24));
              ret.membership.validity = days > 0 ? `${days}d remaining` : 'Expired';
           }
+          // Explicitly set planStatus at top level for UI robustness
+          ret.planStatus = ret.membership.planStatus;
+        } else {
+          // If no membership object exists at all
+          const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep);
+          ret.planStatus = hasPaid ? 'PAID' : 'UNPAID';
         }
 
         // Add top-level planValidity for table columns
@@ -266,7 +270,8 @@ const vendorSchema = new mongoose.Schema(
         const now = new Date();
         
         if (!memExp) {
-            ret.planValidity = 'UNPAID';
+            const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep);
+            ret.planValidity = hasPaid ? 'Pending Review' : 'UNPAID';
         } else {
             const isMemExpired = now > memExp;
             const isRenExpired = renExp ? now > renExp : false;
@@ -335,12 +340,19 @@ vendorSchema.virtual('status').get(function () {
 
 // Subscription/Plan status virtual
 vendorSchema.virtual('planStatus').get(function () {
-  if (!this.membership || !this.membership.expiryDate) return 'UNPAID';
   const now = new Date();
-  const memExpiry = new Date(this.membership.expiryDate);
-  const renExpiry = this.serviceRenewal?.expiryDate ? new Date(this.serviceRenewal.expiryDate) : null;
+  const memExp = this.membership?.expiryDate ? new Date(this.membership.expiryDate) : null;
+  const renExp = this.serviceRenewal?.expiryDate ? new Date(this.serviceRenewal.expiryDate) : null;
   
-  if (now > memExpiry || (renExpiry && now > renExpiry)) return 'EXPIRED';
+  if (!memExp) {
+    const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(this.registrationStep);
+    return hasPaid ? 'PAID' : 'UNPAID';
+  }
+  
+  const isMemExpired = now > memExp;
+  const isRenExpired = renExp ? now > renExp : false;
+  
+  if (isMemExpired || isRenExpired) return 'EXPIRED';
   return 'PAID';
 });
 

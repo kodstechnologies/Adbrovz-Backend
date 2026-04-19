@@ -92,26 +92,25 @@ const getRazorpay = () => {
  */
 const getAllVendors = async () => {
     return await Vendor.find()
-        .populate('membership.category', 'name membershipCharge renewalCharge')
+        .populate('membership.category', 'name membershipCharge renewalCharge membershipRenewalCharge membershipFee')
         .populate('creditPlan.planId', 'name')
-        .populate('selectedCategories', 'name membershipCharge renewalCharge')
+        .populate('selectedCategories', 'name membershipCharge renewalCharge membershipRenewalCharge membershipFee')
         .populate({
             path: 'selectedSubcategories',
-            select: 'name price membershipFee membershipCharge category',
+            select: 'name price membershipFee membershipCharge renewalCharge serviceRenewalCharge membershipRenewalCharge category',
             populate: { path: 'category', select: 'name' }
         })
         .populate('selectedServiceTypes', 'name')
         .populate({
             path: 'selectedServices',
-            select: 'title serviceCharge membershipFee membershipCharge subcategory category serviceType',
+            select: 'title serviceCharge membershipFee membershipCharge renewalCharge serviceRenewalCharge subcategory category serviceType',
             populate: [
                 { path: 'category', select: 'name' },
                 { path: 'subcategory', select: 'name' },
                 { path: 'serviceType', select: 'name' }
             ]
         })
-        .sort({ createdAt: -1 })
-        .lean();
+        .sort({ createdAt: -1 });
 };
 
 /**
