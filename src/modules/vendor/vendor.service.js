@@ -99,23 +99,26 @@ const getAllVendors = async () => {
         .populate({
             path: 'selectedSubcategories',
             select: 'name serviceCharge price membershipFee membershipCharge renewalCharge serviceRenewalCharge membershipRenewalCharge category',
-            populate: { path: 'category', select: 'name' }
+            populate: { 
+                path: 'category', 
+                select: 'name serviceCharge membershipCharge membershipFee' 
+            }
         })
         .populate({
             path: 'selectedServiceTypes',
             select: 'name serviceCharge category subcategory',
             populate: [
-                { path: 'category', select: 'name' },
-                { path: 'subcategory', select: 'name' }
+                { path: 'category', select: 'name serviceCharge membershipCharge membershipFee' },
+                { path: 'subcategory', select: 'name serviceCharge membershipCharge membershipFee' }
             ]
         })
         .populate({
             path: 'selectedServices',
             select: 'title serviceCharge membershipFee membershipCharge renewalCharge serviceRenewalCharge subcategory category serviceType',
             populate: [
-                { path: 'category', select: 'name' },
-                { path: 'subcategory', select: 'name' },
-                { path: 'serviceType', select: 'name' }
+                { path: 'category', select: 'name serviceCharge membershipCharge membershipFee' },
+                { path: 'subcategory', select: 'name serviceCharge membershipCharge membershipFee' },
+                { path: 'serviceType', select: 'name serviceCharge membershipCharge' }
             ]
         })
         .populate({
