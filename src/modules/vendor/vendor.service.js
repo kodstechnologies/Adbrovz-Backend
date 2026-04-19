@@ -3,6 +3,7 @@ const Subcategory = require('../../models/Subcategory.model');
 const Category = require('../../models/Category.model');
 const CreditPlan = require('../../models/CreditPlan.model');
 const Service = require('../../models/Service.model');
+const ServiceType = require('../../models/ServiceType.model');
 const PaymentRecord = require('../../models/PaymentRecord.model');
 const ApiError = require('../../utils/ApiError');
 const Razorpay = require('razorpay');
@@ -100,7 +101,7 @@ const getAllVendors = async () => {
             select: 'name price membershipFee membershipCharge renewalCharge serviceRenewalCharge membershipRenewalCharge category',
             populate: { path: 'category', select: 'name' }
         })
-        .populate('selectedServiceTypes', 'name')
+        .populate('selectedServiceTypes', 'name serviceCharge category subcategory')
         .populate({
             path: 'selectedServices',
             select: 'title serviceCharge membershipFee membershipCharge renewalCharge serviceRenewalCharge subcategory category serviceType',
@@ -109,6 +110,10 @@ const getAllVendors = async () => {
                 { path: 'subcategory', select: 'name' },
                 { path: 'serviceType', select: 'name' }
             ]
+        })
+        .populate({
+            path: 'categorySubscriptions.category',
+            select: 'name membershipCharge membershipFee'
         })
         .sort({ createdAt: -1 });
 };
@@ -162,51 +167,80 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
     }
 
     // Fetch global base membership fee based on duration from CreditPlan collection
-    const adminService = require('../admin/admin.service');
     const selectedDuration = Number(durationMonths || 3);
     const plan = await getPlanByDuration(selectedDuration);
     const baseFee = Number(plan.price || 0);
 
-    // Calculate hierarchical service membership charges (Fixing 'why zero' issue)
-    let serviceMembershipSubtotal = 0;
-    const services = itemList.map(item => {
-        const charge = Number(item.membershipCharge || item.membershipFee || 0);
-        serviceMembershipSubtotal += charge;
-        return {
-            id: item._id,
-            title: isSubcategory ? item.name : item.title,
-            type: isSubcategory ? 'subcategory' : 'service',
-            membershipFee: charge
-        };
-    });
+    // Prepare aggregation for ALL selected items (Cat + SubCats + Services + Types)
+    let totalServiceFee = 0;
+    const itemBreakdown = [];
 
-    // Also include category-level membership charge if applicable
-    const catMembershipCharge = Number(category?.membershipCharge || category?.concurrencyFee || category?.membershipFee || 0);
-    serviceMembershipSubtotal += catMembershipCharge;
+    // 1. Category Service Charge
+    const resolvedCategoryId = categoryId || (category?._id || category);
+    if (resolvedCategoryId) {
+        const cat = category || await Category.findById(resolvedCategoryId).lean();
+        if (cat) {
+            const charge = Number(cat.serviceCharge || 0);
+            totalServiceFee += charge;
+            itemBreakdown.push({ id: cat._id, title: cat.name, type: 'category', serviceCharge: charge });
+            category = cat; // Ensure category is populated for later use
+        }
+    }
 
-    const subtotal = baseFee + serviceMembershipSubtotal;
-    // Registration fees are 0% GST as per user requirement
-    const gstPercent = 0; 
-    const gstAmount = 0;
-    const totalFee = Number(subtotal);
+    // 2. Subcategories Service Charge
+    const parsedSubIds = parseArrayInput(subcategoryIds);
+    if (parsedSubIds.length > 0) {
+        const subcategories = await Subcategory.find({ _id: { $in: parsedSubIds } }).lean();
+        subcategories.forEach(sub => {
+            const charge = Number(sub.serviceCharge || 0);
+            totalServiceFee += charge;
+            itemBreakdown.push({ id: sub._id, title: sub.name, type: 'subcategory', serviceCharge: charge });
+        });
+    }
+
+    // 3. Service Types Service Charge
+    const parsedTypeIds = parseArrayInput(overrides?.serviceTypeIds); // Added serviceTypeIds support if needed
+    if (parsedTypeIds.length > 0) {
+        const serviceTypes = await ServiceType.find({ _id: { $in: parsedTypeIds } }).lean();
+        serviceTypes.forEach(st => {
+            const charge = Number(st.serviceCharge || 0);
+            totalServiceFee += charge;
+            itemBreakdown.push({ id: st._id, title: st.name, type: 'serviceType', serviceCharge: charge });
+        });
+    }
+
+    // 4. Services Service Charge
+    const parsedSvcIds = parseArrayInput(serviceIds);
+    if (parsedSvcIds.length > 0) {
+        const services = await Service.find({ _id: { $in: parsedSvcIds } }).lean();
+        services.forEach(svc => {
+            const charge = Number(svc.serviceCharge || 0);
+            totalServiceFee += charge;
+            itemBreakdown.push({ id: svc._id, title: svc.title, type: 'service', serviceCharge: charge });
+        });
+    }
+
+    const subtotal = baseFee + totalServiceFee;
+    // Applied 18% GST as per updated requirement
+    const gstPercent = 18; 
+    const gstAmount = Math.round(subtotal * 0.18);
+    const totalFee = Number(subtotal + gstAmount);
 
     const validityDays = plan.validityDays || (selectedDuration * 30);
-    const plansInfo = await getMembershipPlans(serviceMembershipSubtotal);
+    const plansInfo = await getMembershipPlans(totalServiceFee);
 
     return {
         vendorId,
         subtotal,
         basePlanFee: baseFee,
-        totalServiceFee: serviceMembershipSubtotal,
+        totalServiceFee,
         gstPercent,
         gstAmount,
         totalFee,
-        categoryMembershipFee: catMembershipCharge,
-        categoryRenewalCharge: category?.renewalCharge || 0,
         duration: `${validityDays} days`,
         durationMonths: selectedDuration,
         plans: plansInfo,
-        services
+        services: itemBreakdown
     };
 };
 
@@ -260,46 +294,76 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     const plan = await getPlanByDuration(durationMonths);
     const baseFee = Number(plan.price || 0);
 
-    // Calculate hierarchical service membership charges (Fixing 'why zero' issue)
-    let serviceMembershipSubtotal = 0;
-    const services = itemList.map(item => {
-        const charge = Number(item.membershipCharge || item.membershipFee || 0);
-        serviceMembershipSubtotal += charge;
-        return {
-            id: item._id,
-            title: isSubcategory ? item.name : item.title,
-            type: isSubcategory ? 'subcategory' : 'service',
-            membershipFee: charge
-        };
-    });
+    // Prepare aggregation for ALL selected items (Cat + SubCats + Services + Types)
+    let totalServiceFee = 0;
+    const itemBreakdown = [];
 
-    // Also include category-level membership charge if applicable
-    const catMembershipCharge = Number(category?.membershipCharge || category?.concurrencyFee || category?.membershipFee || 0);
-    serviceMembershipSubtotal += catMembershipCharge;
+    // 1. Category Service Charge
+    const resolvedCategoryId = categoryId || (category?._id || category);
+    if (resolvedCategoryId) {
+        const cat = category || await Category.findById(resolvedCategoryId).lean();
+        if (cat) {
+            const charge = Number(cat.serviceCharge || 0);
+            totalServiceFee += charge;
+            itemBreakdown.push({ id: cat._id, title: cat.name, type: 'category', serviceCharge: charge });
+            category = cat;
+        }
+    }
 
-    const subtotal = baseFee + serviceMembershipSubtotal;
-    // Registration fees are 0% GST as per user requirement
-    const gstPercent = 0;
-    const gstAmount = 0;
-    const totalFee = Number(subtotal);
+    // 2. Subcategories Service Charge
+    const parsedSubIds = parseArrayInput(parsedSubcategoryIds || vendor.selectedSubcategories);
+    if (parsedSubIds.length > 0) {
+        const subcategories = await Subcategory.find({ _id: { $in: parsedSubIds } }).lean();
+        subcategories.forEach(sub => {
+            const charge = Number(sub.serviceCharge || 0);
+            totalServiceFee += charge;
+            itemBreakdown.push({ id: sub._id, title: sub.name, type: 'subcategory', serviceCharge: charge });
+        });
+    }
+
+    // 3. Service Types Service Charge
+    const parsedTypeIds = parseArrayInput(overrides.serviceTypeIds || vendor.selectedServiceTypes);
+    if (parsedTypeIds.length > 0) {
+        const serviceTypes = await ServiceType.find({ _id: { $in: parsedTypeIds } }).lean();
+        serviceTypes.forEach(st => {
+            const charge = Number(st.serviceCharge || 0);
+            totalServiceFee += charge;
+            itemBreakdown.push({ id: st._id, title: st.name, type: 'serviceType', serviceCharge: charge });
+        });
+    }
+
+    // 4. Services Service Charge
+    const parsedSvcIds = parseArrayInput(parsedServiceIds || vendor.selectedServices);
+    if (parsedSvcIds.length > 0) {
+        const services = await Service.find({ _id: { $in: parsedSvcIds } }).lean();
+        services.forEach(svc => {
+            const charge = Number(svc.serviceCharge || 0);
+            totalServiceFee += charge;
+            itemBreakdown.push({ id: svc._id, title: svc.title, type: 'service', serviceCharge: charge });
+        });
+    }
+
+    const subtotal = baseFee + totalServiceFee;
+    // Applied 18% GST as per updated requirement
+    const gstPercent = 18;
+    const gstAmount = Math.round(subtotal * 0.18);
+    const totalFee = Number(subtotal + gstAmount);
 
     const validityDays = plan.validityDays || (durationMonths * 30);
-    const plansInfo = await getMembershipPlans(serviceMembershipSubtotal);
+    const plansInfo = await getMembershipPlans(totalServiceFee);
 
     return {
         vendorId: vendor._id,
         subtotal,
         basePlanFee: baseFee,
-        totalServiceFee: serviceMembershipSubtotal,
+        totalServiceFee,
         gstPercent,
         gstAmount,
         totalFee,
-        categoryMembershipFee: catMembershipCharge,
         duration: `${validityDays} days`,
-        durationMonths,
-        razorpayKeyId: config.RAZORPAY_KEY_ID,
+        durationMonths: durationMonths,
         plans: plansInfo,
-        services
+        services: itemBreakdown
     };
 };
 
@@ -492,15 +556,19 @@ const selectServices = async (vendorId, body) => {
     }
 
     // Fetch global base membership fee based on duration
-    const adminService = require('../admin/admin.service');
     const plan = await getPlanByDuration(durationMonths);
     const baseFee = Number(plan.price || 0);
-    const gstPercent = Number(await adminService.getSetting('pricing.membership_gst_percent') || 0);
 
-    // Subtotal is strictly the duration-based base fee (items are included in plan)
-    const subtotal = baseFee;
-    const gstAmount = Math.round(subtotal * (gstPercent / 100));
-    const totalPrice = Number(subtotal + gstAmount);
+    // Calculate aggregated service charges for this selection
+    let totalServiceCharge = Number(category?.serviceCharge || 0);
+    subcategories.forEach(sub => totalServiceCharge += Number(sub.serviceCharge || 0));
+    services.forEach(svc => totalServiceCharge += Number(svc.serviceCharge || 0));
+
+    // Registration fees are 0% GST as per user requirement, item charges are included in subtotal
+    const subtotal = baseFee + totalServiceCharge;
+    const gstPercent = 0; 
+    const gstAmount = 0;
+    const totalPrice = Number(subtotal);
 
     // Update vendor
     if (category) {
@@ -1190,17 +1258,22 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
             const categoryExpiry = new Date(now);
             categoryExpiry.setDate(categoryExpiry.getDate() + 30); // Service expires in 1 month (30 days)
 
-            vendor.selectedCategories.forEach(catId => {
+            for (const catId of vendor.selectedCategories) {
                 const existingSub = vendor.categorySubscriptions.find(s => s.category.toString() === catId.toString());
                 if (!existingSub) {
+                    const Category = require('../../models/Category.model');
+                    const category = await Category.findById(catId).select('membershipCharge membershipFee');
+                    const fee = category ? (category.membershipCharge || category.membershipFee || 0) : 0;
+
                     vendor.categorySubscriptions.push({
                         category: catId,
                         startDate: now,
                         expiryDate: categoryExpiry,
+                        fee: fee,
                         status: 'ACTIVE'
                     });
                 }
-            });
+            }
         }
 
         vendor.registrationStep = 'COMPLETED';
@@ -2122,7 +2195,7 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     const subcategories = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).lean();
     const services = await Service.find({ _id: { $in: parsedServiceIds } }).lean();
 
-    let totalFee = Number(category.membershipCharge || category.concurrencyFee || category.membershipFee || 0);
+    let totalFee = Number(category.serviceCharge || 0);
     const breakdown = {
         category: { id: category._id, name: category.name, charge: totalFee },
         subcategories: [],
@@ -2130,13 +2203,13 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     };
 
     subcategories.forEach(sub => {
-        const charge = Number(sub.membershipCharge || 0);
+        const charge = Number(sub.serviceCharge || 0);
         totalFee += charge;
         if (charge > 0) breakdown.subcategories.push({ id: sub._id, name: sub.name, charge });
     });
 
     services.forEach(svc => {
-        const charge = Number(svc.membershipCharge || 0);
+        const charge = Number(svc.serviceCharge || 0);
         totalFee += charge;
         if (charge > 0) breakdown.services.push({ id: svc._id, name: svc.title, charge });
     });
@@ -2281,15 +2354,21 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
         const expiryDate = new Date(now);
         expiryDate.setDate(expiryDate.getDate() + 30); // Service expires in 1 month (30 days)
 
+        const Category = require('../../models/Category.model');
+        const category = await Category.findById(finalCategoryId).select('membershipCharge membershipFee');
+        const fee = category ? (category.membershipCharge || category.membershipFee || 0) : 0;
+
         const existingSubIndex = vendor.categorySubscriptions.findIndex(s => s.category.toString() === catIdStr);
         if (existingSubIndex > -1) {
             vendor.categorySubscriptions[existingSubIndex].expiryDate = expiryDate;
             vendor.categorySubscriptions[existingSubIndex].status = 'ACTIVE';
+            vendor.categorySubscriptions[existingSubIndex].fee = fee;
         } else {
             vendor.categorySubscriptions.push({
                 category: finalCategoryId,
                 startDate: now,
                 expiryDate: expiryDate,
+                fee: fee,
                 status: 'ACTIVE'
             });
         }
