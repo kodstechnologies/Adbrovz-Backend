@@ -127,29 +127,28 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
     const svcIds = parseArrayInput(serviceIds || vendor?.selectedServices);
     if (svcIds.length > 0) items.services = await Service.find({ _id: { $in: svcIds } }).lean();
 
-    // Platform Part (Subtotal for "Platform Membership Fee")
+    // Legacy serviceCharge fields are still returned for breakdown/debugging,
+    // but the registration summary uses the base plan fee plus membership charges.
     let platformSubtotal = 0;
     if (items.categories.length > 0) items.categories.forEach(c => platformSubtotal += Number(c.serviceCharge || 0));
     items.subcategories.forEach(s => platformSubtotal += Number(s.serviceCharge || 0));
     items.serviceTypes.forEach(t => platformSubtotal += Number(t.serviceCharge || 0));
     items.services.forEach(s => platformSubtotal += Number(s.serviceCharge || 0));
 
-    // Membership component (Base Plan + Platform Charges)
-    const membershipBasePart = baseFee + platformSubtotal;
-    const membershipGst = Math.round(membershipBasePart * 0.18);
-    const membershipTotal = membershipBasePart + membershipGst; // This is the "₹24" part in screenshot
+    // "Platform Membership Fee" in the UI is the plan base fee itself.
+    const membershipTotal = baseFee;
 
-    // Service Selection Part (Subtotal for "Service Selections Total")
+    // "Service Selections Total" comes from membership charges on selected items.
     let servicesSubtotal = 0;
     if (items.categories.length > 0) items.categories.forEach(c => servicesSubtotal += Number(c.membershipCharge || 0));
     items.subcategories.forEach(s => servicesSubtotal += (Number(s.membershipCharge || s.price || 0)));
     items.serviceTypes.forEach(t => servicesSubtotal += Number(t.membershipCharge || 0));
     items.services.forEach(s => servicesSubtotal += Number(s.membershipCharge || 0));
 
-    // Grand Calculation (Following UI logic from screenshot)
-    const combinedSubtotal = membershipTotal + servicesSubtotal; // 24 + 159 = 183
-    const finalGst = Math.round(combinedSubtotal * 0.18); // 18% of 183 = 33
-    const grandTotal = combinedSubtotal + finalGst; // 216
+    // GST is applied once on the full registration subtotal.
+    const combinedSubtotal = membershipTotal + servicesSubtotal;
+    const finalGst = Math.round(combinedSubtotal * 0.18);
+    const grandTotal = combinedSubtotal + finalGst;
 
     return {
         basePlanFee: baseFee,
@@ -226,16 +225,17 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
         serviceIds
     });
 
-    const plansInfo = await getMembershipPlans(calc.platformSubtotal);
+    const plansInfo = await getMembershipPlans(calc.servicesSubtotal);
 
     return {
         vendorId,
         subtotal: calc.membershipTotal, // UI expects membership total as the platform part
         basePlanFee: calc.basePlanFee,
-        totalServiceFee: calc.platformSubtotal,
+        totalServiceFee: calc.servicesSubtotal,
+        platformSubtotal: calc.platformSubtotal,
         gstPercent: 18,
         gstAmount: calc.finalGst, // Total GST for the grand payment
-        totalFee: calc.grandTotal,  // Full 216 amount
+        totalFee: calc.grandTotal,
         duration: `${calc.validityDays} days`,
         durationMonths: calc.durationMonths,
         plans: plansInfo,
@@ -257,13 +257,14 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         serviceIds: overrides.serviceIds
     });
 
-    const plansInfo = await getMembershipPlans(calc.platformSubtotal);
+    const plansInfo = await getMembershipPlans(calc.servicesSubtotal);
 
     return {
         vendorId,
         subtotal: calc.membershipTotal,
         basePlanFee: calc.basePlanFee,
-        totalServiceFee: calc.platformSubtotal,
+        totalServiceFee: calc.servicesSubtotal,
+        platformSubtotal: calc.platformSubtotal,
         gstPercent: 18,
         gstAmount: calc.finalGst,
         totalFee: calc.grandTotal,
