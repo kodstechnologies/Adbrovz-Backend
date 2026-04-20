@@ -219,6 +219,9 @@ const createServiceType = asyncHandler(async (req, res) => {
 
 const updateServiceType = asyncHandler(async (req, res) => {
     const data = _mapServiceData(req.body);
+    if (req.file && req.file.cloudinary) {
+        data.photo = req.file.cloudinary.url;
+    }
     const serviceType = await serviceService.updateServiceType(req.params.serviceTypeId, data);
     res.status(200).json(new ApiResponse(200, serviceType, 'Service type updated successfully'));
 });

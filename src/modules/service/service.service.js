@@ -450,6 +450,12 @@ const updateServiceType = async (serviceTypeId, data) => {
     const serviceType = await ServiceType.findById(serviceTypeId);
     if (!serviceType) throw new ApiError(404, 'Service type not found');
 
+    // Ensure category is present if subcategory is provided/changed
+    if (data.subcategory && !data.category) {
+        const sub = await Subcategory.findById(data.subcategory);
+        if (sub) data.category = sub.category;
+    }
+
     if (
         data.photo &&
         serviceType.photo &&
@@ -647,6 +653,26 @@ const createService = async (data) => {
 const updateService = async (serviceId, data) => {
     const service = await Service.findById(serviceId);
     if (!service) throw new ApiError(404, 'Service not found');
+
+    const validateId = (id) => {
+        if (!id) return null;
+        const strId = String(id).trim();
+        if (strId === 'null' || strId === 'undefined' || strId === '') return null;
+        return strId;
+    };
+
+    if (data.category !== undefined) data.category = validateId(data.category);
+    if (data.subcategory !== undefined) data.subcategory = validateId(data.subcategory);
+    if (data.serviceType !== undefined) data.serviceType = validateId(data.serviceType);
+
+    if (data.category === null && (data.subcategory || data.serviceType)) {
+        // Try to recover category from subcategory if possible
+        const subId = data.subcategory || service.subcategory;
+        if (subId) {
+            const sub = await Subcategory.findById(subId);
+            if (sub) data.category = sub.category;
+        }
+    }
 
     if (
         data.photo &&

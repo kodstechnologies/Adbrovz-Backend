@@ -12,7 +12,7 @@ const CreditPlan = require('../../models/CreditPlan.model');
 const CoinTransaction = require('../../models/CoinTransaction.model');
 const PaymentRecord = require('../../models/PaymentRecord.model');
 const ApiError = require('../../utils/ApiError');
-// DEFAULT_SETTINGS will be required locally in functions to avoid circularity/initialization issues
+const { DEFAULT_SETTINGS } = require('../../constants/settings');
 
 
 const getDashboardStats = async () => {
