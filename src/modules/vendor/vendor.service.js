@@ -179,6 +179,9 @@ const getAllVendors = async () => {
         .populate('membership.category', 'name serviceCharge membershipCharge renewalCharge membershipRenewalCharge membershipFee')
         .populate('creditPlan.planId', 'name')
         .populate('selectedCategories', 'name serviceCharge membershipCharge renewalCharge membershipRenewalCharge membershipFee')
+        .populate('categorySubscriptions.category', 'name serviceCharge membershipCharge')
+        .populate('categorySubscriptions.subcategories', 'name serviceCharge price')
+        .populate('categorySubscriptions.services', 'title serviceCharge')
         .populate({
             path: 'selectedSubcategories',
             select: 'name serviceCharge price membershipFee membershipCharge renewalCharge serviceRenewalCharge membershipRenewalCharge category',
@@ -1106,6 +1109,8 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
 
                     vendor.categorySubscriptions.push({
                         category: catId,
+                        subcategories: vendor.selectedSubcategories || [],
+                        services: vendor.selectedServices || [],
                         startDate: now,
                         expiryDate: categoryExpiry,
                         fee: fee,
@@ -1391,7 +1396,11 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
  * Get Subscription Status for Mobile App
  */
 const getSubscriptionStatus = async (vendorId) => {
-    const vendor = await Vendor.findById(vendorId).populate('selectedCategories selectedSubcategories selectedServiceTypes selectedServices membership.category');
+    const vendor = await Vendor.findById(vendorId)
+        .populate('selectedCategories selectedSubcategories selectedServiceTypes selectedServices membership.category')
+        .populate('categorySubscriptions.category')
+        .populate('categorySubscriptions.subcategories')
+        .populate('categorySubscriptions.services');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const now = new Date();
@@ -2194,18 +2203,21 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
         const expiryDate = new Date(now);
         expiryDate.setDate(expiryDate.getDate() + 30); // Service expires in 1 month (30 days)
 
-        const Category = require('../../models/Category.model');
-        const category = await Category.findById(finalCategoryId).select('membershipCharge membershipFee');
-        const fee = category ? (category.membershipCharge || category.membershipFee || 0) : 0;
+        // Use the total amount paid from the payment record if available for accuracy
+        const fee = paymentRecord ? paymentRecord.totalAmount : 0;
 
         const existingSubIndex = vendor.categorySubscriptions.findIndex(s => s.category.toString() === catIdStr);
         if (existingSubIndex > -1) {
             vendor.categorySubscriptions[existingSubIndex].expiryDate = expiryDate;
             vendor.categorySubscriptions[existingSubIndex].status = 'ACTIVE';
             vendor.categorySubscriptions[existingSubIndex].fee = fee;
+            vendor.categorySubscriptions[existingSubIndex].subcategories = finalSubcategories || [];
+            vendor.categorySubscriptions[existingSubIndex].services = finalServices || [];
         } else {
             vendor.categorySubscriptions.push({
                 category: finalCategoryId,
+                subcategories: finalSubcategories || [],
+                services: finalServices || [],
                 startDate: now,
                 expiryDate: expiryDate,
                 fee: fee,

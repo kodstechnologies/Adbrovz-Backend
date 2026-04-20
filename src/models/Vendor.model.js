@@ -207,6 +207,8 @@ const vendorSchema = new mongoose.Schema(
     },
     categorySubscriptions: [{
       category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
+      subcategories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subcategory' }],
+      services: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Service' }],
       fee: { type: Number },
       startDate: { type: Date },
       expiryDate: { type: Date },
