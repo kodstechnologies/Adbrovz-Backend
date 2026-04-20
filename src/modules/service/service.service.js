@@ -979,11 +979,13 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330) => {
 
                 const isAvailable = slotStartUTCMs > now.getTime();
                 
-                dailySlots.push({
-                    time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
-                    displayTime: formatDisplayTime(h, m),
-                    isAvailable
-                });
+                if (isAvailable) {
+                    dailySlots.push({
+                        time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+                        displayTime: formatDisplayTime(h, m),
+                        isAvailable
+                    });
+                }
             }
         }
 

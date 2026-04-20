@@ -98,11 +98,16 @@ const serviceSchema = new mongoose.Schema(
 
 // Pre-save hook to set isAdminPriced automatically
 serviceSchema.pre('save', function (next) {
-  if (this.serviceCharge !== undefined && this.serviceCharge !== null && this.serviceCharge > 0) {
+  const hasServiceCharge = this.serviceCharge !== undefined && this.serviceCharge !== null && this.serviceCharge > 0;
+  const hasBookingPrice = this.bookingPrice !== undefined && this.bookingPrice !== null && this.bookingPrice > 0;
+  
+  if (hasServiceCharge || hasBookingPrice) {
     this.isAdminPriced = true;
   } else {
     this.isAdminPriced = false;
-    this.serviceCharge = 0; // Normalize to 0 if not priced
+    if (this.serviceCharge === undefined || this.serviceCharge === null) {
+      this.serviceCharge = 0;
+    }
   }
   next();
 });
