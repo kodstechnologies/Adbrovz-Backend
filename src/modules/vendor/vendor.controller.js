@@ -219,7 +219,8 @@ const getDashboardMetrics = asyncHandler(async (req, res) => {
  * Get available membership plans
  */
 const getMembershipPlans = asyncHandler(async (req, res) => {
-    const plans = await vendorService.getMembershipPlans();
+    const vendorId = req.user?.userId || req.user?.id || req.user?._id || req.query.vendorId;
+    const plans = await vendorService.getMembershipPlans(undefined, { vendorId });
     res.status(200).json(
         new ApiResponse(200, plans, 'Membership plans retrieved successfully')
     );

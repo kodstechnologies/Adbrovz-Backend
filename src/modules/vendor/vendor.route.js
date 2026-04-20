@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const vendorController = require('./vendor.controller');
-const { authenticate, authorize } = require('../../middlewares/auth.middleware');
+const { authenticate, authorize, optionalAuth } = require('../../middlewares/auth.middleware');
 const { ROLES } = require('../../constants/roles');
 const { upload, uploadToCloudinary } = require('../../middlewares/cloudinary.middleware');
 const { uploadVendorDocs, processVendorDocs } = require('../../middlewares/vendorUpload.middleware');
@@ -16,7 +16,7 @@ router.use((req, res, next) => {
 
 // Registration utility routes (Can be called during registration flow)
 router.post('/get-membership', vendorController.getMembership);
-router.get('/membership-plans', vendorController.getMembershipPlans);
+router.get('/membership-plans', optionalAuth, vendorController.getMembershipPlans);
 router.get('/membership-detail', authenticate, authorize(ROLES.VENDOR), vendorController.getVendorMembership);
 router.get('/membership-details', authenticate, authorize(ROLES.VENDOR), vendorController.getVendorMembership);
 router.get('/:vendorId/membership-detail', authenticate, authorize(ROLES.ADMIN), vendorController.getVendorMembership);

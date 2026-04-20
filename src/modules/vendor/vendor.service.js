@@ -493,11 +493,18 @@ const purchaseMembership = async (vendorId) => {
 /**
  * Get available membership plans (3, 6, 12 months) from settings
  */
-const getMembershipPlans = async (serviceMembershipFee = 0) => {
+const getMembershipPlans = async (serviceMembershipFee = 0, options = {}) => {
     const adminService = require('../admin/admin.service');
     const tiers = await CreditPlan.find({
         name: { $in: ['Basic', 'Pro', 'Elite'] }
     }).lean();
+    const vendorId = options?.vendorId;
+
+    let resolvedServiceMembershipFee = serviceMembershipFee;
+    if ((resolvedServiceMembershipFee === undefined || resolvedServiceMembershipFee === null) && vendorId) {
+        const calc = await _calculateMembershipAmounts({ vendorId });
+        resolvedServiceMembershipFee = calc.servicesSubtotal;
+    }
 
     const planConfigs = [
         { duration: 3, name: 'Basic' },
@@ -515,7 +522,7 @@ const getMembershipPlans = async (serviceMembershipFee = 0) => {
 
         const baseFee = plan.price || 0;
         const validityDays = plan.validityDays || (config.duration * 30);
-        const serviceFee = Number(serviceMembershipFee);
+        const serviceFee = Number(resolvedServiceMembershipFee || 0);
 
         const subtotal = baseFee + serviceFee;
         const gstAmount = Math.round(subtotal * (gstPercent / 100));
