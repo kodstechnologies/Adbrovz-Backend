@@ -589,18 +589,52 @@ const getAvailablePurchaseCategories = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId).select('selectedCategories');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    const Category = require('../../models/Category.model');
     const allCategories = await Category.find({}).lean();
+    const allSubcategories = await Subcategory.find({}).lean();
+    const allServices = await Service.find({}).lean();
+    const allServiceTypes = await ServiceType.find({}).lean();
 
     const selectedCategoryIds = (vendor.selectedCategories || []).map(id => id.toString());
 
     return allCategories
         .filter(cat => !selectedCategoryIds.includes(cat._id.toString()))
-        .map(cat => ({
-            id: cat._id,
-            name: cat.name,
-            amount: cat.membershipCharge || cat.concurrencyFee || cat.membershipFee || 0
-        }));
+        .map(cat => {
+            const catIdStr = cat._id.toString();
+            
+            // Start with category's own service charge
+            let totalSvcCharge = Number(cat.serviceCharge || 0);
+            
+            // Add all subcategories' service charges
+            allSubcategories
+                .filter(sub => sub.category && sub.category.toString() === catIdStr)
+                .forEach(sub => {
+                    totalSvcCharge += Number(sub.serviceCharge || 0);
+                });
+                
+            // Add all service types' service charges
+            allServiceTypes
+                .filter(st => st.category && st.category.toString() === catIdStr)
+                .forEach(st => {
+                    totalSvcCharge += Number(st.serviceCharge || 0);
+                });
+                
+            // Add all services' service charges
+            allServices
+                .filter(svc => svc.category && svc.category.toString() === catIdStr)
+                .forEach(svc => {
+                    totalSvcCharge += Number(svc.serviceCharge || 0);
+                });
+
+            // Calculate GST consistent with getAddCategoryFeeDetails (18%)
+            const gstAmount = Math.round(totalSvcCharge * 0.18);
+            const totalWithGst = totalSvcCharge + gstAmount;
+
+            return {
+                id: cat._id,
+                name: cat.name,
+                amount: totalWithGst
+            };
+        });
 };
 
 /**
