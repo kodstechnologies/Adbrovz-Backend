@@ -2044,23 +2044,56 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     const subcategories = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).lean();
     const services = await Service.find({ _id: { $in: parsedServiceIds } }).lean();
 
-    let totalFee = Number(category.serviceCharge || 0);
+    const categoryCharge = Number(category.membershipCharge || category.membershipFee || category.serviceCharge || 0);
+    let totalFee = categoryCharge;
+    let additionalSelectionsTotal = 0;
     const breakdown = {
-        category: { id: category._id, name: category.name, charge: totalFee },
+        category: { id: category._id, name: category.name, charge: categoryCharge },
         subcategories: [],
         services: []
     };
+    const itemBreakdown = [];
+
+    if (categoryCharge > 0) {
+        itemBreakdown.push({
+            id: category._id,
+            title: category.name,
+            type: 'category',
+            serviceCharge: Number(category.serviceCharge || 0),
+            membershipCharge: categoryCharge
+        });
+    }
 
     subcategories.forEach(sub => {
-        const charge = Number(sub.serviceCharge || 0);
+        const charge = Number(sub.membershipCharge || sub.membershipFee || sub.price || sub.serviceCharge || 0);
         totalFee += charge;
-        if (charge > 0) breakdown.subcategories.push({ id: sub._id, name: sub.name, charge });
+        additionalSelectionsTotal += charge;
+        if (charge > 0) {
+            breakdown.subcategories.push({ id: sub._id, name: sub.name, charge });
+            itemBreakdown.push({
+                id: sub._id,
+                title: sub.name,
+                type: 'subcategory',
+                serviceCharge: Number(sub.serviceCharge || 0),
+                membershipCharge: charge
+            });
+        }
     });
 
     services.forEach(svc => {
-        const charge = Number(svc.serviceCharge || 0);
+        const charge = Number(svc.membershipCharge || svc.membershipFee || svc.serviceCharge || 0);
         totalFee += charge;
-        if (charge > 0) breakdown.services.push({ id: svc._id, name: svc.title, charge });
+        additionalSelectionsTotal += charge;
+        if (charge > 0) {
+            breakdown.services.push({ id: svc._id, name: svc.title, charge });
+            itemBreakdown.push({
+                id: svc._id,
+                title: svc.title,
+                type: 'service',
+                serviceCharge: Number(svc.serviceCharge || 0),
+                membershipCharge: charge
+            });
+        }
     });
 
     // Extra category purchases use 18% GST consistent with registration
@@ -2074,6 +2107,14 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
         totalCharge: totalFee, // Subtotal of service charges
         gstAmount,
         totalWithGst,
+        subtotal: categoryCharge,
+        totalServiceFee: additionalSelectionsTotal,
+        serviceSelectionsTotal: additionalSelectionsTotal,
+        totalFee: totalWithGst,
+        platformSubtotal: totalFee,
+        gstPercent,
+        basePlanFee: 0,
+        itemBreakdown,
         razorpayKeyId: config.RAZORPAY_KEY_ID,
         breakdown
     };
