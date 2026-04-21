@@ -46,6 +46,19 @@ const _calculateServicePricing = (service) => {
     };
 };
 
+const _isValidId = (id) => typeof id === 'string' && /^[a-fA-F0-9]{24}$/.test(id);
+
+const _buildManagementRow = ({ key, label, items, selectedId, dependsOn, emptyMessage }) => ({
+    key,
+    label,
+    selectedId: selectedId || null,
+    dependsOn: dependsOn || null,
+    isEnabled: !dependsOn || Boolean(dependsOn.selectedId),
+    count: items.length,
+    emptyMessage,
+    items
+});
+
 /**
  * Get all categories
  */
@@ -54,6 +67,141 @@ const getAllCategories = async () => {
         .sort({ order: 1, name: 1 })
         .select('name description icon defaultFreeCredits slotStartTime slotEndTime serviceCharge bookingPrice membershipCharge serviceRenewalCharge membershipRenewalCharge renewalCharge');
     return categories;
+};
+
+/**
+ * Admin/Public helper: return 4-row service management data in a single payload.
+ * Row flow: Category -> Subcategory -> Service Type -> Service
+ */
+const getServiceManagementRows = async ({ categoryId, subcategoryId, serviceTypeId } = {}) => {
+    const selected = {
+        categoryId: categoryId || null,
+        subcategoryId: subcategoryId || null,
+        serviceTypeId: serviceTypeId || null
+    };
+
+    if (selected.categoryId && !_isValidId(selected.categoryId)) {
+        throw new ApiError(400, 'Invalid categoryId');
+    }
+    if (selected.subcategoryId && !_isValidId(selected.subcategoryId)) {
+        throw new ApiError(400, 'Invalid subcategoryId');
+    }
+    if (selected.serviceTypeId && !_isValidId(selected.serviceTypeId)) {
+        throw new ApiError(400, 'Invalid serviceTypeId');
+    }
+
+    // Resolve category from selected subcategory when category is missing.
+    if (selected.subcategoryId) {
+        const selectedSubcategory = await Subcategory.findById(selected.subcategoryId).select('category');
+        if (!selectedSubcategory) {
+            throw new ApiError(404, 'Subcategory not found');
+        }
+
+        if (selected.categoryId && selectedSubcategory.category.toString() !== selected.categoryId) {
+            throw new ApiError(400, 'Selected subcategory does not belong to selected category');
+        }
+
+        if (!selected.categoryId) {
+            selected.categoryId = selectedSubcategory.category.toString();
+        }
+    }
+
+    // Resolve/validate full chain from selected service type.
+    if (selected.serviceTypeId) {
+        const selectedType = await ServiceType.findById(selected.serviceTypeId).select('category subcategory');
+        if (!selectedType) {
+            throw new ApiError(404, 'Service type not found');
+        }
+
+        const typeCategoryId = selectedType.category.toString();
+        const typeSubcategoryId = selectedType.subcategory.toString();
+
+        if (selected.categoryId && selected.categoryId !== typeCategoryId) {
+            throw new ApiError(400, 'Selected service type does not belong to selected category');
+        }
+        if (selected.subcategoryId && selected.subcategoryId !== typeSubcategoryId) {
+            throw new ApiError(400, 'Selected service type does not belong to selected subcategory');
+        }
+
+        selected.categoryId = typeCategoryId;
+        selected.subcategoryId = typeSubcategoryId;
+    }
+
+    const [categories, subcategories, serviceTypes, services] = await Promise.all([
+        Category.find({})
+            .sort({ order: 1, name: 1 })
+            .select('name icon description order'),
+        selected.categoryId
+            ? Subcategory.find({ category: selected.categoryId })
+                .sort({ order: 1, name: 1 })
+                .select('name icon description category order')
+            : [],
+        selected.subcategoryId
+            ? ServiceType.find({ subcategory: selected.subcategoryId })
+                .sort({ order: 1, name: 1 })
+                .select('name description photo category subcategory order')
+            : [],
+        selected.serviceTypeId
+            ? Service.find({ serviceType: selected.serviceTypeId })
+                .sort({ title: 1 })
+                .select('title description photo category subcategory serviceType isActive')
+            : []
+    ]);
+
+    return {
+        selected,
+        categories,
+        subcategories,
+        serviceTypes,
+        services,
+        rows: {
+            categories: _buildManagementRow({
+                key: 'categories',
+                label: 'Categories',
+                items: categories,
+                selectedId: selected.categoryId,
+                emptyMessage: 'No categories available.'
+            }),
+            subcategories: _buildManagementRow({
+                key: 'subcategories',
+                label: 'Subcategories',
+                items: subcategories,
+                selectedId: selected.subcategoryId,
+                dependsOn: {
+                    key: 'categories',
+                    selectedId: selected.categoryId
+                },
+                emptyMessage: selected.categoryId
+                    ? 'No subcategories found for the selected category.'
+                    : 'Select a category to load subcategories.'
+            }),
+            serviceTypes: _buildManagementRow({
+                key: 'serviceTypes',
+                label: 'Service Types',
+                items: serviceTypes,
+                selectedId: selected.serviceTypeId,
+                dependsOn: {
+                    key: 'subcategories',
+                    selectedId: selected.subcategoryId
+                },
+                emptyMessage: selected.subcategoryId
+                    ? 'No service types found for the selected subcategory.'
+                    : 'Select a subcategory to load service types.'
+            }),
+            services: _buildManagementRow({
+                key: 'services',
+                label: 'Services',
+                items: services,
+                dependsOn: {
+                    key: 'serviceTypes',
+                    selectedId: selected.serviceTypeId
+                },
+                emptyMessage: selected.serviceTypeId
+                    ? 'No services found for the selected service type.'
+                    : 'Select a service type to load services.'
+            })
+        }
+    };
 };
 
 /**
@@ -1002,6 +1150,7 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330) => {
 module.exports = {
     getCategorySlots,
     getAllCategories,
+    getServiceManagementRows,
     getSubcategoriesByCategoryId,
     getServiceTypesBySubcategoryId,
     getServiceTypesBySubcategories,

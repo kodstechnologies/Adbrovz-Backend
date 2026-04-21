@@ -75,6 +75,14 @@ const canonicalizeStatus = (status) => {
     return s;
 };
 
+const toNumber = (value) => Number(value || 0);
+
+const sumHierarchyServiceCharge = ({ category, subcategory, serviceType, service }) =>
+    toNumber(category?.serviceCharge) +
+    toNumber(subcategory?.serviceCharge) +
+    toNumber(serviceType?.serviceCharge) +
+    toNumber(service?.serviceCharge);
+
 // Lazy init — avoids crash on startup when RAZORPAY keys are not set
 const getRazorpay = () => {
     if (!config.RAZORPAY_KEY_ID || !config.RAZORPAY_KEY_SECRET) {
@@ -101,49 +109,84 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
     const baseFee = Number(plan.price || 0);
 
     let items = {
-        category: null,
+        categories: [],
         subcategories: [],
         serviceTypes: [],
         services: []
     };
 
-    // 1. Resolve All Categories
-    const catIds = [...new Set([
-        ...(categoryId ? [categoryId] : []),
-        ...(vendor?.selectedCategories?.map(id => id.toString()) || []),
-        ...(vendor?.membership?.category ? [vendor.membership.category.toString()] : [])
-    ])];
-    if (catIds.length > 0) items.categories = await Category.find({ _id: { $in: catIds } }).lean();
-
-    // 2. Resolve Subcategories
+    // 1. Resolve explicit subcategories
     const subIds = parseArrayInput(subcategoryIds || vendor?.selectedSubcategories);
     if (subIds.length > 0) items.subcategories = await Subcategory.find({ _id: { $in: subIds } }).lean();
 
-    // 3. Resolve Service Types
+    // 2. Resolve explicit service types
     const typeIds = parseArrayInput(serviceTypeIds || vendor?.selectedServiceTypes);
     if (typeIds.length > 0) items.serviceTypes = await ServiceType.find({ _id: { $in: typeIds } }).lean();
 
-    // 4. Resolve Services
+    // 3. Resolve explicit services
     const svcIds = parseArrayInput(serviceIds || vendor?.selectedServices);
     if (svcIds.length > 0) items.services = await Service.find({ _id: { $in: svcIds } }).lean();
+
+    // 4. Pull parent hierarchy from selected service types and services so
+    // membership-detail includes category + subcategory + type + service charges.
+    const derivedSubIds = [
+        ...items.serviceTypes.map(type => type.subcategory?.toString()).filter(Boolean),
+        ...items.services.map(service => service.subcategory?.toString()).filter(Boolean)
+    ];
+
+    const missingSubIds = [...new Set(derivedSubIds)].filter(
+        id => !items.subcategories.some(sub => sub._id.toString() === id)
+    );
+    if (missingSubIds.length > 0) {
+        const derivedSubcategories = await Subcategory.find({ _id: { $in: missingSubIds } }).lean();
+        items.subcategories = [...items.subcategories, ...derivedSubcategories];
+    }
+
+    const explicitCategoryIds = [
+        ...(categoryId ? [categoryId] : []),
+        ...(vendor?.selectedCategories?.map(id => id.toString()) || []),
+        ...(vendor?.membership?.category ? [vendor.membership.category.toString()] : [])
+    ];
+    const derivedCategoryIds = [
+        ...items.subcategories.map(sub => sub.category?.toString()).filter(Boolean),
+        ...items.serviceTypes.map(type => type.category?.toString()).filter(Boolean),
+        ...items.services.map(service => service.category?.toString()).filter(Boolean)
+    ];
+    const catIds = [...new Set([...explicitCategoryIds, ...derivedCategoryIds])];
+    if (catIds.length > 0) items.categories = await Category.find({ _id: { $in: catIds } }).lean();
+
+    const derivedTypeIds = items.services
+        .map(service => service.serviceType?.toString())
+        .filter(Boolean);
+    const missingTypeIds = [...new Set(derivedTypeIds)].filter(
+        id => !items.serviceTypes.some(type => type._id.toString() === id)
+    );
+    if (missingTypeIds.length > 0) {
+        const derivedServiceTypes = await ServiceType.find({ _id: { $in: missingTypeIds } }).lean();
+        items.serviceTypes = [...items.serviceTypes, ...derivedServiceTypes];
+    }
+
+    const categoryById = new Map(items.categories.map(category => [category._id.toString(), category]));
+    const subcategoryById = new Map(items.subcategories.map(subcategory => [subcategory._id.toString(), subcategory]));
+    const serviceTypeById = new Map(items.serviceTypes.map(serviceType => [serviceType._id.toString(), serviceType]));
 
     // Legacy serviceCharge fields are still returned for breakdown/debugging,
     // but the registration summary uses the base plan fee plus membership charges.
     let platformSubtotal = 0;
-    if (items.categories.length > 0) items.categories.forEach(c => platformSubtotal += Number(c.serviceCharge || 0));
-    items.subcategories.forEach(s => platformSubtotal += Number(s.serviceCharge || 0));
-    items.serviceTypes.forEach(t => platformSubtotal += Number(t.serviceCharge || 0));
-    items.services.forEach(s => platformSubtotal += Number(s.serviceCharge || 0));
+    if (items.categories.length > 0) items.categories.forEach(c => platformSubtotal += toNumber(c.serviceCharge));
+    items.subcategories.forEach(s => platformSubtotal += toNumber(s.serviceCharge));
+    items.serviceTypes.forEach(t => platformSubtotal += toNumber(t.serviceCharge));
+    items.services.forEach(s => platformSubtotal += toNumber(s.serviceCharge));
 
     // "Platform Membership Fee" in the UI is the plan base fee itself.
     const membershipTotal = baseFee;
 
     // "Service Selections Total" comes from membership charges on selected items.
     let servicesSubtotal = 0;
-    if (items.categories.length > 0) items.categories.forEach(c => servicesSubtotal += Number(c.membershipCharge || 0));
-    items.subcategories.forEach(s => servicesSubtotal += (Number(s.membershipCharge || s.price || 0)));
-    items.serviceTypes.forEach(t => servicesSubtotal += Number(t.membershipCharge || 0));
-    items.services.forEach(s => servicesSubtotal += Number(s.membershipCharge || 0));
+    if (items.categories.length > 0) items.categories.forEach(c => servicesSubtotal += toNumber(c.membershipCharge));
+    items.subcategories.forEach(s => servicesSubtotal += toNumber(s.membershipCharge || s.price));
+    items.serviceTypes.forEach(t => servicesSubtotal += toNumber(t.membershipCharge));
+    items.services.forEach(s => servicesSubtotal += toNumber(s.membershipCharge));
 
     // GST is applied once on the full registration subtotal.
     const combinedSubtotal = membershipTotal + servicesSubtotal;
@@ -161,10 +204,50 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
         durationMonths: months,
         validityDays: plan.validityDays,
         itemBreakdown: [
-            ...items.categories.map(c => ({ id: c._id, title: c.name, type: 'category', serviceCharge: c.serviceCharge, membershipCharge: c.membershipCharge })),
-            ...items.subcategories.map(s => ({ id: s._id, title: s.name, type: 'subcategory', serviceCharge: s.serviceCharge, membershipCharge: s.membershipCharge || s.price })),
-            ...items.serviceTypes.map(t => ({ id: t._id, title: t.name, type: 'serviceType', serviceCharge: t.serviceCharge, membershipCharge: t.membershipCharge })),
-            ...items.services.map(s => ({ id: s._id, title: s.title, type: 'service', serviceCharge: s.serviceCharge, membershipCharge: s.membershipCharge }))
+            ...items.categories.map(c => ({
+                id: c._id,
+                title: c.name,
+                type: 'category',
+                serviceCharge: toNumber(c.serviceCharge),
+                ownServiceCharge: toNumber(c.serviceCharge),
+                membershipCharge: toNumber(c.membershipCharge)
+            })),
+            ...items.subcategories.map(s => ({
+                id: s._id,
+                title: s.name,
+                type: 'subcategory',
+                serviceCharge: sumHierarchyServiceCharge({
+                    category: categoryById.get(s.category?.toString()),
+                    subcategory: s
+                }),
+                ownServiceCharge: toNumber(s.serviceCharge),
+                membershipCharge: toNumber(s.membershipCharge || s.price)
+            })),
+            ...items.serviceTypes.map(t => ({
+                id: t._id,
+                title: t.name,
+                type: 'serviceType',
+                serviceCharge: sumHierarchyServiceCharge({
+                    category: categoryById.get(t.category?.toString()),
+                    subcategory: subcategoryById.get(t.subcategory?.toString()),
+                    serviceType: t
+                }),
+                ownServiceCharge: toNumber(t.serviceCharge),
+                membershipCharge: toNumber(t.membershipCharge)
+            })),
+            ...items.services.map(s => ({
+                id: s._id,
+                title: s.title,
+                type: 'service',
+                serviceCharge: sumHierarchyServiceCharge({
+                    category: categoryById.get(s.category?.toString()),
+                    subcategory: subcategoryById.get(s.subcategory?.toString()),
+                    serviceType: serviceTypeById.get(s.serviceType?.toString()),
+                    service: s
+                }),
+                ownServiceCharge: toNumber(s.serviceCharge),
+                membershipCharge: toNumber(s.membershipCharge)
+            }))
         ]
     };
 };

@@ -1,5 +1,6 @@
 const asyncHandler = require('../../utils/asyncHandler');
 const ApiResponse = require('../../utils/ApiResponse');
+const ApiError = require('../../utils/ApiError');
 const serviceService = require('./service.service');
 
 // Get all categories
@@ -7,6 +8,21 @@ const getCategories = asyncHandler(async (req, res) => {
     const categories = await serviceService.getAllCategories();
     res.status(200).json(
         new ApiResponse(200, categories, 'Categories retrieved successfully')
+    );
+});
+
+// Service Management: fetch all 4 rows (category -> subcategory -> type -> service)
+const getServiceManagementRows = asyncHandler(async (req, res) => {
+    const { categoryId, subcategoryId, serviceTypeId } = req.query;
+
+    const result = await serviceService.getServiceManagementRows({
+        categoryId,
+        subcategoryId,
+        serviceTypeId
+    });
+
+    res.status(200).json(
+        new ApiResponse(200, result, 'Service management data retrieved successfully')
     );
 });
 
@@ -320,6 +336,7 @@ const getServiceTypesBySubcategories = asyncHandler(async (req, res) => {
 
 module.exports = {
     getCategories,
+    getServiceManagementRows,
     getCategorySlots,
     getSubcategories,
     getServiceTypes,

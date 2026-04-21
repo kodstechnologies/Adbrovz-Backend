@@ -11,6 +11,7 @@ router.use('/admin', authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN));
 
 // Get all categories with subcategories (Admin)
 router.get('/admin/categories', serviceController.getCategoriesWithSubcategories);
+router.get('/admin/service-management', serviceController.getServiceManagementRows);
 
 router.get('/admin/category-schema', (req, res) => {
     const Category = require('../../models/Category.model');
