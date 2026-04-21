@@ -1039,17 +1039,44 @@ const getAllSubcategoriesWithServices = async () => {
 };
 
 /**
- * Public: Get flat list of all services (name and ID only)
+ * Public: Get services grouped by service type
  */
 const getServiceCatalogue = async () => {
-    const services = await Service.find({})
-        .select('title _id')
-        .sort({ title: 1 });
+    const serviceTypes = await ServiceType.find({})
+        .select('name _id')
+        .sort({ order: 1, name: 1 })
+        .lean();
 
-    return services.map(service => ({
-        name: service.title,
-        serviceId: service._id
-    }));
+    const services = await Service.find({ serviceType: { $ne: null } })
+        .select('title _id serviceType')
+        .sort({ title: 1 })
+        .lean();
+
+    const servicesByType = services.reduce((acc, service) => {
+        const typeId = service.serviceType?.toString();
+        if (!typeId) {
+            return acc;
+        }
+
+        if (!acc[typeId]) {
+            acc[typeId] = [];
+        }
+
+        acc[typeId].push({
+            serviceId: service._id.toString(),
+            serviceName: service.title
+        });
+
+        return acc;
+    }, {});
+
+    return serviceTypes
+        .map(type => ({
+            typeId: type._id.toString(),
+            typeName: type.name,
+            services: servicesByType[type._id.toString()] || []
+        }))
+        .filter(type => type.services.length > 0);
 };
 
 /**
