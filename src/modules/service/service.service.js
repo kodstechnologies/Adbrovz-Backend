@@ -1039,16 +1039,26 @@ const getAllSubcategoriesWithServices = async () => {
 };
 
 /**
- * Public: Get services grouped by service type
+ * Public: Get full catalogue grouped as category -> subcategory -> service type -> services
  */
 const getServiceCatalogue = async () => {
-    const serviceTypes = await ServiceType.find({})
+    const categories = await Category.find({})
         .select('name _id')
         .sort({ order: 1, name: 1 })
         .lean();
 
-    const services = await Service.find({ serviceType: { $ne: null } })
-        .select('title _id serviceType')
+    const subcategories = await Subcategory.find({})
+        .select('name _id category')
+        .sort({ order: 1, name: 1 })
+        .lean();
+
+    const serviceTypes = await ServiceType.find({})
+        .select('name _id category subcategory')
+        .sort({ order: 1, name: 1 })
+        .lean();
+
+    const services = await Service.find({})
+        .select('title _id serviceType subcategory category')
         .sort({ title: 1 })
         .lean();
 
@@ -1070,13 +1080,55 @@ const getServiceCatalogue = async () => {
         return acc;
     }, {});
 
-    return serviceTypes
-        .map(type => ({
+    const typesBySubcategory = serviceTypes.reduce((acc, type) => {
+        const subcategoryId = type.subcategory?.toString();
+        if (!subcategoryId) {
+            return acc;
+        }
+
+        if (!acc[subcategoryId]) {
+            acc[subcategoryId] = [];
+        }
+
+        acc[subcategoryId].push({
             typeId: type._id.toString(),
             typeName: type.name,
             services: servicesByType[type._id.toString()] || []
+        });
+
+        return acc;
+    }, {});
+
+    const subcategoriesByCategory = subcategories.reduce((acc, subcategory) => {
+        const categoryId = subcategory.category?.toString();
+        if (!categoryId) {
+            return acc;
+        }
+
+        if (!acc[categoryId]) {
+            acc[categoryId] = [];
+        }
+
+        acc[categoryId].push({
+            subcategoryId: subcategory._id.toString(),
+            subcategoryName: subcategory.name,
+            serviceTypes: (typesBySubcategory[subcategory._id.toString()] || []).filter(
+                type => type.services.length > 0
+            )
+        });
+
+        return acc;
+    }, {});
+
+    return categories
+        .map(category => ({
+            categoryId: category._id.toString(),
+            categoryName: category.name,
+            subcategories: (subcategoriesByCategory[category._id.toString()] || []).filter(
+                subcategory => subcategory.serviceTypes.length > 0
+            )
         }))
-        .filter(type => type.services.length > 0);
+        .filter(category => category.subcategories.length > 0);
 };
 
 /**
