@@ -129,22 +129,18 @@ const getServiceManagementRows = async ({ categoryId, subcategoryId, serviceType
 
     const [categories, subcategories, serviceTypes, services] = await Promise.all([
         Category.find({})
-            .sort({ order: 1, name: 1 })
-            .select('name icon description order'),
+            .sort({ order: 1, name: 1 }),
         selected.categoryId
             ? Subcategory.find({ category: selected.categoryId })
                 .sort({ order: 1, name: 1 })
-                .select('name icon description category order')
             : [],
         selected.subcategoryId
             ? ServiceType.find({ subcategory: selected.subcategoryId })
                 .sort({ order: 1, name: 1 })
-                .select('name description photo category subcategory order')
             : [],
         selected.serviceTypeId
             ? Service.find({ serviceType: selected.serviceTypeId })
                 .sort({ title: 1 })
-                .select('title description photo category subcategory serviceType isActive')
             : []
     ]);
 
