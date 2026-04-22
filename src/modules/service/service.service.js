@@ -127,22 +127,51 @@ const getServiceManagementRows = async ({ categoryId, subcategoryId, serviceType
         selected.subcategoryId = typeSubcategoryId;
     }
 
-    const [categories, subcategories, serviceTypes, services] = await Promise.all([
+    let [categories, subcategories, serviceTypes, services] = await Promise.all([
         Category.find({})
-            .sort({ order: 1, name: 1 }),
+            .sort({ order: 1, name: 1 }).lean(),
         selected.categoryId
             ? Subcategory.find({ category: selected.categoryId })
-                .sort({ order: 1, name: 1 })
+                .sort({ order: 1, name: 1 }).lean()
             : [],
         selected.subcategoryId
             ? ServiceType.find({ subcategory: selected.subcategoryId })
-                .sort({ order: 1, name: 1 })
+                .sort({ order: 1, name: 1 }).lean()
             : [],
         selected.serviceTypeId
             ? Service.find({ serviceType: selected.serviceTypeId })
-                .sort({ title: 1 })
+                .sort({ title: 1 }).lean()
             : []
     ]);
+
+    categories = await Promise.all(categories.map(async (c) => {
+        c.subcategoriesCount = await Subcategory.countDocuments({ category: c._id });
+        c.id = c._id.toString();
+        return c;
+    }));
+    
+    if (subcategories.length > 0) {
+        subcategories = await Promise.all(subcategories.map(async (s) => {
+            s.serviceTypesCount = await ServiceType.countDocuments({ subcategory: s._id });
+            s.id = s._id.toString();
+            return s;
+        }));
+    }
+    
+    if (serviceTypes.length > 0) {
+        serviceTypes = await Promise.all(serviceTypes.map(async (st) => {
+            st.servicesCount = await Service.countDocuments({ serviceType: st._id });
+            st.id = st._id.toString();
+            return st;
+        }));
+    }
+
+    if (services.length > 0) {
+        services = services.map(s => {
+            s.id = s._id.toString();
+            return s;
+        });
+    }
 
     return {
         selected,
