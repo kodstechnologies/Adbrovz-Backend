@@ -48,6 +48,23 @@ const getPlanByDuration = async (months) => {
 const parseArrayInput = (input) => {
     if (!input) return [];
 
+    if (Array.isArray(input)) {
+        const parsed = input
+            .map((item) => {
+                if (!item) return null;
+                if (typeof item === 'string') return item;
+                if (typeof item === 'object') {
+                    if (item._id) return String(item._id);
+                    if (item.id) return String(item.id);
+                }
+                return String(item);
+            })
+            .filter(Boolean)
+            .flatMap((val) => (String(val).match(/[a-fA-F0-9]{24}/g) || []));
+
+        return [...new Set(parsed)];
+    }
+
     // Convert to string to handle concatenated or multiline junk
     const str = String(input);
 
@@ -257,7 +274,7 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
  * @returns {Promise<Array>} List of vendors
  */
 const getAllVendors = async () => {
-    return await Vendor.find()
+    const vendors = await Vendor.find()
         .populate('membership.category', 'name serviceCharge membershipCharge renewalCharge membershipRenewalCharge membershipFee')
         .populate('creditPlan.planId', 'name')
         .populate('selectedCategories', 'name serviceCharge membershipCharge renewalCharge membershipRenewalCharge membershipFee')
@@ -294,6 +311,52 @@ const getAllVendors = async () => {
             select: 'name membershipCharge membershipFee'
         })
         .sort({ createdAt: -1 });
+
+    // Post-process to derive hierarchy if missing
+    return vendors.map(vendorDoc => {
+        const vendor = vendorDoc.toObject();
+
+        const categoriesMap = new Map();
+        const subcategoriesMap = new Map();
+        const serviceTypesMap = new Map();
+
+        // Helper to add to maps if not exists
+        const addToMap = (map, item) => {
+            if (item && item._id && !map.has(item._id.toString())) {
+                map.set(item._id.toString(), item);
+            }
+        };
+
+        // 1. Collect from explicit selections
+        (vendor.selectedCategories || []).forEach(item => addToMap(categoriesMap, item));
+        (vendor.selectedSubcategories || []).forEach(item => addToMap(subcategoriesMap, item));
+        (vendor.selectedServiceTypes || []).forEach(item => addToMap(serviceTypesMap, item));
+
+        // 2. Derive from selectedServices
+        (vendor.selectedServices || []).forEach(service => {
+            if (service.category) addToMap(categoriesMap, service.category);
+            if (service.subcategory) addToMap(subcategoriesMap, service.subcategory);
+            if (service.serviceType) addToMap(serviceTypesMap, service.serviceType);
+        });
+
+        // 3. Derive from selectedServiceTypes
+        (vendor.selectedServiceTypes || []).forEach(type => {
+            if (type.category) addToMap(categoriesMap, type.category);
+            if (type.subcategory) addToMap(subcategoriesMap, type.subcategory);
+        });
+
+        // 4. Derive from selectedSubcategories
+        (vendor.selectedSubcategories || []).forEach(sub => {
+            if (sub.category) addToMap(categoriesMap, sub.category);
+        });
+
+        // Update arrays with derived data
+        vendor.selectedCategories = Array.from(categoriesMap.values());
+        vendor.selectedSubcategories = Array.from(subcategoriesMap.values());
+        vendor.selectedServiceTypes = Array.from(serviceTypesMap.values());
+
+        return vendor;
+    });
 };
 
 /**
@@ -312,12 +375,12 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
 
     return {
         vendorId,
-        subtotal: calc.membershipTotal, // UI expects membership total as the platform part
+        subtotal: calc.membershipTotal,
         basePlanFee: calc.basePlanFee,
         totalServiceFee: calc.servicesSubtotal,
         platformSubtotal: calc.platformSubtotal,
         gstPercent: 18,
-        gstAmount: calc.finalGst, // Total GST for the grand payment
+        gstAmount: calc.finalGst,
         totalFee: calc.grandTotal,
         duration: `${calc.validityDays} days`,
         durationMonths: calc.durationMonths,
@@ -328,19 +391,37 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
 };
 
 /**
- * Get membership details for a specific vendor based on their saved selectedServices
+ * Get membership detail for a vendor (supports override selections from query/body)
  */
 const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
+    const vendor = await Vendor.findById(vendorId)
+        .select('selectedCategories selectedSubcategories selectedServiceTypes selectedServices membership.durationMonths');
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const normalizedCategoryId = overrides.categoryId || null;
+    const normalizedSubcategoryIds = overrides.subcategoryIds || vendor.selectedSubcategories || [];
+    const normalizedServiceTypeIds = overrides.serviceTypeIds || overrides.selectedServiceTypes || vendor.selectedServiceTypes || [];
+    const normalizedServiceIds = overrides.serviceIds || overrides.selectedService || overrides.selectedServices || vendor.selectedServices || [];
+    const normalizedDurationMonths = Number(overrides.durationMonths || vendor.membership?.durationMonths || 3);
+
     const calc = await _calculateMembershipAmounts({
         vendorId,
-        durationMonths: overrides.durationMonths,
-        categoryId: overrides.categoryId,
-        subcategoryIds: overrides.subcategoryIds,
-        serviceTypeIds: overrides.serviceTypeIds,
-        serviceIds: overrides.serviceIds
+        durationMonths: normalizedDurationMonths,
+        categoryId: normalizedCategoryId,
+        subcategoryIds: normalizedSubcategoryIds,
+        serviceTypeIds: normalizedServiceTypeIds,
+        serviceIds: normalizedServiceIds
     });
 
-    const plansInfo = await getMembershipPlans(calc.servicesSubtotal);
+    const plansInfo = await getMembershipPlans(calc.servicesSubtotal, { vendorId });
+    const selectedServices = calc.itemBreakdown
+        .filter((item) => item.type === 'service')
+        .map((item) => ({
+            id: item.id,
+            title: item.title,
+            serviceCharge: item.serviceCharge,
+            membershipCharge: item.membershipCharge
+        }));
 
     return {
         vendorId,
@@ -355,7 +436,13 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         durationMonths: calc.durationMonths,
         plans: plansInfo,
         services: calc.itemBreakdown,
-        serviceSelectionsTotal: calc.servicesSubtotal
+        serviceSelectionsTotal: calc.servicesSubtotal,
+        selectedServices,
+        selectedServiceNames: selectedServices.map((service) => service.title),
+        selectedCategoryId: normalizedCategoryId,
+        selectedSubcategoryIds: parseArrayInput(normalizedSubcategoryIds),
+        selectedServiceTypeIds: parseArrayInput(normalizedServiceTypeIds),
+        selectedServiceIds: parseArrayInput(normalizedServiceIds)
     };
 };
 
