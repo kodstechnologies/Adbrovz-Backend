@@ -1251,6 +1251,21 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330) => {
     return daysList;
 };
 
+const getSubcategoryById = async (subcategoryId) => {
+    const subcategory = await Subcategory.findById(subcategoryId)
+        .populate('category', 'name');
+    if (!subcategory) throw new ApiError(404, 'Subcategory not found');
+    return subcategory;
+};
+
+const getServiceTypeById = async (serviceTypeId) => {
+    const serviceType = await ServiceType.findById(serviceTypeId)
+        .populate('category', 'name')
+        .populate('subcategory', 'name');
+    if (!serviceType) throw new ApiError(404, 'Service type not found');
+    return serviceType;
+};
+
 module.exports = {
     getCategorySlots,
     getAllCategories,
@@ -1280,5 +1295,7 @@ module.exports = {
     getAllServicesWithDetails,
     getAllServiceTypesWithSubcategories,
     getAllCategoriesWithSubcategories,
-    getAllSubcategoriesWithServices
+    getAllSubcategoriesWithServices,
+    getSubcategoryById,
+    getServiceTypeById
 };

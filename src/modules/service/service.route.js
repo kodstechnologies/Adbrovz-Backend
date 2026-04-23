@@ -66,6 +66,8 @@ router.get('/categories/:categoryId/slots', serviceController.getCategorySlots);
 router.get('/subcategories', serviceController.getSubcategoriesWithServices);
 router.get('/categories/:categoryId/subcategories', serviceController.getSubcategories);
 router.get('/subcategories/:subcategoryId/service-types', serviceController.getServiceTypes);
+router.get('/subcategories/:subcategoryId', serviceController.getSubcategoryById);
+router.get('/service-types/:serviceTypeId', serviceController.getServiceTypeById);
 router.get('/subcategories/:subcategoryId/services', serviceController.getServices);
 router.get('/service-types/:serviceTypeId/services', serviceController.getServicesByType);
 router.get('/:serviceId', serviceController.getServiceDetails);

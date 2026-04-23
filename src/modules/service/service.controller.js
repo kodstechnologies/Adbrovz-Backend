@@ -334,6 +334,18 @@ const getServiceTypesBySubcategories = asyncHandler(async (req, res) => {
 });
 
 
+// Get subcategory by ID
+const getSubcategoryById = asyncHandler(async (req, res) => {
+    const subcategory = await serviceService.getSubcategoryById(req.params.subcategoryId);
+    res.status(200).json(new ApiResponse(200, subcategory, 'Subcategory retrieved successfully'));
+});
+
+// Get service type by ID
+const getServiceTypeById = asyncHandler(async (req, res) => {
+    const serviceType = await serviceService.getServiceTypeById(req.params.serviceTypeId);
+    res.status(200).json(new ApiResponse(200, serviceType, 'Service type retrieved successfully'));
+});
+
 module.exports = {
     getCategories,
     getServiceManagementRows,
@@ -364,5 +376,7 @@ module.exports = {
     getAdminServices,
     getCategoriesWithSubcategories,
     getSubcategoriesWithServices,
-    getServiceCatalogue
+    getServiceCatalogue,
+    getSubcategoryById,
+    getServiceTypeById
 };
