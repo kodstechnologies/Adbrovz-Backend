@@ -24,7 +24,8 @@ const getDashboardStats = async () => {
     // Day of week setup for Current Week (Mon-Sun)
     const dayOfWeek = now.getDay();
     const diffToMonday = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-    const startOfThisWeek = new Date(now.setDate(diffToMonday));
+    const startOfThisWeek = new Date(now);
+    startOfThisWeek.setDate(diffToMonday);
     startOfThisWeek.setHours(0, 0, 0, 0);
 
     const startOfLastWeek = new Date(startOfThisWeek);
@@ -39,6 +40,18 @@ const getDashboardStats = async () => {
       ]).then(res => res[0]?.total || 0),
       Booking.aggregate([
         { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfLastMonth, $lt: startOfThisMonth } } },
+        { $group: { _id: null, total: { $sum: '$pricing.totalPrice' } } }
+      ]).then(res => res[0]?.total || 0)
+    ]);
+
+    // Weekly Revenue
+    const [thisWeekRevenue, lastWeekRevenue] = await Promise.all([
+      Booking.aggregate([
+        { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfThisWeek } } },
+        { $group: { _id: null, total: { $sum: '$pricing.totalPrice' } } }
+      ]).then(res => res[0]?.total || 0),
+      Booking.aggregate([
+        { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfLastWeek, $lt: startOfThisWeek } } },
         { $group: { _id: null, total: { $sum: '$pricing.totalPrice' } } }
       ]).then(res => res[0]?.total || 0)
     ]);
@@ -149,6 +162,8 @@ const getDashboardStats = async () => {
     return {
       cards: {
         revenue: { value: thisMonthRevenue, ...calculateTrend(thisMonthRevenue, lastMonthRevenue) },
+        monthlyRevenue: { value: thisMonthRevenue, ...calculateTrend(thisMonthRevenue, lastMonthRevenue) },
+        weeklyRevenue: { value: thisWeekRevenue, ...calculateTrend(thisWeekRevenue, lastWeekRevenue) },
         bookings: { value: thisWeekActive, ...calculateTrend(thisWeekActive, lastWeekActive) },
         vendors: { value: totalVendorsThisMonth, ...calculateTrend(totalVendorsThisMonth, totalVendorsLastMonth) },
         credits: { value: thisMonthCredits, ...calculateTrend(thisMonthCredits, lastMonthCredits) }
@@ -228,7 +243,7 @@ const deleteUser = async (userId, adminId) => {
   }
 
   user.deletedAt = new Date();
-  user.status = 'SUSPENDED';
+  user.status = 'DELETED';
   await user.save();
 
   return user;
@@ -297,6 +312,11 @@ const verifyAllVendorDocuments = async (vendorId) => {
 const toggleVendorSuspension = async (vendorId, statusData) => {
   const vendorService = require('../vendor/vendor.service');
   return await vendorService.toggleVendorSuspension(vendorId, statusData);
+};
+
+const respondToVendorDeletion = async (vendorId, action) => {
+  const vendorService = require('../vendor/vendor.service');
+  return await vendorService.respondToDeletionRequest(vendorId, { action });
 };
 
 const rejectVendorAccount = async (vendorId, reasonData) => {
@@ -813,8 +833,9 @@ module.exports = {
   verifyAllVendorDocuments,
   toggleVendorSuspension,
   rejectVendorAccount,
+  respondToVendorDeletion,
   getEligibleVendors,
-  getGlobalSettings,
+  getGlobalSettings,  
   updateGlobalSettings,
   getSetting,
   getMembershipPricing,

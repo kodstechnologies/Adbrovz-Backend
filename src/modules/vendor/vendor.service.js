@@ -1306,15 +1306,19 @@ const deleteVendorAccount = async (vendorId) => {
     });
 
     if (activeBookingsCount > 0) {
-        throw new ApiError(400, 'You cannot delete your account while you have active or pending bookings. Please complete or cancel them first.');
+        throw new ApiError(400, 'You cannot request account deletion while you have active or pending bookings. Please complete or cancel them first.');
     }
 
-    // Clean up related data
-    await Booking.deleteMany({ vendor: vendorId, status: { $in: ['cancelled', 'completed'] } });
 
-    await Vendor.findByIdAndDelete(vendorId);
+    vendor.deletionRequest = {
+        isRequested: true,
+        requestedAt: new Date(),
+        status: 'PENDING'
+    };
 
-    return { message: 'Account deleted successfully' };
+    await vendor.save();
+
+    return { message: 'your deletion request sended to admin successfully' };
 };
 
 /**
@@ -2401,6 +2405,32 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
 };
 
 
+/**
+ * Admin: Respond to deletion request
+ */
+const respondToDeletionRequest = async (vendorId, { action }) => {
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    if (!vendor.deletionRequest?.isRequested) {
+        throw new ApiError(400, 'No deletion request found for this vendor');
+    }
+
+    if (action === 'ACCEPT') {
+        vendor.deletionRequest.status = 'APPROVED';
+        vendor.deletedAt = new Date();
+        await vendor.save();
+        return { message: 'Deletion request accepted. Vendor account is now marked as deleted.' };
+    } else if (action === 'REJECT') {
+        vendor.deletionRequest.isRequested = false;
+        vendor.deletionRequest.status = 'REJECTED';
+        await vendor.save();
+        return { message: 'Deletion request rejected.' };
+    } else {
+        throw new ApiError(400, 'Invalid action. Use ACCEPT or REJECT.');
+    }
+};
+
 module.exports = {
     getAllVendors,
     getMembershipInfo,
@@ -2420,6 +2450,7 @@ module.exports = {
     updateVendorProfile,
     getVerificationStatus,
     deleteVendorAccount,
+    respondToDeletionRequest,
     getDashboardMetrics,
     getMembershipPlans,
     getCategoryRegistrationData,

@@ -217,6 +217,12 @@ const vendorSchema = new mongoose.Schema(
     deletedAt: {
       type: Date,
     },
+    deletionRequest: {
+      isRequested: { type: Boolean, default: false },
+      requestedAt: { type: Date },
+      reason: { type: String },
+      status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING' }
+    },
   },
   {
     timestamps: true,
@@ -317,6 +323,8 @@ const vendorSchema = new mongoose.Schema(
 
 // Consolidated status virtual for UI consistency (very robust)
 vendorSchema.virtual('status').get(function () {
+  if (this.deletedAt) return 'DELETED';
+  if (this.deletionRequest?.isRequested && this.deletionRequest?.status === 'PENDING') return 'DELETION_REQUESTED';
   if (this.isSuspended) return 'SUSPENDED';
   if (this.isBlocked) return 'BLOCKED';
   if (this.isVerified) return 'VERIFIED';

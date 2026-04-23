@@ -14,9 +14,9 @@ const getDashboard = asyncHandler(async (req, res) => {
 // Get all users
 const getUsers = asyncHandler(async (req, res) => {
   const adminService = require('./admin.service');
-  const { limit = 10, skip = 0, search = '' } = req.query;
+  const { limit = 10, skip = 0, search = '', includeDeleted = 'false' } = req.query;
 
-  const result = await adminService.getAllUsers({ limit, skip, search });
+  const result = await adminService.getAllUsers({ limit, skip, search, includeDeleted });
 
   res.status(200).json(
     new ApiResponse(200, result, 'Users retrieved successfully')
@@ -140,6 +140,15 @@ const rejectVendorAccount = asyncHandler(async (req, res) => {
   );
 });
 
+const respondToVendorDeletionRequest = asyncHandler(async (req, res) => {
+  const { vendorId } = req.params;
+  const { action } = req.body;
+  const result = await adminService.respondToVendorDeletion(vendorId, action);
+  res.status(200).json(
+    new ApiResponse(200, result, result.message)
+  );
+});
+
 // Global Settings management
 const getGlobalSettings = asyncHandler(async (req, res) => {
   const settings = await adminService.getGlobalSettings();
@@ -243,5 +252,6 @@ module.exports = {
   getBookingDetails,
   exportBookings,
   getVendorPaymentHistory,
-  getGlobalTransactions
+  getGlobalTransactions,
+  respondToVendorDeletionRequest
 };
