@@ -138,7 +138,7 @@ const acceptBooking = async (vendorId, bookingId) => {
     // ── Finalize Booking Record ──
     const graceMins = (await adminService.getSetting('bookings.grace_period_mins')) || 30;
     let gracePeriodEnd = null;
-    const source = lead || booking;
+    const source = booking;
 
     if (source.scheduledDate && source.scheduledTime) {
         const scheduledAtIST = _getScheduledDateTimeIST(source.scheduledDate, source.scheduledTime);
