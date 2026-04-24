@@ -623,6 +623,16 @@ const updateServiceType = async (serviceTypeId, data) => {
     const serviceType = await ServiceType.findById(serviceTypeId);
     if (!serviceType) throw new ApiError(404, 'Service type not found');
 
+    const validateId = (id) => {
+        if (!id) return null;
+        const strId = String(id).trim();
+        if (strId === 'null' || strId === 'undefined' || strId === '') return null;
+        return strId;
+    };
+
+    if (data.category) data.category = validateId(data.category);
+    if (data.subcategory) data.subcategory = validateId(data.subcategory);
+
     // Ensure category is present if subcategory is provided/changed
     if (data.subcategory && !data.category) {
         const sub = await Subcategory.findById(data.subcategory);
@@ -636,7 +646,7 @@ const updateServiceType = async (serviceTypeId, data) => {
         data.photo !== serviceType.photo
     ) {
         try {
-            const cloudinaryService = require('../services/cloudinary.service');
+            const cloudinaryService = require('../../services/cloudinary.service');
             await cloudinaryService.deleteFromCloudinary(serviceType.photo);
         } catch (error) {
             console.error('Error deleting old service type image from Cloudinary:', error);
@@ -655,7 +665,7 @@ const deleteServiceType = async (serviceTypeId) => {
 
     if (serviceType.photo && serviceType.photo.includes('cloudinary.com')) {
         try {
-            const cloudinaryService = require('../services/cloudinary.service');
+            const cloudinaryService = require('../../services/cloudinary.service');
             await cloudinaryService.deleteFromCloudinary(serviceType.photo);
         } catch (error) {
             console.error('Error deleting service type image from Cloudinary:', error);
@@ -698,7 +708,7 @@ const updateCategory = async (categoryId, data) => {
         data.icon !== category.icon
     ) {
         try {
-            const cloudinaryService = require('../services/cloudinary.service');
+            const cloudinaryService = require('../../services/cloudinary.service');
             await cloudinaryService.deleteFromCloudinary(category.icon);
         } catch (error) {
             console.error('Error deleting old category image from Cloudinary:', error);
@@ -717,7 +727,7 @@ const deleteCategory = async (categoryId) => {
 
     if (category.icon && category.icon.includes('cloudinary.com')) {
         try {
-            const cloudinaryService = require('../services/cloudinary.service');
+            const cloudinaryService = require('../../services/cloudinary.service');
             await cloudinaryService.deleteFromCloudinary(category.icon);
         } catch (error) {
             console.error('Error deleting category image from Cloudinary:', error);
@@ -742,6 +752,15 @@ const updateSubcategory = async (subcategoryId, data) => {
     const subcategory = await Subcategory.findById(subcategoryId);
     if (!subcategory) throw new ApiError(404, 'Subcategory not found');
 
+    const validateId = (id) => {
+        if (!id) return null;
+        const strId = String(id).trim();
+        if (strId === 'null' || strId === 'undefined' || strId === '') return null;
+        return strId;
+    };
+
+    if (data.category) data.category = validateId(data.category);
+
     if (
         data.icon &&
         subcategory.icon &&
@@ -749,7 +768,7 @@ const updateSubcategory = async (subcategoryId, data) => {
         data.icon !== subcategory.icon
     ) {
         try {
-            const cloudinaryService = require('../services/cloudinary.service');
+            const cloudinaryService = require('../../services/cloudinary.service');
             await cloudinaryService.deleteFromCloudinary(subcategory.icon);
         } catch (error) {
             console.error('Error deleting old subcategory image from Cloudinary:', error);
@@ -768,7 +787,7 @@ const deleteSubcategory = async (subcategoryId) => {
 
     if (subcategory.icon && subcategory.icon.includes('cloudinary.com')) {
         try {
-            const cloudinaryService = require('../services/cloudinary.service');
+            const cloudinaryService = require('../../services/cloudinary.service');
             await cloudinaryService.deleteFromCloudinary(subcategory.icon);
         } catch (error) {
             console.error('Error deleting subcategory image from Cloudinary:', error);

@@ -163,7 +163,8 @@ const _mapServiceData = (data) => {
     // Cast numeric fields
     const numericFields = [
         'bookingPrice', 'order', 'discount', 'price', 
-        'approxCompletionTime', 'vendorConcurrency', 'slotsPerSession'
+        'approxCompletionTime', 'vendorConcurrency', 'slotsPerSession',
+        'serviceCharge', 'membershipCharge', 'serviceRenewalCharge', 'membershipRenewalCharge'
     ];
     numericFields.forEach(field => {
         if (mapped[field] !== undefined) {
