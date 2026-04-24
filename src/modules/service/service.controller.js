@@ -164,10 +164,13 @@ const _mapServiceData = (data) => {
     const booleanFields = ['isActive', 'quantityEnabled', 'priceAdjustmentEnabled', 'isAdminPriced'];
     booleanFields.forEach(field => {
         if (mapped[field] !== undefined) {
+            const originalValue = mapped[field];
             mapped[field] = String(mapped[field]) === 'true' || mapped[field] === true;
+            console.log(`DEBUG: Field ${field} mapped: ${originalValue} -> ${mapped[field]}`);
         }
     });
 
+    console.log('DEBUG: Final mapped data:', JSON.stringify(mapped, null, 2));
     return mapped;
 };
 

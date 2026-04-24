@@ -945,12 +945,14 @@ const searchVendors = async (booking, broadcast = false) => {
         geoQuery._id = { $nin: nins };
     }
 
+    console.log(`[SEARCH] Searching for vendors for booking ${booking._id} in categoryIds:`, categoryIds);
+
     let vendors = await Vendor.find(geoQuery).select('_id');
-    console.log(`[DEBUG] searchVendors - Geo query found ${vendors.length} vendors within ${radiusInKm}km`);
+    console.log(`[DEBUG] searchVendors - Geo query found ${vendors.length} vendors within ${radiusInKm}km radius`);
 
     // ── Fallback: If no geo results, notify all verified vendors in the category ──
     if (vendors.length === 0) {
-        console.warn(`[SEARCH] No vendors found within ${radiusInKm}km geo radius. Falling back to category-based search (all online/verified vendors).`);
+        console.warn(`[SEARCH] No vendors found within ${radiusInKm}km geo radius. Falling back to category-based search.`);
         const fallbackQuery = {
             isVerified: true,
             isSuspended: false,
@@ -961,10 +963,8 @@ const searchVendors = async (booking, broadcast = false) => {
             fallbackQuery._id = { $nin: nins };
         }
         vendors = await Vendor.find(fallbackQuery).select('_id');
-        console.log(`[DEBUG] searchVendors - Fallback category query found ${vendors.length} vendors`);
+        console.log(`[DEBUG] searchVendors - Fallback category query found ${vendors.length} vendors (Verified & Category matching)`);
     }
-
-    console.log(`[DEBUG] searchVendors - Found ${vendors.length} vendors matching criteria (categoryIds: ${categoryIds.join(', ')})`);
 
     if (broadcast) {
         try {
@@ -1000,18 +1000,20 @@ const searchVendors = async (booking, broadcast = false) => {
             }
 
             const notifiedIds = [];
+            const { emitToVendor, isVendorOnline } = require('../../socket');
+
             vendors.forEach(v => {
-                const socketIds = getVendorSockets(v._id);
-                console.log(`[DEBUG] Vendor ${v._id} - socketIds:`, socketIds);
-                if (socketIds && socketIds.length > 0) {
-                    socketIds.forEach(socketId => {
-                        console.log(`[DEBUG] Emitting new_booking_request to socket ${socketId}`);
-                        io.to(socketId).emit('new_booking_request', payload);
-                    });
+                const vendorIdStr = v._id.toString();
+                const online = isVendorOnline(vendorIdStr);
+                
+                console.log(`[DEBUG] searchVendors checking Vendor ${vendorIdStr} - Online: ${online}`);
+                
+                if (online) {
+                    emitToVendor(vendorIdStr, 'new_booking_request', payload);
                     broadcastCount++;
                     notifiedIds.push(v._id);
                 } else {
-                    console.log(`[DEBUG] Vendor ${v._id} has no active sockets - SKIPPED`);
+                    console.log(`[DEBUG] Vendor ${vendorIdStr} has no active sockets - SKIPPED broadcast`);
                 }
             });
 

@@ -19,23 +19,25 @@ const stringifyId = (id) => {
 
 const registerVendorSocket = async (vendorId, socketId) => {
     const vId = stringifyId(vendorId);
+    console.log(`[SOCKET] Registration request - vendorId: ${vendorId}, stringified: ${vId}, socketId: ${socketId}`);
+    
     if (!vId || vId === '[object Object]') {
-        console.error(` Attempted to register vendor with invalid ID:`, vendorId);
+        console.error(`⚠️ Attempted to register vendor with invalid ID:`, vendorId);
         return;
     }
 
     if (!activeVendors.has(vId)) activeVendors.set(vId, []);
     const sockets = activeVendors.get(vId);
     if (!sockets.includes(socketId)) sockets.push(socketId);
-    console.log(`✅ Vendor ${vId} auto-registered on socket ${socketId}. Total: ${sockets.length}`);
+    console.log(`✅ Vendor ${vId} auto-registered on socket ${socketId}. Total sockets for this vendor: ${sockets.length}. All active vendors: ${[...activeVendors.keys()].join(', ')}`);
 
     // Persist online status to DB
     try {
         const Vendor = require('./models/Vendor.model');
         await Vendor.findByIdAndUpdate(vId, { isOnline: true });
-        console.log(` Vendor ${vId} marked online in DB`);
+        console.log(`📡 Vendor ${vId} marked online in DB`);
     } catch (err) {
-        console.error(`Failed to update vendor ${vId} online status:`, err.message);
+        console.error(`❌ Failed to update vendor ${vId} online status:`, err.message);
     }
 };
 
@@ -69,11 +71,15 @@ const initSocket = (server) => {
         // ─── AUTO-REGISTRATION FROM JWT ────────────────────────────────────
         // App passes token via socket.handshake.auth.token or query.token
         const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+        console.log(`[SOCKET] Handshake token present: ${!!token} for socket: ${socket.id}`);
+        
         if (token) {
             try {
                 const decoded = jwt.verifyUnsafe ? jwt.verifyUnsafe(token) : jwt.verify(token, config.JWT_SECRET);
                 const role = decoded.role;
                 const id = stringifyId(decoded.userId || decoded.id || decoded._id);
+                console.log(`[SOCKET] Decoded token - role: ${role}, id: ${id}`);
+                
                 if (id) {
                     if (role === 'vendor') {
                         registerVendorSocket(id, socket.id);

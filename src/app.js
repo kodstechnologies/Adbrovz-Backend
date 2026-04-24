@@ -95,6 +95,12 @@ app.get('/favicon.ico', (req, res) => {
 /**
  * Rate limiting
  */
+app.use((req, res, next) => {
+  const fs = require('fs');
+  fs.appendFileSync('request_debug.log', `[${new Date().toISOString()}] ${req.method} ${req.url}\n`);
+  next();
+});
+
 app.use('/api', (req, res, next) => {
   const hasAuth = !!req.headers.authorization;
   console.log(`🔍 [${new Date().toISOString()}] ${req.method} ${req.originalUrl} - IP: ${req.ip} - Auth: ${hasAuth ? 'PRESENT' : 'MISSING'}`);
