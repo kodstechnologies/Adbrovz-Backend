@@ -12,6 +12,10 @@ const serviceTypeSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
     photo: {
       type: String,
       default: null,
