@@ -135,44 +135,32 @@ const getAllServices = asyncHandler(async (req, res) => {
 const _mapServiceData = (data) => {
     const mapped = { ...data };
     
-    // Map adminPrice → serviceCharge 
-    if (mapped.adminPrice !== undefined) {
-        mapped.serviceCharge = Number(mapped.adminPrice) || 0;
-        delete mapped.adminPrice;
-    }
-    
-    // Map membershipFee → membershipCharge
-    if (mapped.membershipFee !== undefined) {
-        mapped.membershipCharge = Number(mapped.membershipFee) || 0;
-        delete mapped.membershipFee;
-    }
-    
-    // Map concurrencyFee → serviceRenewalCharge
-    if (mapped.concurrencyFee !== undefined) {
-        mapped.serviceRenewalCharge = Number(mapped.concurrencyFee) || 0;
-        delete mapped.concurrencyFee;
-    }
-    
-    // Map renewalCharge → membershipRenewalCharge (UI label: Renewal Membership Charge)
-    if (mapped.renewalCharge !== undefined) {
-        const val = Number(mapped.renewalCharge) || 0;
-        mapped.membershipRenewalCharge = val;
-        mapped.renewalCharge = val; // Set both for safety
-    }
-
-    // Cast numeric fields
+    // Convert string-numbers to actual numbers
     const numericFields = [
-        'bookingPrice', 'order', 'discount', 'price', 
-        'approxCompletionTime', 'vendorConcurrency', 'slotsPerSession',
-        'serviceCharge', 'membershipCharge', 'serviceRenewalCharge', 'membershipRenewalCharge'
+        'adminPrice', 'bookingPrice', 'concurrencyFee', 'renewalCharge', 
+        'price', 'approxCompletionTime', 'order', 'vendorConcurrency'
     ];
+    
     numericFields.forEach(field => {
         if (mapped[field] !== undefined) {
             mapped[field] = Number(mapped[field]) || 0;
         }
     });
 
-    // Cast boolean fields (FormData sends them as strings "true"/"false")
+    // Handle special mappings for price fields
+    if (mapped.adminPrice !== undefined) {
+        mapped.serviceCharge = mapped.adminPrice;
+    }
+    
+    if (mapped.concurrencyFee !== undefined) {
+        mapped.serviceRenewalCharge = mapped.concurrencyFee;
+    }
+    
+    if (mapped.renewalCharge !== undefined) {
+        mapped.membershipRenewalCharge = mapped.renewalCharge;
+    }
+
+    // Convert string-booleans to actual booleans
     const booleanFields = ['isActive', 'quantityEnabled', 'priceAdjustmentEnabled', 'isAdminPriced'];
     booleanFields.forEach(field => {
         if (mapped[field] !== undefined) {
@@ -199,6 +187,8 @@ const updateCategory = asyncHandler(async (req, res) => {
         data.icon = req.file.cloudinary.url;
     }
     const category = await serviceService.updateCategory(req.params.categoryId, data);
+    const fs = require('fs');
+    fs.appendFileSync('success_debug.log', `[${new Date().toISOString()}] updateCategory success: ${JSON.stringify(category, null, 2)}\n`);
     res.status(200).json(new ApiResponse(200, category, 'Category updated successfully'));
 });
 

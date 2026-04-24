@@ -14,6 +14,9 @@ const errorHandler = (err, req, res, next) => {
     ip: req.ip,
   });
 
+  const fs = require('fs');
+  fs.appendFileSync('error_debug.log', `[${new Date().toISOString()}] ${req.method} ${req.originalUrl}\nError: ${err.message}\nStack: ${err.stack}\n\n`);
+
   // Invalid JSON body (body-parser)
   if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
     error = new ApiError(400, 'Invalid JSON payload');

@@ -62,4 +62,54 @@ router.post('/vendor/:id/cancel', authenticate, bookingController.vendorCancelBo
 
 router.get('/:id', authenticate, bookingController.getBookingById);
 
+// TEMPORARY: Debug route to trigger notification
+router.post('/debug/trigger-notification', async (req, res) => {
+    try {
+        const { bookingId, vendorId } = req.body;
+        const Booking = require('../../models/Booking.model');
+        const Vendor = require('../../models/Vendor.model');
+        const { getVendorSockets, getIo } = require('../../socket');
+        const bookingService = require('./booking.service');
+
+        const booking = await Booking.findById(bookingId).populate('services.service').populate('user');
+        if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
+        const vendor = await Vendor.findById(vendorId);
+        if (!vendor) return res.status(404).json({ message: 'Vendor not found' });
+
+        const io = getIo();
+        const socketIds = getVendorSockets(vendorId);
+        
+        let totalDurationMins = 0;
+        if (booking.services && booking.services.length > 0) {
+            booking.services.forEach(item => {
+                totalDurationMins += (item.service?.approxCompletionTime || 0) * (item.quantity || 1);
+            });
+        }
+
+        const payload = {
+            ...(booking.toObject()),
+            bookingID: booking.bookingID,
+            totalDurationMins,
+            radius: 5 // Default
+        };
+
+        if (payload.user && payload.location) {
+            payload.user.latitude = payload.location.latitude;
+            payload.user.longitude = payload.location.longitude;
+        }
+
+        if (socketIds && socketIds.length > 0) {
+            socketIds.forEach(socketId => {
+                io.to(socketId).emit('new_booking_request', payload);
+            });
+            return res.status(200).json({ message: `Notification sent to ${socketIds.length} sockets` });
+        } else {
+            return res.status(200).json({ message: 'Vendor is offline, no notification sent' });
+        }
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
 module.exports = router;
