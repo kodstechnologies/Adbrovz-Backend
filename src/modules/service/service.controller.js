@@ -160,11 +160,22 @@ const _mapServiceData = (data) => {
         mapped.renewalCharge = val; // Set both for safety
     }
 
-    // Cast other numeric fields
-    const numericFields = ['bookingPrice', 'order', 'discount', 'price'];
+    // Cast numeric fields
+    const numericFields = [
+        'bookingPrice', 'order', 'discount', 'price', 
+        'approxCompletionTime', 'vendorConcurrency', 'slotsPerSession'
+    ];
     numericFields.forEach(field => {
         if (mapped[field] !== undefined) {
             mapped[field] = Number(mapped[field]) || 0;
+        }
+    });
+
+    // Cast boolean fields (FormData sends them as strings "true"/"false")
+    const booleanFields = ['isActive', 'quantityEnabled', 'priceAdjustmentEnabled', 'isAdminPriced'];
+    booleanFields.forEach(field => {
+        if (mapped[field] !== undefined) {
+            mapped[field] = String(mapped[field]) === 'true' || mapped[field] === true;
         }
     });
 

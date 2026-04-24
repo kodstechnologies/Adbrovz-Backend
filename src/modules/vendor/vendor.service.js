@@ -1633,7 +1633,7 @@ const getServiceRenewalFeeDetails = async (vendorId) => {
     const serviceTypeIds = new Set();
     const serviceIds = new Set();
 
-    // Gather IDs from vendor's selections
+    // Gather IDs from vendor's selections (Same logic as before to ensure totalFee is correct)
     if (vendor.selectedCategories) {
         vendor.selectedCategories.forEach(c => categoryIds.add(String(c._id || c)));
     }
@@ -1647,7 +1647,6 @@ const getServiceRenewalFeeDetails = async (vendorId) => {
         });
     }
 
-    // Capture individual services and their hierarchy
     if (vendor.selectedServices && vendor.selectedServices.length > 0) {
         const fullServices = await Service.find({ _id: { $in: vendor.selectedServices } });
         fullServices.forEach(svc => {
@@ -1658,43 +1657,100 @@ const getServiceRenewalFeeDetails = async (vendorId) => {
         });
     }
 
-    const categories = await Category.find({ _id: { $in: Array.from(categoryIds) } });
-    const subcategories = await Subcategory.find({ _id: { $in: Array.from(subcategoryIds) } });
-    const ServiceType = require('../../models/ServiceType.model');
-    const serviceTypes = await ServiceType.find({ _id: { $in: Array.from(serviceTypeIds) } });
-    const services = await Service.find({ _id: { $in: Array.from(serviceIds) } });
+    // Fetch all entities to build the hierarchy
+    const [categories, subcategories, serviceTypes, services] = await Promise.all([
+        Category.find({ _id: { $in: Array.from(categoryIds) } }).lean(),
+        Subcategory.find({ _id: { $in: Array.from(subcategoryIds) } }).lean(),
+        require('../../models/ServiceType.model').find({ _id: { $in: Array.from(serviceTypeIds) } }).lean(),
+        Service.find({ _id: { $in: Array.from(serviceIds) } }).lean()
+    ]);
 
-    // 1. Calculate Service Renewal Fee - include everything that has a charge
+    // Calculate totalFee
     let serviceSubtotal = 0;
     categories.forEach(c => serviceSubtotal += (c.serviceRenewalCharge || c.renewalCharge || 0));
     subcategories.forEach(s => serviceSubtotal += (s.serviceRenewalCharge || s.renewalCharge || 0));
     serviceTypes.forEach(st => serviceSubtotal += (st.serviceRenewalCharge || 0));
     services.forEach(s => serviceSubtotal += (s.serviceRenewalCharge || 0));
 
-    const totalFee = serviceSubtotal;
+    // Build the hierarchical breakdown
+    const hierarchy = categories.map(cat => {
+        const catId = String(cat._id);
+        const catRenewal = cat.serviceRenewalCharge || cat.renewalCharge || 0;
 
-    // Build breakdown filtering out 0 charges and omitting empty arrays
-    const breakdown = {};
-    
-    const catList = categories.map(c => ({ id: c._id, name: c.name, charge: c.serviceRenewalCharge || c.renewalCharge || 0 })).filter(c => c.charge > 0);
-    if (catList.length > 0) breakdown.categories = catList;
+        const subList = subcategories
+            .filter(sub => String(sub.category) === catId)
+            .map(sub => {
+                const subId = String(sub._id);
+                const subRenewal = sub.serviceRenewalCharge || sub.renewalCharge || 0;
 
-    const subList = subcategories.map(s => ({ id: s._id, name: s.name, charge: s.serviceRenewalCharge || s.renewalCharge || 0 })).filter(s => s.charge > 0);
-    if (subList.length > 0) breakdown.subcategories = subList;
+                const typeList = serviceTypes
+                    .filter(st => String(st.subcategory) === subId)
+                    .map(st => {
+                        const stId = String(st._id);
+                        const stRenewal = st.serviceRenewalCharge || 0;
 
-    const typeList = serviceTypes.map(st => ({ id: st._id, name: st.name, charge: st.serviceRenewalCharge || 0 })).filter(t => t.charge > 0);
-    if (typeList.length > 0) breakdown.serviceTypes = typeList;
+                        const svcList = services
+                            .filter(svc => String(svc.serviceType) === stId)
+                            .map(svc => ({
+                                id: svc._id,
+                                title: svc.title,
+                                renewalAmount: svc.serviceRenewalCharge || 0
+                            }))
+                            .filter(s => s.renewalAmount > 0);
 
-    const svcList = services.map(s => ({ id: s._id, name: s.title, charge: s.serviceRenewalCharge || 0 })).filter(s => s.charge > 0);
-    if (svcList.length > 0) breakdown.services = svcList;
+                        return {
+                            id: st._id,
+                            name: st.name,
+                            renewalAmount: stRenewal,
+                            services: svcList
+                        };
+                    })
+                    .filter(t => t.renewalAmount > 0 || (t.services && t.services.length > 0));
+
+                const independentServices = services
+                    .filter(svc => String(svc.subcategory) === subId && !svc.serviceType)
+                    .map(svc => ({
+                        id: svc._id,
+                        title: svc.title,
+                        renewalAmount: svc.serviceRenewalCharge || 0
+                    }))
+                    .filter(s => s.renewalAmount > 0);
+
+                return {
+                    id: sub._id,
+                    name: sub.name,
+                    renewalAmount: subRenewal,
+                    serviceTypes: typeList,
+                    services: independentServices
+                };
+            })
+            .filter(s => s.renewalAmount > 0 || (s.serviceTypes && s.serviceTypes.length > 0) || (s.services && s.services.length > 0));
+
+        const independentServices = services
+            .filter(svc => String(svc.category) === catId && !svc.subcategory)
+            .map(svc => ({
+                id: svc._id,
+                title: svc.title,
+                renewalAmount: svc.serviceRenewalCharge || 0
+            }))
+            .filter(s => s.renewalAmount > 0);
+
+        return {
+            id: cat._id,
+            name: cat.name,
+            renewalAmount: catRenewal,
+            subcategories: subList,
+            services: independentServices
+        };
+    }).filter(c => c.renewalAmount > 0 || (c.subcategories && c.subcategories.length > 0) || (c.services && c.services.length > 0));
 
     return {
         vendorId: vendor._id,
-        totalFee,
+        totalFee: serviceSubtotal,
         serviceRenewal: {
             fee: serviceSubtotal,
             expiryDate: vendor.serviceRenewal?.expiryDate || null,
-            breakdown
+            breakdown: hierarchy
         },
         razorpayKeyId: config.RAZORPAY_KEY_ID
     };
