@@ -43,12 +43,18 @@ const createBookingRequest = async (
         }
     }
 
+    // Find all services under this subcategory so we can also match vendors by selectedServices
+    const servicesInSubcategory = await Service.find({ subcategory: subcategoryId }).select('_id');
+    const serviceIdsInSubcategory = servicesInSubcategory.map(s => s._id);
+
     const potentialVendors = await Vendor.find({
         isVerified: true,
         isSuspended: false,
         registrationStep: 'COMPLETED',
-        selectedSubcategories: subcategoryId,
-        'creditPlan.expiryDate': { $gt: new Date() }
+        $or: [
+            { selectedSubcategories: subcategoryId },
+            { selectedServices: { $in: serviceIdsInSubcategory } }
+        ]
     });
 
     if (potentialVendors.length === 0) {
@@ -953,12 +959,25 @@ const searchVendors = async (booking, broadcast = false) => {
         busyVendorIds.push(activeBooking.vendor.toString());
     }
 
+    // ── Find services belonging to the booking's categories so we can match vendors by selectedServices too ──
+    const servicesInCategories = await Service.find({ category: { $in: categoryIds } }).select('_id');
+    const serviceIdsInCategories = servicesInCategories.map(s => s._id);
+    console.log(`[SEARCH] Found ${serviceIdsInCategories.length} services in categoryIds [${categoryIds}] for cross-matching`);
+
     // ── Geospatial Query ──
+    // Match vendors who have the category selected OR have any services from that category
+    const categoryOrServiceFilter = [
+        { selectedCategories: { $in: categoryIds } }
+    ];
+    if (serviceIdsInCategories.length > 0) {
+        categoryOrServiceFilter.push({ selectedServices: { $in: serviceIdsInCategories } });
+    }
+
     const geoQuery = {
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
-        selectedCategories: { $in: categoryIds },
+        $or: categoryOrServiceFilter,
         liveLocation: {
             $nearSphere: {
                 $geometry: {
@@ -982,18 +1001,18 @@ const searchVendors = async (booking, broadcast = false) => {
 
     // ── Fallback: If no geo results, notify all verified vendors in the category ──
     if (vendors.length === 0) {
-        console.warn(`[SEARCH] No vendors found within ${radiusInKm}km geo radius. Falling back to category-based search.`);
+        console.warn(`[SEARCH] No vendors found within ${radiusInKm}km geo radius. Falling back to category/service-based search.`);
         const fallbackQuery = {
             isVerified: true,
             isSuspended: false,
             isBlocked: false,
-            selectedCategories: { $in: categoryIds },
+            $or: categoryOrServiceFilter,
         };
         if (nins.length > 0) {
             fallbackQuery._id = { $nin: nins };
         }
         vendors = await Vendor.find(fallbackQuery).select('_id');
-        console.log(`[DEBUG] searchVendors - Fallback category query found ${vendors.length} vendors (Verified & Category matching)`);
+        console.log(`[DEBUG] searchVendors - Fallback query found ${vendors.length} vendors (Verified & Category/Service matching)`);
     }
 
     if (broadcast) {

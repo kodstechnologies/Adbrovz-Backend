@@ -523,6 +523,28 @@ const selectServices = async (vendorId, body) => {
         vendor.selectedServices = parseArrayInput(serviceIds);
     }
 
+    // ── Auto-derive selectedCategories, selectedSubcategories, and selectedServiceTypes from selectedServices ──
+    // This ensures vendor discovery queries that filter by these fields will find this vendor
+    if (vendor.selectedServices && vendor.selectedServices.length > 0) {
+        const selectedServiceDocs = await Service.find({ _id: { $in: vendor.selectedServices } })
+            .select('category subcategory serviceType');
+        
+        const derivedCategoryIds = new Set(vendor.selectedCategories?.map(id => String(id)) || []);
+        const derivedSubcategoryIds = new Set(vendor.selectedSubcategories?.map(id => String(id)) || []);
+        const derivedServiceTypeIds = new Set(vendor.selectedServiceTypes?.map(id => String(id)) || []);
+
+        for (const svc of selectedServiceDocs) {
+            if (svc.category) derivedCategoryIds.add(svc.category.toString());
+            if (svc.subcategory) derivedSubcategoryIds.add(svc.subcategory.toString());
+            if (svc.serviceType) derivedServiceTypeIds.add(svc.serviceType.toString());
+        }
+
+        vendor.selectedCategories = [...derivedCategoryIds];
+        vendor.selectedSubcategories = [...derivedSubcategoryIds];
+        vendor.selectedServiceTypes = [...derivedServiceTypeIds];
+        console.log(`[selectServices] Auto-derived for vendor ${vendorId}: categories=${derivedCategoryIds.size}, subcategories=${derivedSubcategoryIds.size}, serviceTypes=${derivedServiceTypeIds.size}`);
+    }
+
     // Use centralized calculator for response
     const calc = await _calculateMembershipAmounts({
         vendorId,
