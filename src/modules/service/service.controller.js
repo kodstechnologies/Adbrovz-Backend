@@ -170,6 +170,22 @@ const _mapServiceData = (data) => {
         }
     });
 
+    // Handle timeSlots (might be stringified JSON from multipart/form-data)
+    if (typeof mapped.timeSlots === 'string') {
+        try {
+            mapped.timeSlots = JSON.parse(mapped.timeSlots);
+        } catch (e) {
+            console.warn('DEBUG: Failed to parse timeSlots string:', mapped.timeSlots);
+        }
+    }
+
+    if (Array.isArray(mapped.timeSlots)) {
+        mapped.timeSlots = mapped.timeSlots.map(slot => ({
+            ...slot,
+            isActive: slot.isActive === undefined ? true : (String(slot.isActive) === 'true' || slot.isActive === true)
+        }));
+    }
+
     console.log('DEBUG: Final mapped data:', JSON.stringify(mapped, null, 2));
     return mapped;
 };

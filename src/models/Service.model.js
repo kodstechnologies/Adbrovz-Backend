@@ -80,6 +80,13 @@ const serviceSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    timeSlots: [{
+      _id: false,
+      startTime: { type: String, required: true }, // HH:MM format
+      endTime: { type: String, required: true },   // HH:MM format
+      label: { type: String },                    // e.g. "Morning Slot"
+      isActive: { type: Boolean, default: true }
+    }],
   },
   {
     timestamps: true,

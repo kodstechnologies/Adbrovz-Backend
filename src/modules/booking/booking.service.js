@@ -29,6 +29,20 @@ const createBookingRequest = async (
     const subcategory = await mongoose.model('Subcategory').findById(subcategoryId).populate('category');
     const leadCategory = subcategory?.category?._id;
 
+    // ── Time Slot Validation ──
+    if (subcategory?.timeSlots && subcategory.timeSlots.length > 0) {
+        const activeSlots = subcategory.timeSlots.filter(s => s.isActive);
+        if (activeSlots.length > 0) {
+            const normalizedTime = String(scheduledTime || '').slice(0, 5);
+            const isValid = activeSlots.some(s => s.startTime.slice(0, 5) === normalizedTime);
+            
+            if (!isValid) {
+                const slotLabels = activeSlots.map(s => s.label || s.startTime).join(', ');
+                throw new ApiError(400, `The selected time ${normalizedTime} is not valid for "${subcategory.name}". Please choose from: ${slotLabels}`);
+            }
+        }
+    }
+
     const potentialVendors = await Vendor.find({
         isVerified: true,
         isSuspended: false,
@@ -816,6 +830,22 @@ const createBooking = async (userId, bookingData) => {
         
         if (i === 0 && serviceData) {
             leadCategory = serviceData.category?._id;
+        }
+
+        // ── Time Slot Validation ──
+        if (serviceData?.timeSlots && serviceData.timeSlots.length > 0) {
+            const activeSlots = serviceData.timeSlots.filter(s => s.isActive);
+            if (activeSlots.length > 0) {
+                // Ensure the selected time matches at least one startTime
+                // Normalizing time format (taking HH:mm)
+                const normalizedTime = String(time || '').slice(0, 5); 
+                const isValid = activeSlots.some(s => s.startTime.slice(0, 5) === normalizedTime);
+                
+                if (!isValid) {
+                    const slotLabels = activeSlots.map(s => s.label || s.startTime).join(', ');
+                    throw new ApiError(400, `The selected time ${normalizedTime} is not valid for "${serviceData.title}". Please choose from: ${slotLabels}`);
+                }
+            }
         }
 
         if (adminPrice === 0) {
