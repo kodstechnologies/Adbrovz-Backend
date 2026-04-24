@@ -10,6 +10,7 @@ const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const config = require('../../config/env');
 const { emitToVendor } = require('../../socket');
+const { parseArrayInput } = require('../../utils/dataParser');
 
 /**
  * Helper to map duration (3, 6, 12 months) to CreditPlan names
@@ -42,44 +43,6 @@ const getPlanByDuration = async (months) => {
     };
 };
 
-/**
- * Helper to parse array inputs that might be sent as malformed strings
- */
-const parseArrayInput = (input) => {
-    if (!input) return [];
-
-    if (Array.isArray(input)) {
-        const parsed = input
-            .map((item) => {
-                if (!item) return null;
-                if (typeof item === 'string') return item;
-                if (typeof item === 'object') {
-                    if (item._id) return String(item._id);
-                    if (item.id) return String(item.id);
-                }
-                return String(item);
-            })
-            .filter(Boolean)
-            .flatMap((val) => (String(val).match(/[a-fA-F0-9]{24}/g) || []));
-
-        return [...new Set(parsed)];
-    }
-
-    // Convert to string to handle concatenated or multiline junk
-    const str = String(input);
-
-    // 1. If it contains MongoDB-style ObjectIDs, extract them all directly
-    const idMatches = str.match(/[a-fA-F0-9]{24}/g);
-    if (idMatches && idMatches.length > 0) {
-        return [...new Set(idMatches)];
-    }
-
-    // 2. Fallback for non-ID fields
-    const cleaned = str.replace(/[\[\]\n\r'"+\s]/g, '');
-    if (!cleaned) return [];
-
-    return cleaned.split(',').filter(s => s.length > 0);
-};
 
 /**
  * Helper to canonicalize status strings (e.g. "Reject", "reject", "Verified") to match schema enums

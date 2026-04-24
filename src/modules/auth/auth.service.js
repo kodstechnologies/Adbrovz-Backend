@@ -12,6 +12,7 @@ const MESSAGES = require('../../constants/messages');
 const config = require('../../config/env');
 const adminService = require('../admin/admin.service');
 const CoinTransaction = require('../../models/CoinTransaction.model');
+const { parseArrayInput } = require('../../utils/dataParser');
 
 const userSignup = async ({ phoneNumber, name, email, pin, confirmPin, acceptedPolicies }) => {
   // Check if user already exists
@@ -364,30 +365,6 @@ const completeUserLogin = async ({ loginId, pin }, req = null) => {
   await cacheService.del(loginKey);
 
   return result;
-};
-
-/**
- * Helper to parse array inputs that might be sent as malformed strings
- */
-const parseArrayInput = (input) => {
-  if (!input) return [];
-
-  // Convert to string to handle concatenated or multiline junk
-  const str = String(input);
-
-  // 1. If it contains MongoDB-style ObjectIDs, extract them all directly
-  // This is the most robust way to handle malformed stringified arrays
-  const idMatches = str.match(/[a-fA-F0-9]{24}/g);
-  if (idMatches && idMatches.length > 0) {
-    return [...new Set(idMatches)];
-  }
-
-  // 2. Fallback for non-ID fields (like pincodes)
-  // Remove brackets, newlines, quotes, plus signs and spaces
-  const cleaned = str.replace(/[\[\]\n\r'"+\s]/g, '');
-  if (!cleaned) return [];
-
-  return cleaned.split(',').filter(s => s.length > 0);
 };
 
 // ======================== VENDOR SIGNUP (Step 1: Data) ========================
