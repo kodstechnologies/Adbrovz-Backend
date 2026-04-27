@@ -452,8 +452,13 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
  */
 const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     const vendor = await Vendor.findById(vendorId)
-        .select('selectedCategories selectedSubcategories selectedServiceTypes selectedServices membership.durationMonths');
+        .select('selectedCategories selectedSubcategories selectedServiceTypes selectedServices membership.durationMonths categorySubscriptions')
+        .populate({ path: 'categorySubscriptions.category', select: 'name' })
+        .populate({ path: 'categorySubscriptions.subcategories', select: 'name' })
+        .populate({ path: 'categorySubscriptions.services', select: 'title' });
+    
     if (!vendor) throw new ApiError(404, 'Vendor not found');
+
 
     const normalizedCategoryId = overrides.categoryId || null;
     const normalizedSubcategoryIds = overrides.subcategoryIds || vendor.selectedSubcategories || [];
@@ -480,6 +485,11 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
             membershipCharge: item.membershipCharge
         }));
 
+    const paymentHistory = await PaymentRecord.find({ vendor: vendorId, status: 'COMPLETED' })
+        .sort({ createdAt: -1 })
+        .populate('planId', 'name price validityDays')
+        .lean();
+
     return {
         vendorId,
         subtotal: calc.combinedSubtotal,
@@ -499,9 +509,12 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         selectedCategoryId: normalizedCategoryId,
         selectedSubcategoryIds: parseArrayInput(normalizedSubcategoryIds),
         selectedServiceTypeIds: parseArrayInput(normalizedServiceTypeIds),
-        selectedServiceIds: parseArrayInput(normalizedServiceIds)
+        selectedServiceIds: parseArrayInput(normalizedServiceIds),
+        categorySubscriptions: vendor.categorySubscriptions || [],
+        paymentHistory: paymentHistory || []
     };
 };
+
 
 /**
  * Create Razorpay order for membership payment
