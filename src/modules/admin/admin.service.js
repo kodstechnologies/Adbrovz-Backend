@@ -400,16 +400,17 @@ const getMembershipPricing = async () => {
     // Fetch Membership tiers from CreditPlan collection
     const tiers = await CreditPlan.find({ 
         name: { $in: ['Basic', 'Pro', 'Elite'] } 
-    }).lean();
+    }).sort({ price: 1 }).lean();
 
-    const basic = tiers.find(t => t.name === 'Basic') || { price: 1000, validityDays: 90 };
-    const pro = tiers.find(t => t.name === 'Pro') || { price: 2000, validityDays: 180 };
-    const elite = tiers.find(t => t.name === 'Elite') || { price: 4000, validityDays: 360 };
+    const basic = tiers.find(t => t.name === 'Basic') || { price: 1000, validityDays: 30 };
+    const pro = tiers.find(t => t.name === 'Pro') || { price: 2000, validityDays: 60 };
+    const elite = tiers.find(t => t.name === 'Elite') || { price: 4000, validityDays: 88 };
     
     const gstPercent = await getSetting('pricing.membership_gst_percent');
 
     return {
         // Original keys for backward compatibility (duration-mapped)
+        // These will now reflect the actual prices of Basic, Pro, Elite respectively
         fee3Months: basic.price,
         fee6Months: pro.price,
         fee12Months: elite.price,
@@ -423,9 +424,18 @@ const getMembershipPricing = async () => {
         // Custom Validity Days
         basicValidity: basic.validityDays,
         proValidity: pro.validityDays,
-        eliteValidity: elite.validityDays
+        eliteValidity: elite.validityDays,
+
+        // Full plans list for modern UI
+        plans: tiers.map(t => ({
+            id: t._id,
+            name: t.name,
+            price: t.price,
+            validityDays: t.validityDays
+        }))
     };
 };
+
 
 const updateMembershipPricing = async (data, adminId) => {
     const { 

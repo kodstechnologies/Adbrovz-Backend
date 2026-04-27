@@ -16,22 +16,35 @@ const { parseArrayInput } = require('../../utils/dataParser');
  * Helper to map duration (3, 6, 12 months) to CreditPlan names
  */
 const getPlanByDuration = async (months) => {
-    const targetDays = months * 30;
+    // 1. Try name-based mapping first (Legacy support)
+    let planName = null;
+    if (months === 3) planName = 'Basic';
+    else if (months === 6) planName = 'Pro';
+    else if (months === 12) planName = 'Elite';
 
-    // 1. Try to find by explicit validity days (most accurate)
-    let plan = await CreditPlan.findOne({ validityDays: targetDays }).lean();
-
-    // 2. Fallback to name-based lookup if duration-based fails
-    if (!plan) {
-        let planName = 'Basic';
-        if (months === 6) planName = 'Pro';
-        if (months === 12) planName = 'Elite';
+    let plan = null;
+    if (planName) {
         plan = await CreditPlan.findOne({ name: planName }).lean();
     }
 
+    // 2. Fallback to explicit validity days lookup
     if (!plan) {
-        // Since we're removing static values, we must throw an error if not found in DB
-        const ApiError = require('../../utils/ApiError');
+        const targetDays = months * 30;
+        plan = await CreditPlan.findOne({ validityDays: targetDays }).lean();
+    }
+
+    // 3. Last fallback: Find the plan with the closest validityDays
+    if (!plan) {
+        const targetDays = months * 30;
+        const allPlans = await CreditPlan.find({ name: { $in: ['Basic', 'Pro', 'Elite'] } }).lean();
+        if (allPlans.length > 0) {
+            plan = allPlans.reduce((prev, curr) => {
+                return (Math.abs(curr.validityDays - targetDays) < Math.abs(prev.validityDays - targetDays) ? curr : prev);
+            });
+        }
+    }
+
+    if (!plan) {
         throw new ApiError(400, `Membership plan for ${months} months is not configured in the Admin Panel. Please contact support.`);
     }
 
@@ -42,6 +55,7 @@ const getPlanByDuration = async (months) => {
         validityDays: Number(plan.validityDays)
     };
 };
+
 
 
 /**
@@ -373,6 +387,31 @@ const getAllVendors = async () => {
         vendor.selectedSubcategories = Array.from(subcategoriesMap.values());
         vendor.selectedServiceTypes = Array.from(serviceTypesMap.values());
 
+        // Compute plan status and validity
+        const now = new Date();
+        const expiry = vendor.membership?.expiryDate ? new Date(vendor.membership.expiryDate) : null;
+        const hasActiveMembership = expiry && expiry > now;
+        
+        vendor.planStatus = hasActiveMembership ? 'PAID' : 'UNPAID';
+        
+        if (expiry) {
+            const diffTime = expiry.getTime() - now.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            if (diffDays > 0) {
+                vendor.planValidity = `${diffDays} Days Left`;
+            } else {
+                vendor.planValidity = 'Expired';
+            }
+        } else {
+            vendor.planValidity = 'UNPAID';
+        }
+
+        // Ensure membership category name is available for the UI
+        if (!vendor.membership?.category && vendor.selectedCategories.length > 0) {
+            vendor.membership = vendor.membership || {};
+            vendor.membership.category = vendor.selectedCategories[0]; // Use first category as primary
+        }
+
         return vendor;
     });
 };
@@ -552,11 +591,8 @@ const selectServices = async (vendorId, body) => {
         durationMonths
     });
 
-    if (durationMonths % 3 !== 0) {
-        throw new ApiError(400, 'Duration must be in multiples of 3 months');
-    }
-
     // Save Selections to Vendor
+
     if (categoryId) {
         const category = await Category.findById(categoryId);
         if (category) {
@@ -697,7 +733,8 @@ const getMembershipPlans = async (serviceMembershipFee = 0, options = {}) => {
     const adminService = require('../admin/admin.service');
     const tiers = await CreditPlan.find({
         name: { $in: ['Basic', 'Pro', 'Elite'] }
-    }).lean();
+    }).sort({ price: 1 }).lean();
+    
     const vendorId = options?.vendorId;
 
     let resolvedServiceMembershipFee = serviceMembershipFee;
@@ -706,31 +743,26 @@ const getMembershipPlans = async (serviceMembershipFee = 0, options = {}) => {
         resolvedServiceMembershipFee = calc.servicesSubtotal;
     }
 
-    const planConfigs = [
-        { duration: 3, name: 'Basic' },
-        { duration: 6, name: 'Pro' },
-        { duration: 12, name: 'Elite' }
-    ];
     const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
 
     const result = [];
-    for (const config of planConfigs) {
-        const plan = tiers.find(t => t.name === config.name) || {
-            price: config.duration === 3 ? 1000 : (config.duration === 6 ? 2000 : 4000),
-            validityDays: config.duration * 30
-        };
-
+    for (const plan of tiers) {
         const baseFee = plan.price || 0;
-        const validityDays = plan.validityDays || (config.duration * 30);
+        const validityDays = plan.validityDays || 30;
         const serviceFee = Number(resolvedServiceMembershipFee || 0);
 
         const subtotal = baseFee + serviceFee;
         const gstAmount = Math.round(subtotal * (gstPercent / 100));
         const totalFee = Number(subtotal + gstAmount);
 
+        // Approximate duration in months for backward compatibility
+        const durationMonths = Math.max(1, Math.round(validityDays / 30));
+
         result.push({
-            durationMonths: config.duration,
-            label: `${config.name} (${validityDays} Days)`,
+            planId: plan._id,
+            name: plan.name,
+            durationMonths: durationMonths,
+            label: `${plan.name} (${validityDays} Days)`,
             baseFee,
             ServiceFee: serviceFee,
             validityDays: Number(validityDays),
@@ -796,8 +828,62 @@ const getCategoryRegistrationData = async () => {
 /**
  * Get categories available for purchase (Excluding already selected ones)
  */
+/**
+ * Internal helper to calculate prorated amount based on remaining days of membership or category subscription.
+ * Calculation: (Amount / 30) * RemainingDays
+ */
+const _calculateProration = (vendor, categoryId, amount) => {
+    if (amount <= 0) return { amount: 0, remainingDays: 0, factor: 0 };
+    
+    const now = new Date();
+    let expiryDate = null;
+
+    // 1. Check if there's an existing active category subscription for this category
+    if (categoryId && vendor.categorySubscriptions) {
+        const catSub = vendor.categorySubscriptions.find(s => 
+            s.category && s.category.toString() === categoryId.toString() && 
+            s.expiryDate > now && 
+            s.status === 'ACTIVE'
+        );
+        if (catSub) expiryDate = catSub.expiryDate;
+    }
+
+    // 2. Fallback to main membership expiry if category not found or expired
+    if (!expiryDate) {
+        if (vendor.membership?.expiryDate && vendor.membership.expiryDate > now) {
+            expiryDate = vendor.membership.expiryDate;
+        }
+    }
+
+    // 3. If no active period found, no proration possible (assume full 30 days)
+    if (!expiryDate) {
+        return { 
+            amount, 
+            remainingDays: 30, 
+            factor: 1, 
+            isProrated: false 
+        };
+    }
+
+    const diffTime = expiryDate - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    // Calculate factor based on a standard 30-day billing cycle
+    // We cap the factor at 1.0 (full price) even if they have >30 days remaining,
+    // as service charges are typically for 30-day blocks.
+    const factor = Math.max(0, Math.min(1, diffDays / 30));
+    
+    return {
+        amount: Math.round(amount * factor),
+        remainingDays: diffDays,
+        factor,
+        expiryDate,
+        isProrated: factor < 1
+    };
+};
+
 const getAvailablePurchaseCategories = async (vendorId) => {
-    const vendor = await Vendor.findById(vendorId).select('selectedCategories');
+    const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const allCategories = await Category.find({}).lean();
@@ -806,47 +892,85 @@ const getAvailablePurchaseCategories = async (vendorId) => {
     const allServiceTypes = await ServiceType.find({}).lean();
 
     const selectedCategoryIds = (vendor.selectedCategories || []).map(id => id.toString());
+    const selectedSubcategoryIds = (vendor.selectedSubcategories || []).map(id => id.toString());
+    const selectedServiceIds = (vendor.selectedServices || []).map(id => id.toString());
 
-    return allCategories
-        .filter(cat => !selectedCategoryIds.includes(cat._id.toString()))
-        .map(cat => {
-            const catIdStr = cat._id.toString();
-            
-            // Start with category's own service charge
-            let totalSvcCharge = Number(cat.serviceCharge || 0);
-            
-            // Add all subcategories' service charges
-            allSubcategories
-                .filter(sub => sub.category && sub.category.toString() === catIdStr)
-                .forEach(sub => {
-                    totalSvcCharge += Number(sub.serviceCharge || 0);
-                });
+    return allCategories.map(cat => {
+        const catIdStr = cat._id.toString();
+        const isCatOwned = selectedCategoryIds.includes(catIdStr);
+        
+        // Base category charge
+        const catBaseCharge = Number(cat.membershipCharge || cat.membershipFee || cat.serviceCharge || 0);
+        const catProration = _calculateProration(vendor, catIdStr, catBaseCharge);
+
+        const subcategories = allSubcategories
+            .filter(sub => sub.category && sub.category.toString() === catIdStr)
+            .map(sub => {
+                const subIdStr = sub._id.toString();
+                const isSubOwned = selectedSubcategoryIds.includes(subIdStr);
                 
-            // Add all service types' service charges
-            allServiceTypes
-                .filter(st => st.category && st.category.toString() === catIdStr)
-                .forEach(st => {
-                    totalSvcCharge += Number(st.serviceCharge || 0);
-                });
-                
-            // Add all services' service charges
-            allServices
-                .filter(svc => svc.category && svc.category.toString() === catIdStr)
-                .forEach(svc => {
-                    totalSvcCharge += Number(svc.serviceCharge || 0);
-                });
+                const subBaseCharge = Number(sub.membershipCharge || sub.membershipFee || sub.serviceCharge || 0);
+                const subProration = _calculateProration(vendor, catIdStr, subBaseCharge);
 
-            // Calculate GST consistent with getAddCategoryFeeDetails (18%)
-            const gstAmount = Math.round(totalSvcCharge * 0.18);
-            const totalWithGst = totalSvcCharge + gstAmount;
+                const serviceTypes = allServiceTypes
+                    .filter(st => st.subcategory && st.subcategory.toString() === subIdStr)
+                    .map(st => {
+                        const typeIdStr = st._id.toString();
+                        const typeBaseCharge = Number(st.membershipCharge || st.membershipFee || st.serviceCharge || 0);
+                        const typeProration = _calculateProration(vendor, catIdStr, typeBaseCharge);
 
-            return {
-                id: cat._id,
-                name: cat.name,
-                amount: totalWithGst
-            };
-        });
+                        const services = allServices
+                            .filter(svc => svc.serviceType && svc.serviceType.toString() === typeIdStr)
+                            .map(svc => {
+                                const svcIdStr = svc._id.toString();
+                                const isSvcOwned = selectedServiceIds.includes(svcIdStr);
+                                
+                                const svcBaseCharge = Number(svc.membershipCharge || svc.membershipFee || svc.serviceCharge || 0);
+                                const svcProration = _calculateProration(vendor, catIdStr, svcBaseCharge);
+
+                                return {
+                                    id: svc._id,
+                                    name: svc.title,
+                                    price: svcBaseCharge,
+                                    proratedPrice: svcProration.amount,
+                                    isOwned: isSvcOwned,
+                                    remainingDays: svcProration.remainingDays
+                                };
+                            });
+
+                        return {
+                            id: st._id,
+                            name: st.name,
+                            price: typeBaseCharge,
+                            proratedPrice: typeProration.amount,
+                            isOwned: services.length > 0 && services.every(s => s.isOwned),
+                            services
+                        };
+                    });
+
+                return {
+                    id: sub._id,
+                    name: sub.name,
+                    price: subBaseCharge,
+                    proratedPrice: subProration.amount,
+                    isOwned: isSubOwned,
+                    serviceTypes
+                };
+            });
+
+        return {
+            id: cat._id,
+            name: cat.name,
+            price: catBaseCharge,
+            proratedPrice: isCatOwned ? 0 : catProration.amount,
+            isOwned: isCatOwned,
+            remainingDays: catProration.remainingDays,
+            expiryDate: catProration.expiryDate,
+            subcategories
+        };
+    });
 };
+
 
 /**
  * Internal helper to format verification status payload for both API and Socket responses
@@ -2321,6 +2445,9 @@ const getHierarchicalMembershipCharges = async (vendorId) => {
 const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds = [], serviceIds = [] } = {}) => {
     if (!categoryId) throw new ApiError(400, 'categoryId is required');
 
+    const vendor = await Vendor.findById(vendorId).lean();
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
     const category = await Category.findById(categoryId).lean();
     if (!category) throw new ApiError(404, 'Category not found');
 
@@ -2330,54 +2457,89 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     const subcategories = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).lean();
     const services = await Service.find({ _id: { $in: parsedServiceIds } }).lean();
 
-    const categoryCharge = Number(category.membershipCharge || category.membershipFee || category.serviceCharge || 0);
-    let totalFee = categoryCharge;
+    const isCatOwned = (vendor.selectedCategories || []).map(id => id.toString()).includes(categoryId.toString());
+    
+    // Category Charge (0 if already owned)
+    const categoryBaseCharge = Number(category.membershipCharge || category.membershipFee || category.serviceCharge || 0);
+    const categoryProration = isCatOwned ? { amount: 0, remainingDays: 0 } : _calculateProration(vendor, categoryId, categoryBaseCharge);
+    
+    let totalFee = categoryProration.amount;
     let additionalSelectionsTotal = 0;
+    
     const breakdown = {
-        category: { id: category._id, name: category.name, charge: categoryCharge },
+        category: { 
+            id: category._id, 
+            name: category.name, 
+            charge: categoryProration.amount, 
+            baseCharge: categoryBaseCharge,
+            isProrated: categoryProration.isProrated,
+            remainingDays: categoryProration.remainingDays
+        },
         subcategories: [],
         services: []
     };
     const itemBreakdown = [];
 
-    if (categoryCharge > 0) {
+    if (categoryProration.amount > 0) {
         itemBreakdown.push({
             id: category._id,
             title: category.name,
             type: 'category',
-            serviceCharge: Number(category.serviceCharge || 0),
-            membershipCharge: categoryCharge
+            serviceCharge: 0,
+            membershipCharge: categoryProration.amount,
+            isProrated: categoryProration.isProrated,
+            remainingDays: categoryProration.remainingDays
         });
     }
 
     subcategories.forEach(sub => {
-        const charge = Number(sub.membershipCharge || sub.membershipFee || sub.price || sub.serviceCharge || 0);
-        totalFee += charge;
-        additionalSelectionsTotal += charge;
-        if (charge > 0) {
-            breakdown.subcategories.push({ id: sub._id, name: sub.name, charge });
+        const baseCharge = Number(sub.membershipCharge || sub.membershipFee || sub.price || sub.serviceCharge || 0);
+        const proration = _calculateProration(vendor, categoryId, baseCharge);
+        
+        totalFee += proration.amount;
+        additionalSelectionsTotal += proration.amount;
+        
+        if (proration.amount > 0) {
+            breakdown.subcategories.push({ 
+                id: sub._id, 
+                name: sub.name, 
+                charge: proration.amount,
+                isProrated: proration.isProrated
+            });
             itemBreakdown.push({
                 id: sub._id,
                 title: sub.name,
                 type: 'subcategory',
-                serviceCharge: Number(sub.serviceCharge || 0),
-                membershipCharge: charge
+                serviceCharge: 0,
+                membershipCharge: proration.amount,
+                isProrated: proration.isProrated,
+                remainingDays: proration.remainingDays
             });
         }
     });
 
     services.forEach(svc => {
-        const charge = Number(svc.membershipCharge || svc.membershipFee || svc.serviceCharge || 0);
-        totalFee += charge;
-        additionalSelectionsTotal += charge;
-        if (charge > 0) {
-            breakdown.services.push({ id: svc._id, name: svc.title, charge });
+        const baseCharge = Number(svc.membershipCharge || svc.membershipFee || svc.serviceCharge || 0);
+        const proration = _calculateProration(vendor, categoryId, baseCharge);
+        
+        totalFee += proration.amount;
+        additionalSelectionsTotal += proration.amount;
+        
+        if (proration.amount > 0) {
+            breakdown.services.push({ 
+                id: svc._id, 
+                name: svc.title, 
+                charge: proration.amount,
+                isProrated: proration.isProrated
+            });
             itemBreakdown.push({
                 id: svc._id,
                 title: svc.title,
                 type: 'service',
-                serviceCharge: Number(svc.serviceCharge || 0),
-                membershipCharge: charge
+                serviceCharge: 0,
+                membershipCharge: proration.amount,
+                isProrated: proration.isProrated,
+                remainingDays: proration.remainingDays
             });
         }
     });
@@ -2393,7 +2555,7 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
         totalCharge: totalFee, // Subtotal of service charges
         gstAmount,
         totalWithGst,
-        subtotal: categoryCharge,
+        subtotal: totalFee,
         totalServiceFee: additionalSelectionsTotal,
         serviceSelectionsTotal: additionalSelectionsTotal,
         totalFee: totalWithGst,
@@ -2402,9 +2564,14 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
         basePlanFee: 0,
         itemBreakdown,
         razorpayKeyId: config.RAZORPAY_KEY_ID,
-        breakdown
+        breakdown,
+        prorationContext: {
+            remainingDays: categoryProration.remainingDays || 0,
+            expiryDate: categoryProration.expiryDate
+        }
     };
 };
+
 
 /**
  * Add Category: Create order
@@ -2442,9 +2609,12 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
                 ...feeDetails.breakdown,
                 selectedSubcategories: subcategoryIds,
                 selectedServices: serviceIds,
-                categoryId: categoryId
+                categoryId: categoryId,
+                isProrated: (feeDetails.prorationContext?.remainingDays || 30) < 30,
+                alignedExpiryDate: feeDetails.prorationContext?.expiryDate
             }
         });
+
     } catch (error) {
         console.error('Razorpay Add Category Order Error:', error);
         const errorMsg = error.error?.description || error.message || 'Failed to create payment order with Razorpay';
@@ -2528,8 +2698,16 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
     if (finalCategoryId) {
         const catIdStr = String(finalCategoryId);
         const now = new Date();
-        const expiryDate = new Date(now);
-        expiryDate.setDate(expiryDate.getDate() + 30); // Service expires in 1 month (30 days)
+        let expiryDate = new Date(now);
+        expiryDate.setDate(expiryDate.getDate() + 30); // Default 1 month
+
+        // Align with prorated expiry if provided in payment record
+        if (paymentRecord && paymentRecord.metadata && paymentRecord.metadata.alignedExpiryDate) {
+            const alignedDate = new Date(paymentRecord.metadata.alignedExpiryDate);
+            if (alignedDate > now) {
+                expiryDate = alignedDate;
+            }
+        }
 
         // Use the total amount paid from the payment record if available for accuracy
         const fee = paymentRecord ? paymentRecord.totalAmount : 0;
@@ -2538,9 +2716,9 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
         if (existingSubIndex > -1) {
             vendor.categorySubscriptions[existingSubIndex].expiryDate = expiryDate;
             vendor.categorySubscriptions[existingSubIndex].status = 'ACTIVE';
-            vendor.categorySubscriptions[existingSubIndex].fee = fee;
-            vendor.categorySubscriptions[existingSubIndex].subcategories = finalSubcategories || [];
-            vendor.categorySubscriptions[existingSubIndex].services = finalServices || [];
+            vendor.categorySubscriptions[existingSubIndex].fee = (vendor.categorySubscriptions[existingSubIndex].fee || 0) + fee;
+            vendor.categorySubscriptions[existingSubIndex].subcategories = Array.from(new Set([...(vendor.categorySubscriptions[existingSubIndex].subcategories || []), ...(finalSubcategories || [])]));
+            vendor.categorySubscriptions[existingSubIndex].services = Array.from(new Set([...(vendor.categorySubscriptions[existingSubIndex].services || []), ...(finalServices || [])]));
         } else {
             vendor.categorySubscriptions.push({
                 category: finalCategoryId,
@@ -2553,6 +2731,7 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
             });
         }
     }
+
 
     // Ensure category is in selectedCategories for notifications/broadcasts
     if (finalCategoryId && !vendor.selectedCategories.some(id => id.toString() === String(finalCategoryId))) {
