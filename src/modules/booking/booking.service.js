@@ -534,6 +534,17 @@ const _formatBooking = (bookingDoc, role) => {
     if (bookingObj.workStartedAtIST) bookingObj.workStartedAt = bookingObj.workStartedAtIST;
     if (bookingObj.workCompletedAtIST) bookingObj.workCompletedAt = bookingObj.workCompletedAtIST;
 
+    // Ensure sensitive data is hidden for vendors until they accept the booking
+    if ((role === 'vendor' || role === 'Vendor') && bookingObj.status === 'pending_acceptance') {
+        if (bookingObj.user) {
+            bookingObj.user.phoneNumber = '••••••••••';
+            bookingObj.user.email = '••••••••••';
+        }
+        if (bookingObj.location) {
+            bookingObj.location.address = 'Location visible after acceptance';
+        }
+    }
+
     // OTP visibility logic
     if (bookingObj.otp) {
         const isUserRole = role === 'user' || role === 'User';
@@ -948,15 +959,7 @@ const searchVendors = async (booking, broadcast = false) => {
     ].map(id => id.toString());
 
     // ── Vendors can receive new requests even if they have ongoing bookings (Allow concurrent orders) ──
-    // const busyVendorIds = [];
-    // const activeBookings = await Booking.find({
-    //     scheduledDate: booking.scheduledDate,
-    //     status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] },
-    //     vendor: { $exists: true, $ne: null }
-    // });
-    // for (const activeBooking of activeBookings) {
-    //     busyVendorIds.push(activeBooking.vendor.toString());
-    // }
+    const busyVendorIds = []; // Initialized as empty to allow concurrent orders by default
 
     // ── Find services belonging to the booking's categories so we can match vendors by selectedServices too ──
     const servicesInCategories = await Service.find({ category: { $in: categoryIds } }).select('_id');
@@ -1040,6 +1043,16 @@ const searchVendors = async (booking, broadcast = false) => {
                 totalDurationMins,
                 radius: radiusInKm
             };
+
+            // ── Sensitive Data Redaction for unaccepted requests ──
+            if (payload.user) {
+                payload.user.phoneNumber = '••••••••••';
+                if (payload.user.email) payload.user.email = '••••••••••';
+            }
+            if (payload.location) {
+                payload.location.address = 'Location visible after acceptance';
+                // We keep lat/long for map display but hide exact address string
+            }
 
             // Explicitly expose user logic for the socket broadcast
             if (payload.user && payload.location) {
