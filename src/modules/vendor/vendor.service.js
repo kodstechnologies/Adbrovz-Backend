@@ -76,6 +76,57 @@ const getRazorpay = () => {
 };
 
 /**
+ * Internal helper to auto-derive and populate parent hierarchy (Categories, Subcategories, ServiceTypes)
+ * from more specific selections (Services, ServiceTypes).
+ */
+const _deriveVendorHierarchy = async (vendor) => {
+    const categoryIds = new Set(vendor.selectedCategories?.map(id => id.toString()) || []);
+    const subcategoryIds = new Set(vendor.selectedSubcategories?.map(id => id.toString()) || []);
+    const serviceTypeIds = new Set(vendor.selectedServiceTypes?.map(id => id.toString()) || []);
+    const serviceIds = vendor.selectedServices?.map(id => id.toString()) || [];
+
+    // 1. Derive from selectedServices
+    if (serviceIds.length > 0) {
+        const selectedServiceDocs = await Service.find({ _id: { $in: serviceIds } })
+            .select('category subcategory serviceType');
+        for (const svc of selectedServiceDocs) {
+            if (svc.category) categoryIds.add(svc.category.toString());
+            if (svc.subcategory) subcategoryIds.add(svc.subcategory.toString());
+            if (svc.serviceType) serviceTypeIds.add(svc.serviceType.toString());
+        }
+    }
+
+    // 2. Derive from selectedServiceTypes
+    const stIds = [...serviceTypeIds];
+    if (stIds.length > 0) {
+        const selectedTypeDocs = await ServiceType.find({ _id: { $in: stIds } })
+            .select('category subcategory');
+        for (const type of selectedTypeDocs) {
+            if (type.category) categoryIds.add(type.category.toString());
+            if (type.subcategory) subcategoryIds.add(type.subcategory.toString());
+        }
+    }
+
+    // 3. Derive from selectedSubcategories
+    const subIds = [...subcategoryIds];
+    if (subIds.length > 0) {
+        const selectedSubDocs = await Subcategory.find({ _id: { $in: subIds } })
+            .select('category');
+        for (const sub of selectedSubDocs) {
+            if (sub.category) categoryIds.add(sub.category.toString());
+        }
+    }
+
+    // Update vendor document
+    vendor.selectedCategories = [...categoryIds];
+    vendor.selectedSubcategories = [...subcategoryIds];
+    vendor.selectedServiceTypes = [...serviceTypeIds];
+    
+    console.log(`[Hierarchy] Derived for vendor ${vendor._id}: cats=${categoryIds.size}, subs=${subcategoryIds.size}, types=${serviceTypeIds.size}`);
+};
+
+
+/**
  * Internal helper to calculate membership fees consistently across APIs
  */
 const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryId, subcategoryIds, serviceTypeIds, serviceIds }) => {
@@ -523,27 +574,8 @@ const selectServices = async (vendorId, body) => {
         vendor.selectedServices = parseArrayInput(serviceIds);
     }
 
-    // ── Auto-derive selectedCategories, selectedSubcategories, and selectedServiceTypes from selectedServices ──
-    // This ensures vendor discovery queries that filter by these fields will find this vendor
-    if (vendor.selectedServices && vendor.selectedServices.length > 0) {
-        const selectedServiceDocs = await Service.find({ _id: { $in: vendor.selectedServices } })
-            .select('category subcategory serviceType');
-        
-        const derivedCategoryIds = new Set(vendor.selectedCategories?.map(id => String(id)) || []);
-        const derivedSubcategoryIds = new Set(vendor.selectedSubcategories?.map(id => String(id)) || []);
-        const derivedServiceTypeIds = new Set(vendor.selectedServiceTypes?.map(id => String(id)) || []);
-
-        for (const svc of selectedServiceDocs) {
-            if (svc.category) derivedCategoryIds.add(svc.category.toString());
-            if (svc.subcategory) derivedSubcategoryIds.add(svc.subcategory.toString());
-            if (svc.serviceType) derivedServiceTypeIds.add(svc.serviceType.toString());
-        }
-
-        vendor.selectedCategories = [...derivedCategoryIds];
-        vendor.selectedSubcategories = [...derivedSubcategoryIds];
-        vendor.selectedServiceTypes = [...derivedServiceTypeIds];
-        console.log(`[selectServices] Auto-derived for vendor ${vendorId}: categories=${derivedCategoryIds.size}, subcategories=${derivedSubcategoryIds.size}, serviceTypes=${derivedServiceTypeIds.size}`);
-    }
+    // ── Auto-derive parent hierarchy (Categories, Subcategories, etc.) ──
+    await _deriveVendorHierarchy(vendor);
 
     // Use centralized calculator for response
     const calc = await _calculateMembershipAmounts({
@@ -556,10 +588,13 @@ const selectServices = async (vendorId, body) => {
     });
 
     // Update vendor with calculation result
-    vendor.membership.fee = calc.grandTotal;
-    vendor.membership.durationMonths = durationMonths;
-    vendor.membership.subtotal = calc.combinedSubtotal;
+    vendor.membership.membershipFee = calc.membershipTotal;
+    vendor.membership.serviceFee = calc.servicesSubtotal;
     vendor.membership.gstAmount = calc.finalGst;
+    vendor.membership.totalAmount = calc.grandTotal;
+    vendor.membership.subtotal = calc.combinedSubtotal;
+    vendor.membership.fee = calc.grandTotal; // Keep for legacy compatibility
+    vendor.membership.durationMonths = durationMonths;
     vendor.registrationStep = 'SERVICES_SELECTED';
 
     await vendor.save();
@@ -615,10 +650,16 @@ const purchaseMembership = async (vendorId) => {
     }
 
     // Ensure membership metadata is populated if missing
-    if (!vendor.membership.fee || !vendor.membership.category) {
+    if (!vendor.membership.totalAmount || !vendor.membership.category) {
         try {
             const memDetails = await getVendorMembershipDetails(vendorId);
+            if (!vendor.membership.membershipFee) vendor.membership.membershipFee = memDetails.subtotal; // membershipTotal from calc
+            if (!vendor.membership.serviceFee) vendor.membership.serviceFee = memDetails.serviceSelectionsTotal;
+            if (!vendor.membership.gstAmount) vendor.membership.gstAmount = memDetails.gstAmount;
+            if (!vendor.membership.totalAmount) vendor.membership.totalAmount = memDetails.totalFee;
+            if (!vendor.membership.subtotal) vendor.membership.subtotal = memDetails.subtotal + memDetails.serviceSelectionsTotal;
             if (!vendor.membership.fee) vendor.membership.fee = memDetails.totalFee;
+
             if (!vendor.membership.category && memDetails.services.length > 0) {
                 const Service = require('../../models/Service.model');
                 const Subcategory = require('../../models/Subcategory.model');
@@ -1289,10 +1330,16 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     }
 
     // Ensure membership metadata is populated if missing
-    if (!vendor.membership.fee || !vendor.membership.category) {
+    if (!vendor.membership.totalAmount || !vendor.membership.category) {
         try {
             const memDetails = await getVendorMembershipDetails(vendor._id);
+            if (!vendor.membership.membershipFee) vendor.membership.membershipFee = memDetails.subtotal;
+            if (!vendor.membership.serviceFee) vendor.membership.serviceFee = memDetails.serviceSelectionsTotal;
+            if (!vendor.membership.gstAmount) vendor.membership.gstAmount = memDetails.gstAmount;
+            if (!vendor.membership.totalAmount) vendor.membership.totalAmount = memDetails.totalFee;
+            if (!vendor.membership.subtotal) vendor.membership.subtotal = memDetails.subtotal + memDetails.serviceSelectionsTotal;
             if (!vendor.membership.fee) vendor.membership.fee = memDetails.totalFee;
+
             if (!vendor.membership.category && memDetails.services.length > 0) {
                 const Service = require('../../models/Service.model');
                 const Subcategory = require('../../models/Subcategory.model');
@@ -1517,6 +1564,9 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
     if (uploadedDocs.selectedSubcategories) vendor.selectedSubcategories = uploadedDocs.selectedSubcategories;
     if (uploadedDocs.selectedServiceTypes || uploadedDocs.selectedType) vendor.selectedServiceTypes = uploadedDocs.selectedServiceTypes || uploadedDocs.selectedType;
     if (uploadedDocs.selectedServices) vendor.selectedServices = uploadedDocs.selectedServices;
+
+    // ── Auto-derive parent hierarchy (Categories, Subcategories, etc.) ──
+    await _deriveVendorHierarchy(vendor);
 
     docTypes.forEach(doc => {
         // Use lowercase check for uploadedDocs keys
