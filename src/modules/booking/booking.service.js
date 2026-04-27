@@ -947,20 +947,16 @@ const searchVendors = async (booking, broadcast = false) => {
         ...(booking.laterVendors || [])
     ].map(id => id.toString());
 
-    // ── Busy vendor exclusion logic (Sequential: One at a time per day) ──
-    // Disabled as per new requirement: Vendors should be able to accept orders during ongoing orders
-    const busyVendorIds = [];
-    /*
-    const activeBookings = await Booking.find({
-        scheduledDate: booking.scheduledDate,
-        status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] },
-        vendor: { $exists: true, $ne: null }
-    });
-
-    for (const activeBooking of activeBookings) {
-        busyVendorIds.push(activeBooking.vendor.toString());
-    }
-    */
+    // ── Vendors can receive new requests even if they have ongoing bookings (Allow concurrent orders) ──
+    // const busyVendorIds = [];
+    // const activeBookings = await Booking.find({
+    //     scheduledDate: booking.scheduledDate,
+    //     status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] },
+    //     vendor: { $exists: true, $ne: null }
+    // });
+    // for (const activeBooking of activeBookings) {
+    //     busyVendorIds.push(activeBooking.vendor.toString());
+    // }
 
     // ── Find services belonging to the booking's categories so we can match vendors by selectedServices too ──
     const servicesInCategories = await Service.find({ category: { $in: categoryIds } }).select('_id');

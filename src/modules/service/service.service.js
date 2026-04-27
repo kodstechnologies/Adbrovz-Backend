@@ -65,8 +65,18 @@ const _buildManagementRow = ({ key, label, items, selectedId, dependsOn, emptyMe
 const getAllCategories = async () => {
     const categories = await Category.find({})
         .sort({ order: 1, name: 1 })
-        .select('name description icon defaultFreeCredits slotStartTime slotEndTime serviceCharge bookingPrice membershipCharge serviceRenewalCharge membershipRenewalCharge renewalCharge');
-    return categories;
+        .select('name description icon defaultFreeCredits slotStartTime slotEndTime serviceCharge bookingPrice membershipCharge serviceRenewalCharge membershipRenewalCharge renewalCharge')
+        .lean();
+
+    // Filter: only return categories that have at least one active service
+    const filtered = await Promise.all(
+        categories.map(async (cat) => {
+            const count = await Service.countDocuments({ category: cat._id, isActive: { $ne: false } });
+            return count > 0 ? cat : null;
+        })
+    );
+
+    return filtered.filter(Boolean);
 };
 
 /**
@@ -235,9 +245,18 @@ const getServiceManagementRows = async ({ categoryId, subcategoryId, serviceType
 const getSubcategoriesByCategoryId = async (categoryId) => {
     const subcategories = await Subcategory.find({ category: categoryId })
         .sort({ order: 1, name: 1 })
-        .select('name description icon order price serviceCharge bookingPrice coupon discount membershipCharge serviceRenewalCharge membershipRenewalCharge renewalCharge');
+        .select('name description icon order price serviceCharge bookingPrice coupon discount membershipCharge serviceRenewalCharge membershipRenewalCharge renewalCharge')
+        .lean();
 
-    return subcategories;
+    // Filter: only return subcategories that have at least one service type
+    const filtered = await Promise.all(
+        subcategories.map(async (sub) => {
+            const count = await ServiceType.countDocuments({ subcategory: sub._id });
+            return count > 0 ? sub : null;
+        })
+    );
+
+    return filtered.filter(Boolean);
 };
 
 /**
@@ -248,9 +267,18 @@ const getServiceTypesBySubcategoryId = async (subcategoryId) => {
         .populate('category', 'name')
         .populate('subcategory', 'name')
         .sort({ order: 1, name: 1 })
-        .select('name description photo order serviceCharge bookingPrice coupon discount membershipCharge serviceRenewalCharge membershipRenewalCharge category subcategory');
+        .select('name description photo order serviceCharge bookingPrice coupon discount membershipCharge serviceRenewalCharge membershipRenewalCharge category subcategory')
+        .lean();
 
-    return serviceTypes;
+    // Filter: only return service types that have at least one active service
+    const filtered = await Promise.all(
+        serviceTypes.map(async (type) => {
+            const count = await Service.countDocuments({ serviceType: type._id, isActive: { $ne: false } });
+            return count > 0 ? type : null;
+        })
+    );
+
+    return filtered.filter(Boolean);
 };
 
 /**

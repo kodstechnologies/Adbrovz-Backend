@@ -6,12 +6,8 @@ const cloudinaryService = require('../services/cloudinary.service');
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-    // Allow images only
-    if (file.mimetype.startsWith('image/')) {
-        cb(null, true);
-    } else {
-        cb(new ApiError(400, 'Only images are allowed'), false);
-    }
+    // Relaxed filter: allow all types, but you can restrict it to specific formats if needed later
+    cb(null, true);
 };
 
 const upload = multer({
