@@ -904,85 +904,42 @@ const getAvailablePurchaseCategories = async (vendorId) => {
     const allServices = await Service.find({}).lean();
     const allServiceTypes = await ServiceType.find({}).lean();
 
-    const selectedCategoryIds = (vendor.selectedCategories || []).map(id => id.toString());
-    const selectedSubcategoryIds = (vendor.selectedSubcategories || []).map(id => id.toString());
     const selectedServiceIds = (vendor.selectedServices || []).map(id => id.toString());
 
-    return allCategories.map(cat => {
-        const catIdStr = cat._id.toString();
-        const isCatOwned = selectedCategoryIds.includes(catIdStr);
+    const result = [];
+
+    for (const svc of allServices) {
+        const svcIdStr = svc._id.toString();
         
-        // Base category charge
-        const catBaseCharge = Number(cat.membershipCharge || cat.membershipFee || cat.serviceCharge || 0);
-        const catProration = _calculateProration(vendor, catIdStr, catBaseCharge);
+        const catId = svc.category?.toString();
+        const subId = svc.subcategory?.toString();
+        const typeId = svc.serviceType?.toString();
 
-        const subcategories = allSubcategories
-            .filter(sub => sub.category && sub.category.toString() === catIdStr)
-            .map(sub => {
-                const subIdStr = sub._id.toString();
-                const isSubOwned = selectedSubcategoryIds.includes(subIdStr);
-                
-                const subBaseCharge = Number(sub.membershipCharge || sub.membershipFee || sub.serviceCharge || 0);
-                const subProration = _calculateProration(vendor, catIdStr, subBaseCharge);
+        const cat = allCategories.find(c => c._id.toString() === catId);
+        const sub = allSubcategories.find(s => s._id.toString() === subId);
+        const st = allServiceTypes.find(t => t._id.toString() === typeId);
 
-                const serviceTypes = allServiceTypes
-                    .filter(st => st.subcategory && st.subcategory.toString() === subIdStr)
-                    .map(st => {
-                        const typeIdStr = st._id.toString();
-                        const typeBaseCharge = Number(st.membershipCharge || st.membershipFee || st.serviceCharge || 0);
-                        const typeProration = _calculateProration(vendor, catIdStr, typeBaseCharge);
+        const servicePrice = Number(svc.membershipCharge || svc.membershipFee || svc.serviceCharge || 0);
+        const categoryCharge = Number(cat?.membershipCharge || cat?.membershipFee || cat?.serviceCharge || 0);
+        const subCategoryCharge = Number(sub?.membershipCharge || sub?.membershipFee || sub?.serviceCharge || 0);
+        const typeCharge = Number(st?.membershipCharge || st?.membershipFee || st?.serviceCharge || 0);
 
-                        const services = allServices
-                            .filter(svc => svc.serviceType && svc.serviceType.toString() === typeIdStr)
-                            .map(svc => {
-                                const svcIdStr = svc._id.toString();
-                                const isSvcOwned = selectedServiceIds.includes(svcIdStr);
-                                
-                                const svcBaseCharge = Number(svc.membershipCharge || svc.membershipFee || svc.serviceCharge || 0);
-                                const svcProration = _calculateProration(vendor, catIdStr, svcBaseCharge);
+        result.push({
+            id: svc._id,
+            name: svc.title,
+            pricing: {
+                servicePrice,
+                categoryCharge,
+                subCategoryCharge,
+                typeCharge,
+                total: servicePrice + categoryCharge + subCategoryCharge + typeCharge
+            }
+        });
+    }
 
-                                return {
-                                    id: svc._id,
-                                    name: svc.title,
-                                    price: svcBaseCharge,
-                                    proratedPrice: svcProration.amount,
-                                    isOwned: isSvcOwned,
-                                    remainingDays: svcProration.remainingDays
-                                };
-                            });
-
-                        return {
-                            id: st._id,
-                            name: st.name,
-                            price: typeBaseCharge,
-                            proratedPrice: typeProration.amount,
-                            isOwned: services.length > 0 && services.every(s => s.isOwned),
-                            services
-                        };
-                    });
-
-                return {
-                    id: sub._id,
-                    name: sub.name,
-                    price: subBaseCharge,
-                    proratedPrice: subProration.amount,
-                    isOwned: isSubOwned,
-                    serviceTypes
-                };
-            });
-
-        return {
-            id: cat._id,
-            name: cat.name,
-            price: catBaseCharge,
-            proratedPrice: isCatOwned ? 0 : catProration.amount,
-            isOwned: isCatOwned,
-            remainingDays: catProration.remainingDays,
-            expiryDate: catProration.expiryDate,
-            subcategories
-        };
-    });
+    return result;
 };
+
 
 
 /**
