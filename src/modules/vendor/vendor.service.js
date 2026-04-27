@@ -219,9 +219,12 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
     items.serviceTypes.forEach(t => servicesSubtotal += toNumber(t.membershipCharge));
     items.services.forEach(s => servicesSubtotal += toNumber(s.membershipCharge));
 
+    const adminService = require('../admin/admin.service');
+    const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 18;
+
     // GST is applied once on the full registration subtotal.
     const combinedSubtotal = membershipTotal + servicesSubtotal;
-    const finalGst = Math.round(combinedSubtotal * 0.18);
+    const finalGst = Math.round(combinedSubtotal * (gstPercent / 100));
     const grandTotal = combinedSubtotal + finalGst;
 
     return {
@@ -230,6 +233,7 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
         membershipTotal, // Treated as component in UI
         servicesSubtotal, // "Service Selections Total"
         combinedSubtotal,
+        gstPercent,
         finalGst,
         grandTotal,
         durationMonths: months,
@@ -389,11 +393,11 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
 
     return {
         vendorId,
-        subtotal: calc.membershipTotal,
+        subtotal: calc.combinedSubtotal,
         basePlanFee: calc.basePlanFee,
         totalServiceFee: calc.servicesSubtotal,
         platformSubtotal: calc.platformSubtotal,
-        gstPercent: 18,
+        gstPercent: calc.gstPercent,
         gstAmount: calc.finalGst,
         totalFee: calc.grandTotal,
         duration: `${calc.validityDays} days`,
@@ -439,11 +443,11 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
 
     return {
         vendorId,
-        subtotal: calc.membershipTotal,
+        subtotal: calc.combinedSubtotal,
         basePlanFee: calc.basePlanFee,
         totalServiceFee: calc.servicesSubtotal,
         platformSubtotal: calc.platformSubtotal,
-        gstPercent: 18,
+        gstPercent: calc.gstPercent,
         gstAmount: calc.finalGst,
         totalFee: calc.grandTotal,
         duration: `${calc.validityDays} days`,
@@ -942,8 +946,11 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
         if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
             const startDate = new Date();
             const durationMonths = vendor.membership.durationMonths || 3;
-            const expiryDate = new Date();
-            expiryDate.setMonth(expiryDate.getMonth() + durationMonths);
+            const plan = await getPlanByDuration(durationMonths);
+            const validityDays = plan.validityDays || (durationMonths * 30);
+
+            const expiryDate = new Date(startDate);
+            expiryDate.setDate(expiryDate.getDate() + Number(validityDays));
 
             vendor.membership.startDate = vendor.membership.startDate || startDate;
             vendor.membership.expiryDate = vendor.membership.expiryDate || expiryDate;
@@ -1006,8 +1013,11 @@ const verifyAllDocuments = async (vendorId) => {
     if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
         const startDate = new Date();
         const durationMonths = vendor.membership.durationMonths || 3;
-        const expiryDate = new Date();
-        expiryDate.setMonth(expiryDate.getMonth() + durationMonths);
+        const plan = await getPlanByDuration(durationMonths);
+        const validityDays = plan.validityDays || (durationMonths * 30);
+
+        const expiryDate = new Date(startDate);
+        expiryDate.setDate(expiryDate.getDate() + Number(validityDays));
 
         vendor.membership.startDate = vendor.membership.startDate || startDate;
         vendor.membership.expiryDate = vendor.membership.expiryDate || expiryDate;
@@ -1287,9 +1297,13 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
 
     if (vendor.isVerified) {
         const now = new Date();
+        const durationMonths = vendor.membership.durationMonths || 3;
+        const plan = await getPlanByDuration(durationMonths);
+        const validityDays = plan.validityDays || (durationMonths * 30);
+
         vendor.membership.startDate = vendor.membership.startDate || now;
         const expiryDate = new Date(vendor.membership.startDate);
-        expiryDate.setMonth(expiryDate.getMonth() + (vendor.membership.durationMonths || 3));
+        expiryDate.setDate(expiryDate.getDate() + Number(validityDays));
         vendor.membership.expiryDate = expiryDate;
 
         // Initialize service renewal window
