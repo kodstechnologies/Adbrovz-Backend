@@ -1951,6 +1951,9 @@ const getServiceRenewalFeeDetails = async (vendorId) => {
 
     return {
         vendorId: vendor._id,
+        subtotal: serviceSubtotal,
+        gstPercent: 0,
+        gstAmount: 0,
         totalFee: serviceSubtotal,
         serviceRenewal: {
             fee: serviceSubtotal,
