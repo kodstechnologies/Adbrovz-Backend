@@ -5,6 +5,7 @@ const CreditPlan = require('../../models/CreditPlan.model');
 const Service = require('../../models/Service.model');
 const ServiceType = require('../../models/ServiceType.model');
 const PaymentRecord = require('../../models/PaymentRecord.model');
+const Booking = require('../../models/Booking.model');
 const ApiError = require('../../utils/ApiError');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
@@ -139,6 +140,22 @@ const _deriveVendorHierarchy = async (vendor) => {
     console.log(`[Hierarchy] Derived for vendor ${vendor._id}: cats=${categoryIds.size}, subs=${subcategoryIds.size}, types=${serviceTypeIds.size}`);
 };
 
+/**
+ * Internal helper to resolve membership fee from any item (Category, Subcategory, etc.)
+ * Standardizes the fallback logic: membershipCharge > membershipFee > (price for sub) > serviceCharge
+ */
+const _getMembershipCharge = (item, type = 'service') => {
+    if (!item) return 0;
+    const charge = toNumber(item.membershipCharge || item.membershipFee);
+    if (charge > 0) return charge;
+
+    // Specific fallback for subcategories
+    if (type === 'subcategory' && item.price > 0) return toNumber(item.price);
+
+    // Last resort fallback to serviceCharge (commonly used in admin panel as registration fee)
+    return toNumber(item.serviceCharge);
+};
+
 
 /**
  * Internal helper to calculate membership fees consistently across APIs
@@ -228,10 +245,10 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
 
     // "Service Selections Total" comes from membership charges on selected items.
     let servicesSubtotal = 0;
-    if (items.categories.length > 0) items.categories.forEach(c => servicesSubtotal += toNumber(c.membershipCharge));
-    items.subcategories.forEach(s => servicesSubtotal += toNumber(s.membershipCharge || s.price));
-    items.serviceTypes.forEach(t => servicesSubtotal += toNumber(t.membershipCharge));
-    items.services.forEach(s => servicesSubtotal += toNumber(s.membershipCharge));
+    if (items.categories.length > 0) items.categories.forEach(c => servicesSubtotal += _getMembershipCharge(c, 'category'));
+    items.subcategories.forEach(s => servicesSubtotal += _getMembershipCharge(s, 'subcategory'));
+    items.serviceTypes.forEach(t => servicesSubtotal += _getMembershipCharge(t, 'serviceType'));
+    items.services.forEach(s => servicesSubtotal += _getMembershipCharge(s, 'service'));
 
     const adminService = require('../admin/admin.service');
     const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 18;
@@ -259,7 +276,7 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
                 type: 'category',
                 serviceCharge: toNumber(c.serviceCharge),
                 ownServiceCharge: toNumber(c.serviceCharge),
-                membershipCharge: toNumber(c.membershipCharge)
+                membershipCharge: _getMembershipCharge(c, 'category')
             })),
             ...items.subcategories.map(s => ({
                 id: s._id,
@@ -270,7 +287,7 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
                     subcategory: s
                 }),
                 ownServiceCharge: toNumber(s.serviceCharge),
-                membershipCharge: toNumber(s.membershipCharge || s.price)
+                membershipCharge: _getMembershipCharge(s, 'subcategory')
             })),
             ...items.serviceTypes.map(t => ({
                 id: t._id,
@@ -282,7 +299,7 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
                     serviceType: t
                 }),
                 ownServiceCharge: toNumber(t.serviceCharge),
-                membershipCharge: toNumber(t.membershipCharge)
+                membershipCharge: _getMembershipCharge(t, 'serviceType')
             })),
             ...items.services.map(s => ({
                 id: s._id,
@@ -295,7 +312,7 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
                     service: s
                 }),
                 ownServiceCharge: toNumber(s.serviceCharge),
-                membershipCharge: toNumber(s.membershipCharge)
+                membershipCharge: _getMembershipCharge(s, 'service')
             }))
         ]
     };
@@ -344,8 +361,8 @@ const getAllVendors = async () => {
         })
         .sort({ createdAt: -1 });
 
-    // Post-process to derive hierarchy if missing
-    return vendors.map(vendorDoc => {
+    // 1. Post-process to derive hierarchy if missing
+    const processedVendors = vendors.map(vendorDoc => {
         const vendor = vendorDoc.toObject();
 
         const categoriesMap = new Map();
@@ -387,25 +404,6 @@ const getAllVendors = async () => {
         vendor.selectedSubcategories = Array.from(subcategoriesMap.values());
         vendor.selectedServiceTypes = Array.from(serviceTypesMap.values());
 
-        // Compute plan status and validity
-        const now = new Date();
-        const expiry = vendor.membership?.expiryDate ? new Date(vendor.membership.expiryDate) : null;
-        const hasActiveMembership = expiry && expiry > now;
-        
-        vendor.planStatus = hasActiveMembership ? 'PAID' : 'UNPAID';
-        
-        if (expiry) {
-            const diffTime = expiry.getTime() - now.getTime();
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            if (diffDays > 0) {
-                vendor.planValidity = `${diffDays} Days Left`;
-            } else {
-                vendor.planValidity = 'Expired';
-            }
-        } else {
-            vendor.planValidity = 'UNPAID';
-        }
-
         // Ensure membership category name is available for the UI
         if (!vendor.membership?.category && vendor.selectedCategories.length > 0) {
             vendor.membership = vendor.membership || {};
@@ -414,7 +412,34 @@ const getAllVendors = async () => {
 
         return vendor;
     });
+
+    // 2. Aggregate booking counts for all vendors
+    const vendorIds = vendors.map(v => v._id);
+    const bookingCounts = await Booking.aggregate([
+        { $match: { vendor: { $in: vendorIds } } },
+        { $group: { 
+            _id: { vendor: "$vendor", status: "$status" }, 
+            count: { $sum: 1 } 
+        } }
+    ]);
+
+    const bookingStatusMap = {};
+    bookingCounts.forEach(bc => {
+        if (!bc._id.vendor) return;
+        const vId = bc._id.vendor.toString();
+        const status = bc._id.status;
+        if (!bookingStatusMap[vId]) bookingStatusMap[vId] = {};
+        bookingStatusMap[vId][status] = bc.count;
+    });
+
+    // 3. Attach booking counts to processed vendor objects
+    return processedVendors.map(vendor => {
+        vendor.bookingStatusCounts = bookingStatusMap[vendor.id] || {};
+        return vendor;
+    });
 };
+
+
 
 /**
  * Get membership info for registration
@@ -805,13 +830,13 @@ const getCategoryRegistrationData = async () => {
                     .map(svc => ({
                         id: svc._id,
                         name: svc.title,
-                        membershipFee: svc.membershipFee || 0
+                        membershipFee: _getMembershipCharge(svc, 'service')
                     }));
 
                 return {
                     id: sub._id,
                     name: sub.name,
-                    membershipFee: sub.price || 0,
+                    membershipFee: _getMembershipCharge(sub, 'subcategory'),
                     serviceRenewalCharge: sub.serviceRenewalCharge || 0,
                     renewalCharge: sub.renewalCharge || 0,
                     services: subServices
@@ -823,13 +848,13 @@ const getCategoryRegistrationData = async () => {
             .map(svc => ({
                 id: svc._id,
                 name: svc.title,
-                membershipFee: svc.membershipFee || 0
+                membershipFee: _getMembershipCharge(svc, 'service')
             }));
 
         return {
             id: cat._id,
             name: cat.name,
-            membershipFee: 0,
+            membershipFee: _getMembershipCharge(cat, 'category'),
             serviceRenewalCharge: cat.serviceRenewalCharge || 0,
             renewalCharge: cat.renewalCharge || 0,
             subcategories: catSubcategories,
@@ -919,10 +944,10 @@ const getAvailablePurchaseCategories = async (vendorId) => {
         const sub = allSubcategories.find(s => s._id.toString() === subId);
         const st = allServiceTypes.find(t => t._id.toString() === typeId);
 
-        const servicePrice = Number(svc.membershipCharge || svc.membershipFee || svc.serviceCharge || 0);
-        const categoryCharge = Number(cat?.membershipCharge || cat?.membershipFee || cat?.serviceCharge || 0);
-        const subCategoryCharge = Number(sub?.membershipCharge || sub?.membershipFee || sub?.serviceCharge || 0);
-        const typeCharge = Number(st?.membershipCharge || st?.membershipFee || st?.serviceCharge || 0);
+        const servicePrice = _getMembershipCharge(svc, 'service');
+        const categoryCharge = _getMembershipCharge(cat, 'category');
+        const subCategoryCharge = _getMembershipCharge(sub, 'subcategory');
+        const typeCharge = _getMembershipCharge(st, 'serviceType');
 
         result.push({
             id: svc._id,
@@ -2430,7 +2455,7 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     const isCatOwned = (vendor.selectedCategories || []).map(id => id.toString()).includes(categoryId.toString());
     
     // Category Charge (0 if already owned)
-    const categoryBaseCharge = Number(category.membershipCharge || category.membershipFee || category.serviceCharge || 0);
+    const categoryBaseCharge = _getMembershipCharge(category, 'category');
     const categoryProration = isCatOwned ? { amount: 0, remainingDays: 0 } : _calculateProration(vendor, categoryId, categoryBaseCharge);
     
     let totalFee = categoryProration.amount;
@@ -2463,7 +2488,7 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     }
 
     subcategories.forEach(sub => {
-        const baseCharge = Number(sub.membershipCharge || sub.membershipFee || sub.price || sub.serviceCharge || 0);
+        const baseCharge = _getMembershipCharge(sub, 'subcategory');
         const proration = _calculateProration(vendor, categoryId, baseCharge);
         
         totalFee += proration.amount;
@@ -2489,7 +2514,7 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     });
 
     services.forEach(svc => {
-        const baseCharge = Number(svc.membershipCharge || svc.membershipFee || svc.serviceCharge || 0);
+        const baseCharge = _getMembershipCharge(svc, 'service');
         const proration = _calculateProration(vendor, categoryId, baseCharge);
         
         totalFee += proration.amount;
