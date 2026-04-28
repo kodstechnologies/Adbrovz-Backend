@@ -20,7 +20,7 @@ const adminSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: [ROLES.ADMIN, ROLES.SUPER_ADMIN],
+      enum: [ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN],
       default: ROLES.ADMIN,
     },
     name: {
@@ -39,6 +39,9 @@ const adminSchema = new mongoose.Schema(
       timestamp: { type: Date },
       ip: { type: String },
       userAgent: { type: String },
+    }],
+    permissions: [{
+      type: String,
     }],
   },
   {

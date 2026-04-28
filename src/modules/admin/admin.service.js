@@ -1,4 +1,7 @@
 const Category = require('../../models/Category.model');
+const Admin = require('../../models/Admin.model');
+const { hashPassword } = require('../../utils/password');
+const { ROLES } = require('../../constants/roles');
 const Subcategory = require('../../models/Subcategory.model');
 const ServiceType = require('../../models/ServiceType.model');
 const Service = require('../../models/Service.model');
@@ -407,24 +410,27 @@ const getMembershipPricing = async () => {
     const elite = tiers.find(t => t.name === 'Elite') || { price: 4000, validityDays: 88 };
     
     const gstPercent = await getSetting('pricing.membership_gst_percent');
+    const vendorBaseFeeSetting = await getSetting('pricing.vendor_base_membership_fee');
+    const vendorBaseFee = Number(vendorBaseFeeSetting || 0);
 
     return {
         // Original keys for backward compatibility (duration-mapped)
         // These will now reflect the actual prices of Basic, Pro, Elite respectively
-        fee3Months: basic.price,
-        fee6Months: pro.price,
-        fee12Months: elite.price,
-        gstPercent: Number(gstPercent) || 18,
+        fee3Months: basic.price + vendorBaseFee,
+        fee6Months: pro.price + vendorBaseFee,
+        fee12Months: elite.price + vendorBaseFee,
+        gstPercent: (gstPercent !== undefined && gstPercent !== null) ? Number(gstPercent) : 18,
 
         // UI-friendly keys for Basic/Pro/Elite mapping
-        basicPrice: basic.price,
-        proPrice: pro.price,
-        elitePrice: elite.price,
+        basicPrice: basic.price + vendorBaseFee,
+        proPrice: pro.price + vendorBaseFee,
+        elitePrice: elite.price + vendorBaseFee,
 
         // Custom Validity Days
         basicValidity: basic.validityDays,
         proValidity: pro.validityDays,
         eliteValidity: elite.validityDays,
+        vendorBaseFee,
 
         // Full plans list for modern UI
         plans: tiers.map(t => ({
@@ -829,6 +835,60 @@ const getGlobalTransactions = async (query = {}) => {
 };
 
 
+// ---- Sub-Admin Management ----
+
+const getSubAdmins = async () => {
+  return await Admin.find({ role: ROLES.SUB_ADMIN }).sort({ createdAt: -1 }).select('-password');
+};
+
+const createSubAdmin = async (data) => {
+  const { name, username, email, phoneNumber, password, permissions = [] } = data;
+
+  const existing = await Admin.findOne({ username });
+  if (existing) throw new ApiError(400, 'Username already exists');
+
+  const hashedPassword = await hashPassword(password);
+
+  const subAdmin = await Admin.create({
+    name,
+    username,
+    email,
+    phoneNumber,
+    password: hashedPassword,
+    role: ROLES.SUB_ADMIN,
+    permissions,
+  });
+
+  const result = subAdmin.toObject();
+  delete result.password;
+  return result;
+};
+
+const updateSubAdmin = async (id, data) => {
+  const { name, username, email, phoneNumber, password, permissions } = data;
+
+  const update = { name, username, email, phoneNumber, permissions };
+
+  if (password && password.trim() !== '') {
+    update.password = await hashPassword(password);
+  }
+
+  const subAdmin = await Admin.findOneAndUpdate(
+    { _id: id, role: ROLES.SUB_ADMIN },
+    { $set: update },
+    { new: true }
+  ).select('-password');
+
+  if (!subAdmin) throw new ApiError(404, 'Sub-Admin not found');
+  return subAdmin;
+};
+
+const deleteSubAdmin = async (id) => {
+  const subAdmin = await Admin.findOneAndDelete({ _id: id, role: ROLES.SUB_ADMIN });
+  if (!subAdmin) throw new ApiError(404, 'Sub-Admin not found');
+  return subAdmin;
+};
+
 module.exports = {
   getDashboardStats,
   getAllUsers,
@@ -845,7 +905,7 @@ module.exports = {
   rejectVendorAccount,
   respondToVendorDeletion,
   getEligibleVendors,
-  getGlobalSettings,  
+  getGlobalSettings,
   updateGlobalSettings,
   getSetting,
   getMembershipPricing,
@@ -854,5 +914,9 @@ module.exports = {
   getBookingDetails,
   exportBookingsCSV,
   getVendorPaymentHistory,
-  getGlobalTransactions
+  getGlobalTransactions,
+  getSubAdmins,
+  createSubAdmin,
+  updateSubAdmin,
+  deleteSubAdmin,
 };

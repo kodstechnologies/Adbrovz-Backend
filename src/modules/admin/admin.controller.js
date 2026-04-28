@@ -229,6 +229,31 @@ const getGlobalTransactions = asyncHandler(async (req, res) => {
   );
 });
 
+// Sub-Admin management
+const getSubAdmins = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const subAdmins = await adminService.getSubAdmins();
+  res.status(200).json(new ApiResponse(200, subAdmins, 'Sub-admins retrieved successfully'));
+});
+
+const createSubAdmin = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const subAdmin = await adminService.createSubAdmin(req.body);
+  res.status(201).json(new ApiResponse(201, subAdmin, 'Sub-admin created successfully'));
+});
+
+const updateSubAdmin = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const subAdmin = await adminService.updateSubAdmin(req.params.id, req.body);
+  res.status(200).json(new ApiResponse(200, subAdmin, 'Sub-admin updated successfully'));
+});
+
+const deleteSubAdmin = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  await adminService.deleteSubAdmin(req.params.id);
+  res.status(200).json(new ApiResponse(200, null, 'Sub-admin deleted successfully'));
+});
+
 module.exports = {
   getDashboard,
   getUsers,
@@ -253,5 +278,9 @@ module.exports = {
   exportBookings,
   getVendorPaymentHistory,
   getGlobalTransactions,
-  respondToVendorDeletionRequest
+  respondToVendorDeletionRequest,
+  getSubAdmins,
+  createSubAdmin,
+  updateSubAdmin,
+  deleteSubAdmin,
 };

@@ -1,6 +1,7 @@
 const ROLES = {
   USER: 'user',
   VENDOR: 'vendor',
+  SUB_ADMIN: 'sub_admin',
   ADMIN: 'admin',
   SUPER_ADMIN: 'super_admin',
 };
@@ -8,8 +9,9 @@ const ROLES = {
 const ROLE_HIERARCHY = {
   [ROLES.USER]: 1,
   [ROLES.VENDOR]: 2,
-  [ROLES.ADMIN]: 3,
-  [ROLES.SUPER_ADMIN]: 4,
+  [ROLES.SUB_ADMIN]: 3,
+  [ROLES.ADMIN]: 4,
+  [ROLES.SUPER_ADMIN]: 5,
 };
 
 module.exports = {

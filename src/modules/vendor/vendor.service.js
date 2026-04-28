@@ -241,7 +241,9 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
     items.services.forEach(s => platformSubtotal += toNumber(s.serviceCharge));
 
     // "Platform Membership Fee" in the UI is the plan base fee itself.
-    const membershipTotal = baseFee;
+    const vendorBaseSetting = await adminService.getSetting('pricing.vendor_base_membership_fee');
+    const vendorBaseFee = Number(vendorBaseSetting || 0);
+    const membershipTotal = baseFee + vendorBaseFee;
 
     // "Service Selections Total" comes from membership charges on selected items.
     let servicesSubtotal = 0;
@@ -251,7 +253,8 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
     items.services.forEach(s => servicesSubtotal += _getMembershipCharge(s, 'service'));
 
     const adminService = require('../admin/admin.service');
-    const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 18;
+    const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
 
     // GST is applied once on the full registration subtotal.
     const combinedSubtotal = membershipTotal + servicesSubtotal;
@@ -781,11 +784,15 @@ const getMembershipPlans = async (serviceMembershipFee = 0, options = {}) => {
         resolvedServiceMembershipFee = calc.servicesSubtotal;
     }
 
-    const gstPercent = await adminService.getSetting('pricing.membership_gst_percent') || 0;
+    const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18; // Use 18 as consistent default
+
+    const vendorBaseSetting = await adminService.getSetting('pricing.vendor_base_membership_fee');
+    const vendorBaseFee = Number(vendorBaseSetting || 0);
 
     const result = [];
     for (const plan of tiers) {
-        const baseFee = plan.price || 0;
+        const baseFee = (plan.price || 0) + vendorBaseFee;
         const validityDays = plan.validityDays || 30;
         const serviceFee = Number(resolvedServiceMembershipFee || 0);
 
@@ -2542,11 +2549,11 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
         }
     });
 
-    // Extra category purchases use 18% GST consistent with registration
-    const gstPercent = 18;
+    // Extra category purchases use dynamic GST consistent with registration
+    const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
     const gstAmount = Math.round(totalFee * (gstPercent / 100));
     const totalWithGst = totalFee + gstAmount;
-
     return {
         vendorId,
         categoryId,

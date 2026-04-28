@@ -17,7 +17,7 @@ const couponRoutes = require('./coupon.route');
 router.use('/coupons', couponRoutes);
 
 router.use(authenticate);
-router.use(authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN));
+router.use(authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN));
 
 router.get('/dashboard', adminController.getDashboard);
 router.get('/users', adminController.getUsers);
@@ -57,6 +57,11 @@ router.get('/bookings/export', adminController.exportBookings);
 router.get('/bookings', adminController.getAllBookings);
 router.get('/bookings/:id', adminController.getBookingDetails);
 
+// Sub-Admin management
+router.post('/sub-admins', adminController.createSubAdmin);
+router.get('/sub-admins', adminController.getSubAdmins);
+router.put('/sub-admins/:id', adminController.updateSubAdmin);
+router.delete('/sub-admins/:id', adminController.deleteSubAdmin);
 
 module.exports = router;
 
