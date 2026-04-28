@@ -267,11 +267,11 @@ const vendorSchema = new mongoose.Schema(
              const days = Math.ceil(minDiff / (1000 * 60 * 60 * 24));
              ret.membership.validity = days > 0 ? `${days}d remaining` : 'Expired';
           }
-          // Explicitly set planStatus at top level for UI robustness
-          ret.planStatus = ret.membership.planStatus;
+          ret.planStatus = (ret.membership && ret.membership.expiryDate && new Date(ret.membership.expiryDate) > new Date()) ? 'PAID' : 'UNPAID';
+          if (ret.isVerified) ret.planStatus = 'PAID';
         } else {
           // If no membership object exists at all
-          const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep);
+          const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep) || ret.isVerified;
           ret.planStatus = hasPaid ? 'PAID' : 'UNPAID';
         }
 
@@ -281,7 +281,7 @@ const vendorSchema = new mongoose.Schema(
         const now = new Date();
         
         if (!memExp) {
-            const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep);
+            const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep) || ret.isVerified;
             ret.planValidity = hasPaid ? 'Pending Review' : 'UNPAID';
         } else {
             const isMemExpired = now > memExp;

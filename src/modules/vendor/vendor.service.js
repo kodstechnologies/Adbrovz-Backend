@@ -736,12 +736,13 @@ const purchaseMembership = async (vendorId) => {
     if (!vendor.membership.totalAmount || !vendor.membership.category) {
         try {
             const memDetails = await getVendorMembershipDetails(vendorId);
-            if (!vendor.membership.membershipFee) vendor.membership.membershipFee = memDetails.subtotal; // membershipTotal from calc
-            if (!vendor.membership.serviceFee) vendor.membership.serviceFee = memDetails.serviceSelectionsTotal;
-            if (!vendor.membership.gstAmount) vendor.membership.gstAmount = memDetails.gstAmount;
-            if (!vendor.membership.totalAmount) vendor.membership.totalAmount = memDetails.totalFee;
-            if (!vendor.membership.subtotal) vendor.membership.subtotal = memDetails.subtotal + memDetails.serviceSelectionsTotal;
-            if (!vendor.membership.fee) vendor.membership.fee = memDetails.totalFee;
+            vendor.membership.membershipFee = memDetails.basePlanFee; 
+            vendor.membership.serviceFee = memDetails.totalServiceFee;
+            vendor.membership.gstAmount = memDetails.gstAmount;
+            vendor.membership.totalAmount = memDetails.totalFee;
+            vendor.membership.subtotal = memDetails.subtotal;
+            vendor.membership.fee = memDetails.basePlanFee; 
+            vendor.membership.durationMonths = memDetails.durationMonths;
 
             if (!vendor.membership.category && memDetails.services.length > 0) {
                 const Service = require('../../models/Service.model');

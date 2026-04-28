@@ -151,12 +151,20 @@ const acceptBooking = async (vendorId, bookingId) => {
         let distance = 0;
         if (vendor?.liveLocation?.coordinates && source.location?.latitude) {
             const [vLng, vLat] = vendor.liveLocation.coordinates;
-            const { latitude: bLat, longitude: bLng } = source.location;
-            distance = calculateDistance(vLat, vLng, bLat, bLng);
+            // Ignore [0,0] as it's usually a default/invalid location (off Africa coast)
+            if (vLat !== 0 && vLng !== 0) {
+                const { latitude: bLat, longitude: bLng } = source.location;
+                distance = calculateDistance(vLat, vLng, bLat, bLng);
+            }
         }
 
-        const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 0;
-        const travelCharge = distance * perKmCharge;
+        const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 10;
+        const baseCharge = 50; // Default base visit charge
+        let travelCharge = baseCharge + (distance * perKmCharge);
+        
+        // Cap travel charge at a reasonable amount (e.g., ₹500)
+        if (travelCharge > 500) travelCharge = 500;
+        travelCharge = Math.round(travelCharge * 100) / 100; // Round to 2 decimals
 
         // Finalize existing Booking
         booking.vendor = vendorId;
