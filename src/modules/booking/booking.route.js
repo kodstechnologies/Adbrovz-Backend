@@ -62,6 +62,9 @@ router.post('/vendor/:id/cancel', authenticate, bookingController.vendorCancelBo
 
 router.get('/:id', authenticate, bookingController.getBookingById);
 
+// API trigger: manually re-broadcast an order to vendors via socket
+router.post('/broadcast/:bookingId', bookingController.triggerBroadcast);
+
 // TEMPORARY: Debug route to trigger notification
 router.post('/debug/trigger-notification', async (req, res) => {
     try {

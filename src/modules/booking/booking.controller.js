@@ -547,6 +547,16 @@ const vendorRejectExtraServices = asyncHandler(async (req, res) => {
         new ApiResponse(200, result.booking, result.message)
     );
 });
+/**
+ * Trigger a broadcast for a pending booking to re-notify vendors via socket
+ */
+const triggerBroadcast = asyncHandler(async (req, res) => {
+    const { bookingId } = req.params;
+    const result = await bookingService.triggerBroadcast(bookingId);
+    res.status(200).json(
+        new ApiResponse(200, result, result.message)
+    );
+});
 
 module.exports = {
     // Lead flow
@@ -590,5 +600,6 @@ module.exports = {
     vendorConfirmExtraServices,
     vendorRejectExtraServices,
     userConfirmExtraServices,
-    userRejectExtraServices
+    userRejectExtraServices,
+    triggerBroadcast
 };

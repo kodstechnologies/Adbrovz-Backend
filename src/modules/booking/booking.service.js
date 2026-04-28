@@ -1033,7 +1033,8 @@ const searchVendors = async (booking, broadcast = false) => {
 
             // Fetch latest data for broadcast
             const populatedBooking = await Booking.findById(booking._id)
-                .populate('services.service', 'title serviceCharge photo')
+                .populate('services.service', 'title serviceCharge photo approxCompletionTime')
+                .populate('category', 'title name')
                 .populate('user', 'name phoneNumber photo');
 
             if (!populatedBooking) return [];
@@ -2927,6 +2928,28 @@ const broadcastVendorLocation = async (vendorId, lat, lng) => {
     });
 };
 
+/**
+ * Trigger a broadcast for a specific booking to all matched vendors via socket.
+ * Can be called via API to manually re-trigger order notifications.
+ */
+const triggerBroadcast = async (bookingId) => {
+    const booking = await Booking.findById(bookingId);
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (booking.status !== 'pending_acceptance') {
+        throw new ApiError(400, `Cannot broadcast: booking status is '${booking.status}'. Only 'pending_acceptance' bookings can be broadcasted.`);
+    }
+
+    console.log(`[BROADCAST] Manual trigger for booking ${booking._id}`);
+    const vendors = await searchVendors(booking, true);
+    return {
+        bookingId: booking._id,
+        bookingID: booking.bookingID,
+        vendorsSearched: vendors.length,
+        message: `Broadcast triggered. Found ${vendors.length} matching vendors.`
+    };
+};
+
 module.exports = {
     // Booking flow
     createBookingRequest,
@@ -2971,5 +2994,6 @@ module.exports = {
     userConfirmExtraServices,
     userRejectExtraServices,
     shouldTrackVendor,
-    broadcastVendorLocation
+    broadcastVendorLocation,
+    triggerBroadcast
 };
