@@ -36,11 +36,13 @@ const getPlanByDuration = async (months) => {
 
     // 3. Last fallback: Find the plan with the closest validityDays
     if (!plan) {
-        const targetDays = months * 30;
-        const allPlans = await CreditPlan.find({ name: { $in: ['Basic', 'Pro', 'Elite'] } }).lean();
+        const targetDays = months * 10; // Adjust for legacy 3->30 mapping if needed, but better to use exact
+        const allPlans = await CreditPlan.find().lean();
         if (allPlans.length > 0) {
             plan = allPlans.reduce((prev, curr) => {
-                return (Math.abs(curr.validityDays - targetDays) < Math.abs(prev.validityDays - targetDays) ? curr : prev);
+                const prevDiff = Math.abs((prev.durationMonths || (prev.validityDays / 10)) - months);
+                const currDiff = Math.abs((curr.durationMonths || (curr.validityDays / 10)) - months);
+                return currDiff < prevDiff ? curr : prev;
             });
         }
     }
@@ -53,7 +55,8 @@ const getPlanByDuration = async (months) => {
         id: plan._id,
         name: plan.name,
         price: Number(plan.price),
-        validityDays: Number(plan.validityDays)
+        validityDays: Number(plan.validityDays),
+        durationMonths: Number(plan.durationMonths || Math.round(plan.validityDays / 30))
     };
 };
 
@@ -270,7 +273,7 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
         gstPercent,
         finalGst,
         grandTotal,
-        durationMonths: months,
+        durationMonths: Math.max(1, Math.round(plan.validityDays / 30)),
         validityDays: plan.validityDays,
         itemBreakdown: [
             ...items.categories.map(c => ({
@@ -800,7 +803,7 @@ const getMembershipPlans = async (serviceMembershipFee = 0, options = {}) => {
         const gstAmount = Math.round(subtotal * (gstPercent / 100));
         const totalFee = Number(subtotal + gstAmount);
 
-        // Approximate duration in months for backward compatibility
+        // Approximate duration in months based on validityDays
         const durationMonths = Math.max(1, Math.round(validityDays / 30));
 
         result.push({

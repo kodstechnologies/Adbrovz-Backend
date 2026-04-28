@@ -436,7 +436,7 @@ const getMembershipPricing = async () => {
         plans: tiers.map(t => ({
             id: t._id,
             name: t.name,
-            price: t.price,
+            price: t.price + vendorBaseFee,
             validityDays: t.validityDays
         }))
     };
@@ -458,7 +458,8 @@ const updateMembershipPricing = async (data, adminId) => {
             { 
                 $set: { 
                     ...(basicPrice !== undefined && { price: Number(basicPrice) }),
-                    ...(basicValidity !== undefined && { validityDays: Number(basicValidity) })
+                    ...(basicValidity !== undefined && { validityDays: Number(basicValidity) }),
+                    ...(basicDuration !== undefined && { durationMonths: Number(basicDuration) })
                 } 
             },
             { upsert: true }
@@ -484,7 +485,8 @@ const updateMembershipPricing = async (data, adminId) => {
             { 
                 $set: { 
                     ...(elitePrice !== undefined && { price: Number(elitePrice) }),
-                    ...(eliteValidity !== undefined && { validityDays: Number(eliteValidity) })
+                    ...(eliteValidity !== undefined && { validityDays: Number(eliteValidity) }),
+                    ...(eliteDuration !== undefined && { durationMonths: Number(eliteDuration) })
                 } 
             },
             { upsert: true }
