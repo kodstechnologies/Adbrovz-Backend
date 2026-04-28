@@ -243,7 +243,7 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
     items.serviceTypes.forEach(t => platformSubtotal += toNumber(t.serviceCharge));
     items.services.forEach(s => platformSubtotal += toNumber(s.serviceCharge));
 
-    // "Platform Membership Fee" in the UI is the plan base fee itself.
+    const adminService = require('../admin/admin.service');
     const vendorBaseSetting = await adminService.getSetting('pricing.vendor_base_membership_fee');
     const vendorBaseFee = Number(vendorBaseSetting || 0);
     const membershipTotal = baseFee + vendorBaseFee;
@@ -255,7 +255,6 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
     items.serviceTypes.forEach(t => servicesSubtotal += _getMembershipCharge(t, 'serviceType'));
     items.services.forEach(s => servicesSubtotal += _getMembershipCharge(s, 'service'));
 
-    const adminService = require('../admin/admin.service');
     const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
     const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
 
