@@ -19,18 +19,18 @@ router.post('/get-membership', vendorController.getMembership);
 router.get('/membership-plans', optionalAuth, vendorController.getMembershipPlans);
 router.get('/membership-detail', authenticate, authorize(ROLES.VENDOR), vendorController.getVendorMembership);
 router.get('/membership-details', authenticate, authorize(ROLES.VENDOR), vendorController.getVendorMembership);
-router.get('/:vendorId/membership-detail', authenticate, authorize(ROLES.ADMIN), vendorController.getVendorMembership);
+router.get('/:vendorId/membership-detail', authenticate, authorize(ROLES.ADMIN, ROLES.SUB_ADMIN), vendorController.getVendorMembership);
 router.post('/register/select-services', authenticate, authorize(ROLES.VENDOR), vendorController.selectServices);
 router.post('/register/purchase-membership', authenticate, authorize(ROLES.VENDOR), vendorController.purchaseMembership);
 router.post('/register/purchase-plan', authenticate, authorize(ROLES.VENDOR), vendorController.purchaseCreditPlan);
-router.post('/register/:vendorId/select-services', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), vendorController.selectServices);
-router.post('/register/:vendorId/purchase-membership', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), vendorController.purchaseMembership);
-router.post('/register/:vendorId/purchase-plan', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), vendorController.purchaseCreditPlan);
+router.post('/register/:vendorId/select-services', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.selectServices);
+router.post('/register/:vendorId/purchase-membership', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.purchaseMembership);
+router.post('/register/:vendorId/purchase-plan', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.purchaseCreditPlan);
 
 // Admin-level Add Category Configuration
-router.post('/register/:vendorId/add-category/fee', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), vendorController.getAddCategoryFee);
-router.post('/register/:vendorId/add-category/activate', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), vendorController.activateAddCategory);
-router.get('/register/categories-data', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), vendorController.getCategoryRegistrationData);
+router.post('/register/:vendorId/add-category/fee', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getAddCategoryFee);
+router.post('/register/:vendorId/add-category/activate', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.activateAddCategory);
+router.get('/register/categories-data', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getCategoryRegistrationData);
 
 // Membership create-order — vendorId is extracted from JWT token, NOT from URL
 router.post('/membership/create-order', authenticate, authorize(ROLES.VENDOR), vendorController.createMembershipOrder);
@@ -63,7 +63,7 @@ router.post('/membership/renewal/verify', authenticate, authorize(ROLES.VENDOR),
 
 // Vendor status routes
 router.patch('/status', authenticate, authorize(ROLES.VENDOR), vendorController.toggleOnlineStatus);
-router.patch('/:vendorId/status', authenticate, authorize(ROLES.ADMIN), vendorController.toggleOnlineStatus);
+router.patch('/:vendorId/status', authenticate, authorize(ROLES.ADMIN, ROLES.SUB_ADMIN), vendorController.toggleOnlineStatus);
 
 // Profile routes
 router.get('/profile', authenticate, authorize(ROLES.VENDOR), vendorController.getProfile);
@@ -77,7 +77,7 @@ router.delete('/account', authenticate, authorize(ROLES.VENDOR), vendorControlle
 
 
 // Admin can also get profile by ID
-router.get('/profile/:vendorId', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), vendorController.getProfile);
+router.get('/profile/:vendorId', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getProfile);
 
 
 // Public/Common routes
@@ -90,7 +90,7 @@ router.get('/plans', async (req, res) => {
 
 // Admin only routes
 router.use(authenticate);
-router.use(authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN));
+router.use(authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN));
 
 router.get('/', vendorController.getAllVendors);
 

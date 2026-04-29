@@ -30,6 +30,19 @@ const createBookingRequest = async (
     const leadCategory = subcategory?.category?._id;
 
     // ── Time Slot Validation ──
+    if (scheduledDate && scheduledTime) {
+        const [hour, minute] = scheduledTime.split(':').map(Number);
+        const y = new Date(scheduledDate).getFullYear();
+        const m = new Date(scheduledDate).getMonth();
+        const d = new Date(scheduledDate).getDate();
+        // Construct date in IST (assuming IST since the app uses +05:30 in other places)
+        const slotDate = new Date(`${new Date(scheduledDate).toISOString().split('T')[0]}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+05:30`);
+        
+        if ((slotDate.getTime() - Date.now()) < 30 * 60000) {
+            throw new ApiError(400, 'Bookings must be scheduled at least 30 minutes in advance');
+        }
+    }
+
     if (subcategory?.timeSlots && subcategory.timeSlots.length > 0) {
         const activeSlots = subcategory.timeSlots.filter(s => s.isActive);
         if (activeSlots.length > 0) {
@@ -834,6 +847,17 @@ const createBooking = async (userId, bookingData) => {
         throw new ApiError(403, `You are temporarily banned from making bookings until ${user.bannedUntil.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} due to multiple cancellations.`);
     }
 
+    // ── 30-Minute Buffer Validation ──
+    if (date && time) {
+        const [hour, minute] = time.split(':').map(Number);
+        // Construct date in IST
+        const slotDate = new Date(`${new Date(date).toISOString().split('T')[0]}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+05:30`);
+        
+        if ((slotDate.getTime() - Date.now()) < 30 * 60000) {
+            throw new ApiError(400, 'Bookings must be scheduled at least 30 minutes in advance');
+        }
+    }
+
     const existingBookingsCount = await Booking.countDocuments({ user: userId });
 
     // First booking OTP requirement
@@ -1212,6 +1236,12 @@ const markBookingLater = async (vendorId, bookingId) => {
  * Get vendor booking history (including Later)
  */
 const getVendorBookingHistory = async (vendorId) => {
+    const Vendor = require('../../models/Vendor.model');
+    const vendor = await Vendor.findById(vendorId).select('isVerified documentStatus');
+    if (!vendor?.isVerified || vendor?.documentStatus !== 'approved') {
+        return { pending: [], ongoing: [], completed: [], cancelled: [] };
+    }
+
     const vendorIdObj = new mongoose.Types.ObjectId(vendorId);
 
     // 1. Pending (Accepted by vendor but not started)
@@ -1245,6 +1275,12 @@ const getVendorBookingHistory = async (vendorId) => {
  * Get Vendor's Later Bookings List
  */
 const getVendorLaterBookings = async (vendorId) => {
+    const Vendor = require('../../models/Vendor.model');
+    const vendor = await Vendor.findById(vendorId).select('isVerified documentStatus');
+    if (!vendor?.isVerified || vendor?.documentStatus !== 'approved') {
+        return [];
+    }
+
     const vendorIdObj = new mongoose.Types.ObjectId(vendorId);
 
     // Later Bookings (Only those still pending acceptance!)
@@ -1416,7 +1452,8 @@ const getAvailableSlots = async (vendorId, date, excludeBookingId) => {
                 Math.max(slotStart, w.start) < Math.min(slotEnd, w.end)
             );
 
-            if (!overlaps) {
+            const isAvailable = (slotStart.getTime() - Date.now()) >= 30 * 60000;
+            if (!overlaps && isAvailable) {
                 slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
             }
         }
@@ -1560,6 +1597,12 @@ const getBookingsByUser = async (userId) => {
 };
 
 const getBookingsByVendor = async (vendorId) => {
+    const Vendor = require('../../models/Vendor.model');
+    const vendor = await Vendor.findById(vendorId).select('isVerified documentStatus');
+    if (!vendor?.isVerified || vendor?.documentStatus !== 'approved') {
+        return [];
+    }
+
     const bookings = await Booking.find({ vendor: vendorId })
         .populate('services.service', 'title serviceCharge photo')
         .populate('proposedServices.service', 'title serviceCharge photo')

@@ -275,6 +275,14 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
         durationMonths: Math.max(1, Math.round(plan.validityDays / 30)),
         validityDays: plan.validityDays,
         itemBreakdown: [
+            {
+                id: 'platform_base',
+                title: 'Platform Membership Fee',
+                type: 'platform',
+                serviceCharge: 0,
+                ownServiceCharge: 0,
+                membershipCharge: membershipTotal
+            },
             ...items.categories.map(c => ({
                 id: c._id,
                 title: c.name,
@@ -1598,8 +1606,23 @@ const getDashboardMetrics = async (vendorId) => {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-    // 1. Get vendor credits (coins)
-    const vendor = await Vendor.findById(vendorIdObj).select('coins');
+    // 1. Get vendor credits (coins) and verification status
+    const vendor = await Vendor.findById(vendorIdObj).select('coins isVerified documentStatus');
+    
+    // If vendor is not verified, they should not see any booking data
+    if (!vendor?.isVerified || vendor?.documentStatus !== 'approved') {
+        return {
+            credits: vendor?.coins || 0,
+            pendingJobs: 0,
+            ongoingJobs: 0,
+            jobsCompletedThisMonth: 0,
+            earningsThisMonth: 0,
+            jobProgress: 0,
+            isVerified: false,
+            message: 'Complete your verification to view booking data'
+        };
+    }
+
     const credits = vendor?.coins || 0;
 
     // 2. Get pending jobs (Awaiting Confirmation)

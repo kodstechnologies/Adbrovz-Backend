@@ -1276,7 +1276,7 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330) => {
                 
                 if (slotEndUTCMs > categoryEndUTCMs) break;
 
-                const isAvailable = slotStartUTCMs > now.getTime();
+                const isAvailable = (slotStartUTCMs - now.getTime()) >= 30 * 60000;
                 
                 if (isAvailable) {
                     dailySlots.push({
