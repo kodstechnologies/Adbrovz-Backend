@@ -255,28 +255,27 @@ const vendorSchema = new mongoose.Schema(
           const isMemExpired = memExp ? now > memExp : false;
           const isRenExpired = renExp ? now > renExp : false; // Only mark as expired if it exists and is in the past
           
+          const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED', 'SIGNUP_COMPLETED'].includes(ret.registrationStep) || ret.isVerified;
+          
           if (!memExp) {
-            // Check if they have paid but not yet verified (expiryDate is set on verification)
-            const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep);
             ret.membership.planStatus = hasPaid ? 'PAID' : 'UNPAID';
             ret.membership.validity = hasPaid ? 'Pending Review' : 'UNPAID';
+            ret.planStatus = hasPaid ? 'PAID' : 'UNPAID';
           } else if (isMemExpired || isRenExpired) {
-             ret.membership.planStatus = 'EXPIRED';
-             ret.membership.validity = 'Expired';
+            ret.membership.planStatus = 'EXPIRED';
+            ret.membership.validity = 'Expired';
+            ret.planStatus = 'EXPIRED';
           } else {
-             ret.membership.planStatus = 'PAID';
-             // Show whichever validity is closer to expiring (if renExp exists)
-             const memDiff = memExp - now;
-             const renDiff = renExp ? renExp - now : Infinity;
-             const minDiff = Math.min(memDiff, renDiff);
-             const days = Math.ceil(minDiff / (1000 * 60 * 60 * 24));
-             ret.membership.validity = days > 0 ? `${days}d remaining` : 'Expired';
+            ret.membership.planStatus = 'PAID';
+            const memDiff = memExp - now;
+            const renDiff = renExp ? renExp - now : Infinity;
+            const minDiff = Math.min(memDiff, renDiff);
+            const days = Math.ceil(minDiff / (1000 * 60 * 60 * 24));
+            ret.membership.validity = days > 0 ? `${days}d remaining` : 'Expired';
+            ret.planStatus = 'PAID';
           }
-          const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep) || ret.isVerified;
-          ret.planStatus = (ret.membership && ret.membership.expiryDate && new Date(ret.membership.expiryDate) > new Date()) ? 'PAID' : (hasPaid ? 'PAID' : 'UNPAID');
         } else {
-          // If no membership object exists at all
-          const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep) || ret.isVerified;
+          const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED', 'SIGNUP_COMPLETED'].includes(ret.registrationStep) || ret.isVerified;
           ret.planStatus = hasPaid ? 'PAID' : 'UNPAID';
         }
 

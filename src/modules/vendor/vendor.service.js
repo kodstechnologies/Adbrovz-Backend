@@ -389,7 +389,7 @@ const getAllVendors = async () => {
 
     // 1. Post-process to derive hierarchy if missing
     const processedVendors = vendors.map(vendorDoc => {
-        const vendor = vendorDoc.toObject();
+        const vendor = vendorDoc.toJSON();
 
         const categoriesMap = new Map();
         const subcategoriesMap = new Map();
