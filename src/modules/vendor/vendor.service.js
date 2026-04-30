@@ -14,10 +14,6 @@ const { emitToVendor } = require('../../socket');
 const { parseArrayInput } = require('../../utils/dataParser');
 const adminService = require('../admin/admin.service');
 
-const toNumber = (val) => {
-    const num = Number(val);
-    return isNaN(num) ? 0 : num;
-};
 
 /**
  * Helper to map duration (3, 6, 12 months) to CreditPlan names
@@ -79,7 +75,10 @@ const canonicalizeStatus = (status) => {
     return s;
 };
 
-const toNumber = (value) => Number(value || 0);
+const toNumber = (val) => {
+    const num = Number(val);
+    return isNaN(num) ? 0 : num;
+};
 
 const sumHierarchyServiceCharge = ({ category, subcategory, serviceType, service }) =>
     toNumber(category?.serviceCharge) +
