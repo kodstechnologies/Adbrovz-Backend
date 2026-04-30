@@ -10,6 +10,12 @@ const firebaseAdmin = require('../../config/firebase');
 const sendPushNotification = async (token, payload) => {
   if (!token) return false;
 
+  // Check if Firebase is initialized
+  if (!firebaseAdmin.apps.length) {
+    console.warn('Cannot send push notification: Firebase Admin SDK not initialized.');
+    return false;
+  }
+
   try {
     const message = {
       token,
