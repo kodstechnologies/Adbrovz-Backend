@@ -12,6 +12,12 @@ const crypto = require('crypto');
 const config = require('../../config/env');
 const { emitToVendor } = require('../../socket');
 const { parseArrayInput } = require('../../utils/dataParser');
+const adminService = require('../admin/admin.service');
+
+const toNumber = (val) => {
+    const num = Number(val);
+    return isNaN(num) ? 0 : num;
+};
 
 /**
  * Helper to map duration (3, 6, 12 months) to CreditPlan names
