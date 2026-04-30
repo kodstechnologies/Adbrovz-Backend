@@ -69,7 +69,50 @@ const createNotification = async (params) => {
   }
 };
 
+/**
+ * Broadcasts a notification to all users, vendors, or both
+ * @param {object} params - { audience: 'all' | 'users' | 'vendors', title, body, data }
+ */
+const broadcastNotification = async (params) => {
+  const { audience, title, body, data } = params;
+  const User = require('../../models/User.model');
+  const Vendor = require('../../models/Vendor.model');
+
+  let targets = [];
+  if (audience === 'all' || audience === 'users') {
+    const users = await User.find({ deletedAt: null, fcmToken: { $exists: true, $ne: null } }).select('_id fcmToken');
+    targets.push(...users.map(u => ({ id: u._id, model: 'User', token: u.fcmToken })));
+  }
+  if (audience === 'all' || audience === 'vendors') {
+    const vendors = await Vendor.find({ registrationStep: 'COMPLETED', fcmToken: { $exists: true, $ne: null } }).select('_id fcmToken');
+    targets.push(...vendors.map(v => ({ id: v._id, model: 'Vendor', token: v.fcmToken })));
+  }
+
+  const results = await Promise.allSettled(targets.map(target => 
+    createNotification({
+      user: target.id,
+      userModel: target.model,
+      type: 'general',
+      title,
+      body,
+      data,
+      sendPush: true,
+      fcmToken: target.token
+    })
+  ));
+
+  const successful = results.filter(r => r.status === 'fulfilled').length;
+  console.log(`Broadcast completed: ${successful}/${targets.length} successful`);
+  
+  return {
+    total: targets.length,
+    successful,
+    failed: targets.length - successful
+  };
+};
+
 module.exports = {
   sendPushNotification,
   createNotification,
+  broadcastNotification,
 };

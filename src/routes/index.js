@@ -50,6 +50,7 @@ router.use('/bookings', bookingRoutes);
 router.use('/disputes', disputeRoutes);
 router.use('/dispute', disputeRoutes); // alias for convenience
 router.use('/feedback', feedbackRoutes);
+router.use('/notifications', require('../modules/notification/notification.route'));
 
 // Document specific routes
 router.put('/documents/reupload', authenticate, authorize(ROLES.VENDOR), uploadVendorDocs, processVendorDocs, vendorController.reuploadDocuments);
