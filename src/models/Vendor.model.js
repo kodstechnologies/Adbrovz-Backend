@@ -131,6 +131,7 @@ const vendorSchema = new mongoose.Schema(
       default: 'pending',
     },
     membership: {
+      membershipId: { type: mongoose.Schema.Types.ObjectId, ref: 'CreditPlan' },
       category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
       membershipFee: { type: Number },
       serviceFee: { type: Number },
@@ -226,6 +227,10 @@ const vendorSchema = new mongoose.Schema(
       reason: { type: String },
       status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING' }
     },
+    fcmToken: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -267,8 +272,8 @@ const vendorSchema = new mongoose.Schema(
              const days = Math.ceil(minDiff / (1000 * 60 * 60 * 24));
              ret.membership.validity = days > 0 ? `${days}d remaining` : 'Expired';
           }
-          ret.planStatus = (ret.membership && ret.membership.expiryDate && new Date(ret.membership.expiryDate) > new Date()) ? 'PAID' : 'UNPAID';
-          if (ret.isVerified) ret.planStatus = 'PAID';
+          const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep) || ret.isVerified;
+          ret.planStatus = (ret.membership && ret.membership.expiryDate && new Date(ret.membership.expiryDate) > new Date()) ? 'PAID' : (hasPaid ? 'PAID' : 'UNPAID');
         } else {
           // If no membership object exists at all
           const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep) || ret.isVerified;

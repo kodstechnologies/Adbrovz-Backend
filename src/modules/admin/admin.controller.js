@@ -5,7 +5,7 @@ const ApiResponse = require('../../utils/ApiResponse');
 // Get dashboard stats
 const getDashboard = asyncHandler(async (req, res) => {
   const adminService = require('./admin.service');
-  const stats = await adminService.getDashboardStats();
+  const stats = await adminService.getDashboardStats(req.query);
   res.status(200).json(
     new ApiResponse(200, stats, 'Dashboard stats retrieved successfully')
   );
@@ -14,9 +14,9 @@ const getDashboard = asyncHandler(async (req, res) => {
 // Get all users
 const getUsers = asyncHandler(async (req, res) => {
   const adminService = require('./admin.service');
-  const { limit = 10, skip = 0, search = '', includeDeleted = 'false' } = req.query;
+  const { limit = 10, skip = 0, search = '', includeDeleted = 'false', status } = req.query;
 
-  const result = await adminService.getAllUsers({ limit, skip, search, includeDeleted });
+  const result = await adminService.getAllUsers({ limit, skip, search, includeDeleted, status });
 
   res.status(200).json(
     new ApiResponse(200, result, 'Users retrieved successfully')

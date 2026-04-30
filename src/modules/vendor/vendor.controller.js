@@ -89,11 +89,12 @@ const createMembershipOrder = asyncHandler(async (req, res) => {
  */
 const verifyMembershipPayment = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, membershipId } = req.body;
     const result = await vendorService.verifyMembershipPayment(vendorId, {
         razorpay_order_id,
         razorpay_payment_id,
         razorpay_signature,
+        membershipId,
     });
     res.status(200).json(
         new ApiResponse(200, result, result.message)

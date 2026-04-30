@@ -145,6 +145,8 @@ const updateDisputeStatus = async (disputeId, updateData) => {
 
     if (status === 'RESOLVED' && !dispute.resolvedAt) {
         dispute.resolvedAt = new Date();
+        // Clear evidence images once resolved
+        dispute.evidence = [];
         // dispute.resolvedBy = adminId; // If we had adminId passed
     }
 

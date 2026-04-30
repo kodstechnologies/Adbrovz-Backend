@@ -24,6 +24,7 @@ router.put(
     validateUpdateProfile,
     userController.updateProfile
 );
+router.put('/fcm-token', userController.updateFcmToken);
 router.delete('/account', userController.deleteAccount);
 
 module.exports = router;

@@ -80,6 +80,16 @@ const getUserCoins = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, { coins: user.coins || 0 }, 'User coins retrieved successfully'));
 });
 
+// Update FCM Token for push notifications
+const updateFcmToken = asyncHandler(async (req, res) => {
+  const userId = req.user.userId || req.user._id;
+  const { fcmToken } = req.body;
+
+  await require('../../models/User.model').findByIdAndUpdate(userId, { fcmToken });
+  res.status(200).json(
+    new ApiResponse(200, null, 'FCM token updated successfully')
+  );
+});
 
 module.exports = {
   getProfile,
@@ -88,4 +98,5 @@ module.exports = {
   getUsers,
   exportUsersToCSV,
   getUserCoins,
+  updateFcmToken,
 };

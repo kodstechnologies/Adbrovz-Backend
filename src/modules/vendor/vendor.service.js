@@ -243,10 +243,7 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
     items.serviceTypes.forEach(t => platformSubtotal += toNumber(t.serviceCharge));
     items.services.forEach(s => platformSubtotal += toNumber(s.serviceCharge));
 
-    const adminService = require('../admin/admin.service');
-    const vendorBaseSetting = await adminService.getSetting('pricing.vendor_base_membership_fee');
-    const vendorBaseFee = Number(vendorBaseSetting || 0);
-    const membershipTotal = baseFee + vendorBaseFee;
+    const membershipTotal = baseFee;
 
     // "Service Selections Total" comes from membership charges on selected items.
     let servicesSubtotal = 0;
@@ -490,7 +487,7 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
  */
 const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     const vendor = await Vendor.findById(vendorId)
-        .select('selectedCategories selectedSubcategories selectedServiceTypes selectedServices membership.durationMonths categorySubscriptions')
+        .select('selectedCategories selectedSubcategories selectedServiceTypes selectedServices membership.durationMonths membership.membershipId categorySubscriptions')
         .populate({ path: 'categorySubscriptions.category', select: 'name' })
         .populate({ path: 'categorySubscriptions.subcategories', select: 'name' })
         .populate({ path: 'categorySubscriptions.services', select: 'title' });
@@ -532,11 +529,14 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         vendorId,
         subtotal: calc.combinedSubtotal,
         basePlanFee: calc.basePlanFee,
+        membershipAmount: calc.basePlanFee,
         totalServiceFee: calc.servicesSubtotal,
+        serviceAmount: calc.servicesSubtotal,
         platformSubtotal: calc.platformSubtotal,
         gstPercent: calc.gstPercent,
         gstAmount: calc.finalGst,
         totalFee: calc.grandTotal,
+        totalAmount: calc.grandTotal,
         duration: `${calc.validityDays} days`,
         durationMonths: calc.durationMonths,
         plans: plansInfo,
@@ -549,7 +549,8 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         selectedServiceTypeIds: parseArrayInput(normalizedServiceTypeIds),
         selectedServiceIds: parseArrayInput(normalizedServiceIds),
         categorySubscriptions: vendor.categorySubscriptions || [],
-        paymentHistory: paymentHistory || []
+        paymentHistory: paymentHistory || [],
+        membershipId: vendor.membership?.membershipId || null
     };
 };
 
@@ -558,13 +559,19 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
  * Create Razorpay order for membership payment
  * vendorId is extracted from token (req.user), NOT from URL
  */
-const createMembershipOrder = async (vendorId, { durationMonths, amount } = {}) => {
+const createMembershipOrder = async (vendorId, { durationMonths, amount, membershipId } = {}) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     // Update durationMonths if provided
     if (durationMonths) {
         vendor.membership.durationMonths = Number(durationMonths);
+        await vendor.save();
+    }
+    
+    if (membershipId) {
+        vendor.membership = vendor.membership || {};
+        vendor.membership.membershipId = membershipId;
         await vendor.save();
     }
 
@@ -798,12 +805,10 @@ const getMembershipPlans = async (serviceMembershipFee = 0, options = {}) => {
     const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
     const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18; // Use 18 as consistent default
 
-    const vendorBaseSetting = await adminService.getSetting('pricing.vendor_base_membership_fee');
-    const vendorBaseFee = Number(vendorBaseSetting || 0);
 
     const result = [];
     for (const plan of tiers) {
-        const baseFee = (plan.price || 0) + vendorBaseFee;
+        const baseFee = (plan.price || 0);
         const validityDays = plan.validityDays || 30;
         const serviceFee = Number(resolvedServiceMembershipFee || 0);
 
@@ -1411,7 +1416,7 @@ const updateVendorProfile = async (vendorId, profileData) => {
  * Verify Razorpay membership payment signature
  * On success — activates vendor membership
  */
-const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature }) => {
+const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature, membershipId }) => {
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
         throw new ApiError(400, 'razorpay_order_id, razorpay_payment_id and razorpay_signature are required');
     }
@@ -1431,6 +1436,10 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
+    if (membershipId) {
+        vendor.membership = vendor.membership || {};
+        vendor.membership.membershipId = membershipId;
+    }
 
     if (vendor.isVerified) {
         const now = new Date();
@@ -1484,11 +1493,11 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     if (!vendor.membership.totalAmount || !vendor.membership.category) {
         try {
             const memDetails = await getVendorMembershipDetails(vendor._id);
-            if (!vendor.membership.membershipFee) vendor.membership.membershipFee = memDetails.subtotal;
+            if (!vendor.membership.membershipFee) vendor.membership.membershipFee = memDetails.basePlanFee;
             if (!vendor.membership.serviceFee) vendor.membership.serviceFee = memDetails.serviceSelectionsTotal;
             if (!vendor.membership.gstAmount) vendor.membership.gstAmount = memDetails.gstAmount;
             if (!vendor.membership.totalAmount) vendor.membership.totalAmount = memDetails.totalFee;
-            if (!vendor.membership.subtotal) vendor.membership.subtotal = memDetails.subtotal + memDetails.serviceSelectionsTotal;
+            if (!vendor.membership.subtotal) vendor.membership.subtotal = memDetails.subtotal;
             if (!vendor.membership.fee) vendor.membership.fee = memDetails.totalFee;
 
             if (!vendor.membership.category && memDetails.services.length > 0) {

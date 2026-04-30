@@ -113,3 +113,6 @@ coverage/
 *.key
 *.cert
 
+# Firebase/Google Credentials
+src/config/firebase-service-account.json
+

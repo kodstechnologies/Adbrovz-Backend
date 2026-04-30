@@ -18,7 +18,18 @@ const ApiError = require('../../utils/ApiError');
 const { DEFAULT_SETTINGS } = require('../../constants/settings');
 
 
-const getDashboardStats = async () => {
+const getDashboardStats = async (query = {}) => {
+  const { startDate, endDate } = query;
+  const dateFilter = {};
+  if (startDate) dateFilter.$gte = new Date(startDate);
+  if (endDate) {
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    dateFilter.$lte = end;
+  }
+
+  const hasFilter = startDate || endDate;
+
   try {
     const now = new Date();
     const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -35,20 +46,22 @@ const getDashboardStats = async () => {
     startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
 
     // 1. Stat Cards
-    // Total Revenue (All Non-Cancelled Bookings to show data)
+    // Total Revenue
+    const revenueMatch = hasFilter ? { status: { $ne: 'cancelled' }, createdAt: dateFilter } : { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfThisMonth } };
+    
     const [thisMonthRevenue, lastMonthRevenue] = await Promise.all([
       Booking.aggregate([
-        { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfThisMonth } } },
+        { $match: revenueMatch },
         { $group: { _id: null, total: { $sum: '$pricing.totalPrice' } } }
       ]).then(res => res[0]?.total || 0),
-      Booking.aggregate([
+      hasFilter ? Promise.resolve(0) : Booking.aggregate([
         { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfLastMonth, $lt: startOfThisMonth } } },
         { $group: { _id: null, total: { $sum: '$pricing.totalPrice' } } }
       ]).then(res => res[0]?.total || 0)
     ]);
 
-    // Weekly Revenue
-    const [thisWeekRevenue, lastWeekRevenue] = await Promise.all([
+    // Weekly Revenue (Skip if filtered)
+    const [thisWeekRevenue, lastWeekRevenue] = hasFilter ? [0, 0] : await Promise.all([
       Booking.aggregate([
         { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfThisWeek } } },
         { $group: { _id: null, total: { $sum: '$pricing.totalPrice' } } }
@@ -59,11 +72,12 @@ const getDashboardStats = async () => {
       ]).then(res => res[0]?.total || 0)
     ]);
 
-    // Active Bookings (Pending, Ongoing, etc)
+    // Active Bookings
     const activeStatuses = ['pending_acceptance', 'pending', 'on_the_way', 'arrived', 'ongoing'];
+    const activeMatch = hasFilter ? { status: { $in: activeStatuses }, createdAt: dateFilter } : { status: { $in: activeStatuses }, createdAt: { $gte: startOfThisWeek } };
     const [thisWeekActive, lastWeekActive] = await Promise.all([
-      Booking.countDocuments({ status: { $in: activeStatuses }, createdAt: { $gte: startOfThisWeek } }),
-      Booking.countDocuments({ status: { $in: activeStatuses }, createdAt: { $gte: startOfLastWeek, $lt: startOfThisWeek } })
+      Booking.countDocuments(activeMatch),
+      hasFilter ? Promise.resolve(0) : Booking.countDocuments({ status: { $in: activeStatuses }, createdAt: { $gte: startOfLastWeek, $lt: startOfThisWeek } })
     ]);
 
     // Total Vendors (Verified)
@@ -73,12 +87,13 @@ const getDashboardStats = async () => {
     ]);
 
     // Credits Used
+    const creditsMatch = hasFilter ? { type: 'debit', createdAt: dateFilter } : { type: 'debit', createdAt: { $gte: startOfThisMonth } };
     const [thisMonthCredits, lastMonthCredits] = await Promise.all([
       CoinTransaction.aggregate([
-        { $match: { type: 'debit', createdAt: { $gte: startOfThisMonth } } },
+        { $match: creditsMatch },
         { $group: { _id: null, total: { $sum: '$amount' } } }
       ]).then(res => res[0]?.total || 0),
-      CoinTransaction.aggregate([
+      hasFilter ? Promise.resolve(0) : CoinTransaction.aggregate([
         { $match: { type: 'debit', createdAt: { $gte: startOfLastMonth, $lt: startOfThisMonth } } },
         { $group: { _id: null, total: { $sum: '$amount' } } }
       ]).then(res => res[0]?.total || 0)
@@ -191,10 +206,14 @@ const getDashboardStats = async () => {
 };
 
 const getAllUsers = async (query = {}) => {
-  const { limit = 10, skip = 0, search = '', includeDeleted = false } = query;
+  const { limit = 10, skip = 0, search = '', includeDeleted = false, status } = query;
 
   // Build filter - include deleted users if requested (for exports)
   const filter = {};
+
+  if (status && status !== 'ALL') {
+    filter.status = status;
+  }
 
   // Only filter out deleted users if includeDeleted is not true
   // This allows exports to show all users including deleted ones
@@ -236,6 +255,39 @@ const updateUserStatus = async (userId, status, adminId) => {
   user.status = status;
   await user.save();
 
+  const notificationService = require('../notification/notification.service');
+  let type = 'general';
+  let title = 'Account Update';
+  let body = `Your account status has been updated to ${status}.`;
+
+  if (status === 'SUSPENDED') {
+    type = 'account_suspended';
+    title = 'Account Suspended';
+    body = 'Your account has been suspended by the administrator.';
+  } else if (status === 'BANNED' || status === 'BLOCKED') {
+    type = 'account_banned';
+    title = 'Account Blocked';
+    body = 'Your account has been blocked by the administrator.';
+  } else if (status === 'ACTIVE' && oldStatus !== 'ACTIVE') {
+    type = 'account_unbanned';
+    title = 'Account Activated';
+    body = 'Your account has been reactivated. Welcome back!';
+  }
+
+  try {
+    await notificationService.createNotification({
+      user: user._id,
+      userModel: 'User',
+      type,
+      title,
+      body,
+      sendPush: true,
+      fcmToken: user.fcmToken
+    });
+  } catch (err) {
+    console.error('Failed to send notification:', err);
+  }
+
   return user;
 };
 
@@ -248,6 +300,21 @@ const deleteUser = async (userId, adminId) => {
   user.deletedAt = new Date();
   user.status = 'DELETED';
   await user.save();
+
+  const notificationService = require('../notification/notification.service');
+  try {
+    await notificationService.createNotification({
+      user: user._id,
+      userModel: 'User',
+      type: 'deletion_approved',
+      title: 'Account Deletion Approved',
+      body: 'Your account has been deleted by the administrator.',
+      sendPush: true,
+      fcmToken: user.fcmToken
+    });
+  } catch (err) {
+    console.error('Failed to send notification:', err);
+  }
 
   return user;
 };
@@ -410,33 +477,30 @@ const getMembershipPricing = async () => {
     const elite = tiers.find(t => t.name === 'Elite') || { price: 4000, validityDays: 88 };
     
     const gstPercent = await getSetting('pricing.membership_gst_percent');
-    const vendorBaseFeeSetting = await getSetting('pricing.vendor_base_membership_fee');
-    const vendorBaseFee = Number(vendorBaseFeeSetting || 0);
 
     return {
         // Original keys for backward compatibility (duration-mapped)
         // These will now reflect the actual prices of Basic, Pro, Elite respectively
-        fee3Months: basic.price + vendorBaseFee,
-        fee6Months: pro.price + vendorBaseFee,
-        fee12Months: elite.price + vendorBaseFee,
+        fee3Months: basic.price,
+        fee6Months: pro.price,
+        fee12Months: elite.price,
         gstPercent: (gstPercent !== undefined && gstPercent !== null) ? Number(gstPercent) : 18,
 
         // UI-friendly keys for Basic/Pro/Elite mapping
-        basicPrice: basic.price + vendorBaseFee,
-        proPrice: pro.price + vendorBaseFee,
-        elitePrice: elite.price + vendorBaseFee,
+        basicPrice: basic.price,
+        proPrice: pro.price,
+        elitePrice: elite.price,
 
         // Custom Validity Days
         basicValidity: basic.validityDays,
         proValidity: pro.validityDays,
         eliteValidity: elite.validityDays,
-        vendorBaseFee,
 
         // Full plans list for modern UI
         plans: tiers.map(t => ({
             id: t._id,
             name: t.name,
-            price: t.price + vendorBaseFee,
+            price: t.price,
             validityDays: t.validityDays
         }))
     };
@@ -852,7 +916,7 @@ const createSubAdmin = async (data) => {
   const hashedPassword = await hashPassword(password);
 
   const subAdmin = await Admin.create({
-    name,
+    name: name || username,
     username,
     email,
     phoneNumber,
@@ -868,8 +932,10 @@ const createSubAdmin = async (data) => {
 
 const updateSubAdmin = async (id, data) => {
   const { name, username, email, phoneNumber, password, permissions } = data;
-
-  const update = { name, username, email, phoneNumber, permissions };
+  const update = { username, permissions };
+  if (name) update.name = name;
+  if (email) update.email = email;
+  if (phoneNumber) update.phoneNumber = phoneNumber;
 
   if (password && password.trim() !== '') {
     update.password = await hashPassword(password);

@@ -91,6 +91,34 @@ const DEFAULT_SETTINGS = {
         value: 'manual',
         description: 'How credits are restored during booking cancellations (manual, auto, prorated).',
     },
+    'pricing.service_renewal_days': {
+        value: 30,
+        description: 'Default renewal period for services.',
+    },
+    'notifications.radius_row1_mins': {
+        value: 5,
+        description: 'Notification time window for row 1 (minutes).',
+    },
+    'notifications.radius_row1_km': {
+        value: 2,
+        description: 'Notification radius for row 1 (kilometers).',
+    },
+    'notifications.radius_row2_mins': {
+        value: 10,
+        description: 'Notification time window for row 2 (minutes).',
+    },
+    'notifications.radius_row2_km': {
+        value: 5,
+        description: 'Notification radius for row 2 (kilometers).',
+    },
+    'notifications.radius_row3_mins': {
+        value: 15,
+        description: 'Notification time window for row 3 (minutes).',
+    },
+    'notifications.radius_row3_km': {
+        value: 10,
+        description: 'Notification radius for row 3 (kilometers).',
+    },
 };
 
 module.exports = {
