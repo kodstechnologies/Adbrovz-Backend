@@ -442,6 +442,19 @@ const getPurchaseCategories = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * Update FCM Token for push notifications
+ */
+const updateFcmToken = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const { fcmToken } = req.body;
+    
+    await require('../../models/Vendor.model').findByIdAndUpdate(vendorId, { fcmToken });
+    res.status(200).json(
+        new ApiResponse(200, null, 'FCM token updated successfully')
+    );
+});
+
 module.exports = {
     getAllVendors,
     getMembership,
@@ -478,5 +491,6 @@ module.exports = {
     verifyAddCategoryPayment,
     activateAddCategory,
     getPurchaseCategories,
+    updateFcmToken,
 };
 
