@@ -436,6 +436,20 @@ const getAllVendors = async () => {
             vendor.membership.category = vendor.selectedCategories[0]; // Use first category as primary
         }
 
+        // Flatten membership fields for the UI
+        if (vendor.membership) {
+            vendor.membershipFee = vendor.membership.membershipFee || vendor.membership.fee;
+            vendor.membershipServiceFee = vendor.membership.serviceFee;
+            vendor.membershipGst = vendor.membership.gstAmount;
+            vendor.membershipSubtotal = vendor.membership.subtotal;
+            vendor.membershipTotal = vendor.membership.totalAmount;
+            vendor.membershipStart = vendor.membership.startDate;
+            vendor.membershipExpiry = vendor.membership.expiryDate;
+            if (vendor.membership.membershipId) {
+                vendor.membershipPlan = vendor.membership.membershipId.name;
+            }
+        }
+
         return vendor;
     });
 
