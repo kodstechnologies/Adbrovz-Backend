@@ -19,7 +19,7 @@ router.post('/get-membership', vendorController.getMembership);
 router.get('/membership-plans', optionalAuth, vendorController.getMembershipPlans);
 router.get('/membership-detail', authenticate, authorize(ROLES.VENDOR), vendorController.getVendorMembership);
 router.get('/membership-details', authenticate, authorize(ROLES.VENDOR), vendorController.getVendorMembership);
-router.get('/:vendorId/membership-detail', authenticate, authorize(ROLES.ADMIN, ROLES.SUB_ADMIN), vendorController.getVendorMembership);
+router.get('/:vendorId/membership-detail', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getVendorMembership);
 router.post('/register/select-services', authenticate, authorize(ROLES.VENDOR), vendorController.selectServices);
 router.post('/register/purchase-membership', authenticate, authorize(ROLES.VENDOR), vendorController.purchaseMembership);
 router.post('/register/purchase-plan', authenticate, authorize(ROLES.VENDOR), vendorController.purchaseCreditPlan);
@@ -63,7 +63,7 @@ router.post('/membership/renewal/verify', authenticate, authorize(ROLES.VENDOR),
 
 // Vendor status routes
 router.patch('/status', authenticate, authorize(ROLES.VENDOR), vendorController.toggleOnlineStatus);
-router.patch('/:vendorId/status', authenticate, authorize(ROLES.ADMIN, ROLES.SUB_ADMIN), vendorController.toggleOnlineStatus);
+router.patch('/:vendorId/status', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.toggleOnlineStatus);
 
 // Profile routes
 router.get('/profile', authenticate, authorize(ROLES.VENDOR), vendorController.getProfile);
