@@ -168,14 +168,24 @@ const _getMembershipCharge = (item, type = 'service') => {
 /**
  * Internal helper to calculate membership fees consistently across APIs
  */
-const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryId, subcategoryIds, serviceTypeIds, serviceIds }) => {
+const _calculateMembershipAmounts = async ({ vendorId, durationMonths, membershipId, categoryId, subcategoryIds, serviceTypeIds, serviceIds }) => {
     let vendor = null;
     if (vendorId) {
         vendor = await Vendor.findById(vendorId).lean();
     }
 
-    const months = Number(durationMonths || vendor?.membership?.durationMonths || 3);
-    const plan = await getPlanByDuration(months);
+    let plan = null;
+    // Prioritize membershipId (CreditPlan ID) if provided
+    if (membershipId) {
+        plan = await CreditPlan.findById(membershipId).lean();
+    }
+
+    // Fallback to durationMonths if plan not found by ID
+    if (!plan) {
+        const months = Number(durationMonths || vendor?.membership?.durationMonths || 3);
+        plan = await getPlanByDuration(months);
+    }
+
     const baseFee = Number(plan.price || 0);
 
     let items = {
@@ -340,6 +350,7 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, categoryI
 const getAllVendors = async () => {
     const vendors = await Vendor.find()
         .populate('membership.category', 'name serviceCharge membershipCharge renewalCharge membershipRenewalCharge membershipFee')
+        .populate('membership.membershipId', 'name price durationMonths validityDays')
         .populate('creditPlan.planId', 'name')
         .populate('selectedCategories', 'name serviceCharge membershipCharge renewalCharge membershipRenewalCharge membershipFee')
         .populate('categorySubscriptions.category', 'name serviceCharge membershipCharge')
@@ -505,10 +516,12 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     const normalizedServiceTypeIds = overrides.serviceTypeIds || overrides.selectedServiceTypes || vendor.selectedServiceTypes || [];
     const normalizedServiceIds = overrides.serviceIds || overrides.selectedService || overrides.selectedServices || vendor.selectedServices || [];
     const normalizedDurationMonths = Number(overrides.durationMonths || vendor.membership?.durationMonths || 3);
+    const normalizedMembershipId = overrides.membershipId || vendor.membership?.membershipId || null;
 
     const calc = await _calculateMembershipAmounts({
         vendorId,
         durationMonths: normalizedDurationMonths,
+        membershipId: normalizedMembershipId,
         categoryId: normalizedCategoryId,
         subcategoryIds: normalizedSubcategoryIds,
         serviceTypeIds: normalizedServiceTypeIds,
@@ -1497,7 +1510,7 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     // Ensure membership metadata is populated if missing
     if (!vendor.membership.totalAmount || !vendor.membership.category) {
         try {
-            const memDetails = await getVendorMembershipDetails(vendor._id);
+            const memDetails = await getVendorMembershipDetails(vendor._id, { membershipId });
             if (!vendor.membership.membershipFee) vendor.membership.membershipFee = memDetails.basePlanFee;
             if (!vendor.membership.serviceFee) vendor.membership.serviceFee = memDetails.serviceSelectionsTotal;
             if (!vendor.membership.gstAmount) vendor.membership.gstAmount = memDetails.gstAmount;
