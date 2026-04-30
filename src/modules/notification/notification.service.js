@@ -86,11 +86,11 @@ const broadcastNotification = async (params) => {
 
   let targets = [];
   if (audience === 'all' || audience === 'users') {
-    const users = await User.find({ deletedAt: null, fcmToken: { $exists: true, $ne: null } }).select('_id fcmToken');
+    const users = await User.find({ deletedAt: null }).select('_id fcmToken');
     targets.push(...users.map(u => ({ id: u._id, model: 'User', token: u.fcmToken })));
   }
   if (audience === 'all' || audience === 'vendors') {
-    const vendors = await Vendor.find({ registrationStep: 'COMPLETED', fcmToken: { $exists: true, $ne: null } }).select('_id fcmToken');
+    const vendors = await Vendor.find({ deletedAt: null }).select('_id fcmToken');
     targets.push(...vendors.map(v => ({ id: v._id, model: 'Vendor', token: v.fcmToken })));
   }
 
