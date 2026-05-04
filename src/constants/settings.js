@@ -119,6 +119,10 @@ const DEFAULT_SETTINGS = {
         value: 10,
         description: 'Notification radius for row 3 (kilometers).',
     },
+    'pricing.booking_gst_percent': {
+        value: 18,
+        description: 'GST percentage applied to booking total price.',
+    },
 };
 
 module.exports = {

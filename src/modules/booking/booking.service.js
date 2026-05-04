@@ -185,12 +185,10 @@ const acceptBooking = async (vendorId, bookingId) => {
         if (gracePeriodEnd) booking.gracePeriodEnd = gracePeriodEnd;
         booking.statusHistory.push({ status: 'pending', timestamp: new Date(), actor: 'vendor' });
         
-        // Update travel charge and total price
-        booking.pricing = {
-            ...booking.pricing,
-            travelCharge: travelCharge,
-            totalPrice: (booking.pricing?.basePrice || 0) + travelCharge
-        };
+        // Update travel charge and total price with GST
+        booking.pricing = booking.pricing || {};
+        booking.pricing.travelCharge = travelCharge;
+        await recalculateBookingPrice(booking);
         
         booking.markModified('statusHistory');
         booking.markModified('pricing');
@@ -934,13 +932,16 @@ const createBooking = async (userId, bookingData) => {
         scheduledTime: time,
         location: { address, latitude, longitude, pincode },
         pricing: { 
-            totalPrice: calculatedTotalPrice, 
             basePrice: calculatedBasePrice,
             travelCharge: calculatedTravelCharge 
         },
         status: 'pending_acceptance',
         statusHistory: [{ status: 'pending_acceptance', timestamp: new Date(), actor: 'user' }]
     });
+
+    // Apply GST calculation
+    await recalculateBookingPrice(booking);
+    await booking.save();
 
     if (confirmation === true) {
         searchVendors(booking, true).catch(console.error);
@@ -1778,8 +1779,8 @@ const getBookingStatusHistory = async (bookingId, userId, role) => {
     return formatted.statusHistory || [];
 };
 
-const recalculateBookingPrice = (booking) => {
-    let basePrice = booking.services.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+const recalculateBookingPrice = async (booking) => {
+    let basePrice = (booking.services || []).reduce((sum, s) => sum + (s.finalPrice || 0), 0);
 
     // Add vendor proposed services
     if (booking.proposedServices && booking.proposedServices.length > 0) {
@@ -1793,9 +1794,23 @@ const recalculateBookingPrice = (booking) => {
             .reduce((sum, s) => sum + (s.finalPrice || 0), 0);
     }
 
-    booking.pricing = booking.pricing || {};
-    booking.pricing.basePrice = basePrice;
-    booking.pricing.totalPrice = basePrice + (booking.pricing.travelCharge || 0) + (booking.pricing.additionalCharges || 0);
+    const gstPercent = (await adminService.getSetting('pricing.booking_gst_percent')) || 0;
+    const travelCharge = booking.pricing?.travelCharge || 0;
+    const additionalCharges = booking.pricing?.additionalCharges || 0;
+    
+    const taxableAmount = basePrice + travelCharge + additionalCharges;
+    const gstAmount = Math.round((taxableAmount * (gstPercent / 100)) * 100) / 100;
+    const totalPrice = Math.round((taxableAmount + gstAmount) * 100) / 100;
+
+    booking.pricing = {
+        ...booking.pricing,
+        basePrice,
+        travelCharge,
+        additionalCharges,
+        gstPercent,
+        gstAmount,
+        totalPrice
+    };
     booking.markModified('pricing');
 };
 
@@ -1871,7 +1886,7 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
     }
 
     // Recalculate total price so the user can see the proposed amount before confirming
-    recalculateBookingPrice(booking);
+    await recalculateBookingPrice(booking);
 
     booking.priceUpdatedOnce = true;
     booking.isPriceConfirmed = false;
@@ -1926,7 +1941,7 @@ const confirmBookingPrice = async (userId, bookingId) => {
     }
 
     // Recalculate total price now that it's confirmed
-    recalculateBookingPrice(booking);
+    await recalculateBookingPrice(booking);
 
     // Log confirmation
     booking.statusHistory.push({
@@ -2042,7 +2057,7 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
     booking.markModified('userRequestedServices');
     booking.markModified('rejectedServices');
 
-    recalculateBookingPrice(booking);
+    await recalculateBookingPrice(booking);
     await booking.save();
 
     const populatedBooking = await getBookingDetails(booking._id, userId, 'user');
@@ -2201,7 +2216,7 @@ const addServicesToBooking = async (vendorId, bookingId, newServices) => {
         });
     }
 
-    recalculateBookingPrice(booking);
+    await recalculateBookingPrice(booking);
     booking.markModified('proposedServices');
     await booking.save();
 
@@ -2258,7 +2273,7 @@ const confirmProposedServices = async (userId, bookingId) => {
     }
 
     // Recalculate total
-    recalculateBookingPrice(booking);
+    await recalculateBookingPrice(booking);
 
     // Clear proposed
     booking.proposedServices = [];
@@ -2311,7 +2326,7 @@ const rejectProposedServices = async (userId, bookingId, reason) => {
     });
     booking.markModified('statusHistory');
 
-    recalculateBookingPrice(booking);
+    await recalculateBookingPrice(booking);
     await booking.save();
 
     const { emitToVendor, emitToUser } = require('../../socket');
@@ -2397,7 +2412,7 @@ async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
     booking.userRequestedServices = [];
 
     // Recalculate total price
-    recalculateBookingPrice(booking);
+    await recalculateBookingPrice(booking);
 
     booking.markModified('services');
     await booking.save();

@@ -86,6 +86,8 @@ const bookingSchema = new mongoose.Schema(
     pricing: {
       basePrice: { type: Number, default: 0 },
       travelCharge: { type: Number, default: 0 },
+      gstAmount: { type: Number, default: 0 },
+      gstPercent: { type: Number, default: 0 },
       additionalCharges: { type: Number, default: 0 },
       totalPrice: { type: Number, default: 0 },
     },

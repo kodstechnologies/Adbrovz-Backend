@@ -285,7 +285,7 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, membershi
         finalGst,
         grandTotal,
         durationMonths: Math.max(1, Math.round(plan.validityDays / 30)),
-        validityDays: plan.validityDays,
+        validityDays: plan.validityDays, planId: plan._id,
         itemBreakdown: [
             {
                 id: 'platform_base',
@@ -601,15 +601,14 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount, members
         await vendor.save();
     }
     
-    if (membershipId) {
-        vendor.membership = vendor.membership || {};
-        vendor.membership.membershipId = membershipId;
-        await vendor.save();
-    }
-
     // Calculate full fee using the centralized helper
-    const calc = await _calculateMembershipAmounts({ vendorId, durationMonths });
+    const calc = await _calculateMembershipAmounts({ vendorId, durationMonths, membershipId });
     const totalFee = calc.grandTotal;
+
+    // Ensure the resolved membershipId is persisted to the vendor
+    vendor.membership = vendor.membership || {};
+    vendor.membership.membershipId = calc.planId;
+    await vendor.save();
 
     if (totalFee <= 0) {
         throw new ApiError(400, 'Membership fee must be greater than 0');
