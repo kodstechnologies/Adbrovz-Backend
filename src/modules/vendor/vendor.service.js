@@ -1227,6 +1227,11 @@ const toggleVendorSuspension = async (vendorId, { isSuspended }) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
+    const isPaid = vendor.planStatus === 'PAID' || vendor.membership?.planStatus === 'PAID';
+    if (!isPaid) {
+        throw new ApiError(400, 'Vendor status cannot be changed until membership is paid');
+    }
+
     vendor.isSuspended = isSuspended;
     await vendor.save();
 
