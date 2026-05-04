@@ -51,17 +51,10 @@ const deleteUser = async (userId, req = null) => {
     throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
   }
 
-
-
-  // Delete related data (personal data cleanup)
-  await Promise.all([
-    Booking.deleteMany({ user: userId }),
-    Notification.deleteMany({ user: userId }),
-    Dispute.deleteMany({ user: userId })
-  ]);
-
-  // Finally delete the user
-  await User.findByIdAndDelete(userId);
+  // Perform Soft Delete (preserve data for user-initiated deletion)
+  user.status = 'DELETED';
+  user.deletedAt = new Date();
+  await user.save();
 
   return user;
 };
@@ -70,6 +63,4 @@ module.exports = {
   getUserById,
   updateUser,
   deleteUser,
-
 };
-

@@ -297,31 +297,21 @@ const deleteUser = async (userId, adminId) => {
     throw new Error('User not found');
   }
 
-  user.deletedAt = new Date();
-  user.status = 'DELETED';
-  await user.save();
+  // Perform Hard Delete (remove data for admin-initiated deletion)
+  const Booking = require('../../models/Booking.model');
+  const Notification = require('../../models/Notification.model');
+  const Dispute = require('../../models/Dispute.model');
 
-  const notificationService = require('../notification/notification.service');
-  try {
-    await notificationService.createNotification({
-      user: user._id,
-      userModel: 'User',
-      type: 'deletion_approved',
-      title: 'Account Deletion Approved',
-      body: 'Your account has been deleted by the administrator.',
-      sendPush: true,
-      fcmToken: user.fcmToken
-    });
-  } catch (err) {
-    console.error('Failed to send notification:', err);
-  }
+  await Promise.all([
+    Booking.deleteMany({ user: userId }),
+    Notification.deleteMany({ user: userId }),
+    Dispute.deleteMany({ user: userId })
+  ]);
+
+  await User.findByIdAndDelete(userId);
 
   return user;
 };
-
-
-
-// ... existing code ...
 
 const createCreditPlan = async (planData) => {
   return await CreditPlan.create(planData);
@@ -523,7 +513,6 @@ const updateMembershipPricing = async (data, adminId) => {
                 $set: { 
                     ...(basicPrice !== undefined && { price: Number(basicPrice) }),
                     ...(basicValidity !== undefined && { validityDays: Number(basicValidity) }),
-                    ...(basicDuration !== undefined && { durationMonths: Number(basicDuration) })
                 } 
             },
             { upsert: true }
@@ -550,7 +539,6 @@ const updateMembershipPricing = async (data, adminId) => {
                 $set: { 
                     ...(elitePrice !== undefined && { price: Number(elitePrice) }),
                     ...(eliteValidity !== undefined && { validityDays: Number(eliteValidity) }),
-                    ...(eliteDuration !== undefined && { durationMonths: Number(eliteDuration) })
                 } 
             },
             { upsert: true }

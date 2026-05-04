@@ -1230,7 +1230,7 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330) => {
     const now = new Date();
     const daysList = [];
     const windowDays = 7;
-    const slotDurationMs = 60 * 60 * 1000;
+    const slotDurationMs = 30 * 60 * 1000;
 
     // Correctly calculate the start of the user's "Today" in UTC
     // 1. Get current time in user's local milliseconds

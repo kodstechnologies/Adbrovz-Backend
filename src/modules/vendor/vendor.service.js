@@ -2864,20 +2864,7 @@ const respondToDeletionRequest = async (vendorId, { action }) => {
         throw new ApiError(400, 'No deletion request found for this vendor');
     }
 
-    if (action === 'ACCEPT') {
-        vendor.deletionRequest.status = 'APPROVED';
-        vendor.deletedAt = new Date();
-        await vendor.save();
-        return { message: 'Deletion request accepted. Vendor account is now marked as deleted.' };
-    } else if (action === 'REJECT') {
-        vendor.deletionRequest.isRequested = false;
-        vendor.deletionRequest.status = 'REJECTED';
-        await vendor.save();
-        return { message: 'Deletion request rejected.' };
-    } else {
-        throw new ApiError(400, 'Invalid action. Use ACCEPT or REJECT.');
-    }
-};
+
 
 module.exports = {
     getAllVendors,
