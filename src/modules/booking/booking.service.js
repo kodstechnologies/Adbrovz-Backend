@@ -15,7 +15,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
-const RADIUS_TIERS = [5, 15, 50]; // Progressive search expansion
+// Radius expansion tiers are now dynamic and fetched from GlobalConfig (admin settings)
 
 /**
  * Request a Booking (User initiates)
@@ -971,10 +971,27 @@ const searchVendors = async (booking, broadcast = false) => {
         return [];
     }
 
-    // 1. Determine Radius
+    // 1. Determine Dynamic Radius and Waves
     const retryCount = booking.retryCount || 0;
-    const radiusTiers = RADIUS_TIERS;
-    const radiusInKm = radiusTiers[Math.min(retryCount, radiusTiers.length - 1)];
+    
+    // Fetch settings for all rows
+    const [r1_km, r1_min, r2_km, r2_min, r3_km, r3_min] = await Promise.all([
+        adminService.getSetting('notifications.radius_row1_km'),
+        adminService.getSetting('notifications.radius_row1_mins'),
+        adminService.getSetting('notifications.radius_row2_km'),
+        adminService.getSetting('notifications.radius_row2_mins'),
+        adminService.getSetting('notifications.radius_row3_km'),
+        adminService.getSetting('notifications.radius_row3_mins')
+    ]);
+
+    const waves = [
+        { km: r1_km || 2, mins: r1_min || 5 },
+        { km: r2_km || 5, mins: r2_min || 10 },
+        { km: r3_km || 10, mins: r3_min || 15 }
+    ];
+
+    const currentWave = waves[Math.min(retryCount, waves.length - 1)];
+    const radiusInKm = currentWave.km;
     
     let categoryIds = [];
     if (booking.category) {
@@ -1131,11 +1148,18 @@ const searchVendors = async (booking, broadcast = false) => {
                   : `Searching in ${radiusInKm}km radius... no vendors online nearby right now.`
             });
 
-            // ── Schedule Search Expansion (Retries: 2/2/1 mins for total of 5 mins) ──
-            if (retryCount < radiusTiers.length - 1) {
-                // Tier 0 (2km) -> 2 mins, Tier 1 (4km) -> 2 mins, Tier 2 (5km) -> 1 min (final)
-                const delayMins = retryCount < 2 ? 2 : 1;
+            // ── Schedule Search Expansion (Dynamic Waves) ──
+            if (retryCount < waves.length - 1) {
+                // Calculate delay for next wave
+                // Row 1 mins is for wave 0 -> wave 1
+                // Row 2 mins is for wave 1 -> wave 2
+                // We use absolute timestamps from start, so delay = current_wave_mins - previous_wave_mins
+                const currentWaveMins = waves[retryCount].mins;
+                const nextWaveMins = waves[retryCount + 1].mins;
+                const delayMins = Math.max(1, nextWaveMins - currentWaveMins);
                 
+                console.log(`[SEARCH] Scheduling Wave ${retryCount + 1} (Radius: ${waves[retryCount+1].km}km) in ${delayMins} minutes`);
+
                 setTimeout(async () => {
                     const current = await Booking.findById(booking._id);
                     if (current && current.status === 'pending_acceptance') {
@@ -1144,8 +1168,16 @@ const searchVendors = async (booking, broadcast = false) => {
                         searchVendors(current, true).catch(console.error);
                     }
                 }, delayMins * 60 * 1000);
-            } else if (retryCount === radiusTiers.length - 1) {
-                // Hard-Stop: After the final tier (reaches the end of 5 mins total)
+            } else if (retryCount === waves.length - 1) {
+                // Hard-Stop: After the final tier
+                // Wait for the final wave duration before stopping
+                // If r3_min is 15, and r2_min was 10, we already waited 5 mins to get here (retryCount=2).
+                // How long should we wait for the final radius? 
+                // Let's assume the user can try again after the Row 3 Mins are up.
+                // Actually, if retryCount is 2 (Row 3), we should wait a bit for acceptance before failing.
+                // Let's use a 2-minute buffer or just fail after some time.
+                const finalWaitMins = 2; 
+
                 setTimeout(async () => {
                     const current = await Booking.findById(booking._id);
                     if (current && current.status === 'pending_acceptance') {
@@ -1156,10 +1188,10 @@ const searchVendors = async (booking, broadcast = false) => {
                             bookingId: booking._id,
                             bookingID: booking.bookingID,
                             status: 'no_vendors_available',
-                            message: `Could not find any vendors within ${RADIUS_TIERS[RADIUS_TIERS.length - 1]}km after 5 minutes of searching. Please try again manually.`
+                            message: `Could not find any vendors within ${waves[waves.length - 1].km}km after ${waves[waves.length - 1].mins} minutes of searching. Please try again manually.`
                         });
                     }
-                }, 1 * 60 * 1000); // Wait 1 more min for the 5km tier before stopping
+                }, finalWaitMins * 60 * 1000);
             }
             
         } catch (error) {
