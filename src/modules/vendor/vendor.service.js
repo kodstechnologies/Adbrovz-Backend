@@ -2856,6 +2856,8 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
 /**
  * Admin: Respond to deletion request
  */
+
+
 const respondToDeletionRequest = async (vendorId, { action }) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
@@ -2864,7 +2866,34 @@ const respondToDeletionRequest = async (vendorId, { action }) => {
         throw new ApiError(400, 'No deletion request found for this vendor');
     }
 
+    if (action === 'ACCEPT') {
+        const Booking = require('../../models/Booking.model');
+        const Notification = require('../../models/Notification.model');
+        const Dispute = require('../../models/Dispute.model');
+        const CoinTransaction = require('../../models/CoinTransaction.model');
+        const PaymentRecord = require('../../models/PaymentRecord.model');
 
+        // Perform Hard Delete (remove data for admin-initiated deletion)
+        await Promise.all([
+            Booking.deleteMany({ vendor: vendorId }),
+            Notification.deleteMany({ vendor: vendorId }),
+            Dispute.deleteMany({ vendor: vendorId }),
+            CoinTransaction.deleteMany({ targetId: vendorId }),
+            PaymentRecord.deleteMany({ vendor: vendorId })
+        ]);
+
+        await Vendor.findByIdAndDelete(vendorId);
+
+        return { message: 'Deletion request accepted. Vendor account and all associated data have been permanently removed.' };
+    } else if (action === 'REJECT') {
+        vendor.deletionRequest.isRequested = false;
+        vendor.deletionRequest.status = 'REJECTED';
+        await vendor.save();
+        return { message: 'Deletion request rejected.' };
+    } else {
+        throw new ApiError(400, 'Invalid action. Use ACCEPT or REJECT.');
+    }
+};
 
 module.exports = {
     getAllVendors,
@@ -2905,4 +2934,3 @@ module.exports = {
     verifyAddCategoryPayment,
     getAvailablePurchaseCategories,
 };
-
