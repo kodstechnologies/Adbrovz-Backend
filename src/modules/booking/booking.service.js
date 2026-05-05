@@ -63,10 +63,24 @@ const createBookingRequest = async (
     const potentialVendors = await Vendor.find({
         isVerified: true,
         isSuspended: false,
+        isBlocked: false,
+        isOnline: true,
         registrationStep: 'COMPLETED',
-        $or: [
-            { selectedSubcategories: subcategoryId },
-            { selectedServices: { $in: serviceIdsInSubcategory } }
+        deletedAt: null,
+        'membership.expiryDate': { $gt: new Date() },
+        $and: [
+            {
+                $or: [
+                    { 'serviceRenewal.expiryDate': { $exists: false } },
+                    { 'serviceRenewal.expiryDate': { $gt: new Date() } }
+                ]
+            },
+            {
+                $or: [
+                    { selectedSubcategories: subcategoryId },
+                    { selectedServices: { $in: serviceIdsInSubcategory } }
+                ]
+            }
         ]
     });
 
@@ -1018,18 +1032,40 @@ const searchVendors = async (booking, broadcast = false) => {
 
     // ── Geospatial Query ──
     // Match vendors who have the category selected OR have any services from that category
-    const categoryOrServiceFilter = [
-        { selectedCategories: { $in: categoryIds } }
-    ];
-    if (serviceIdsInCategories.length > 0) {
-        categoryOrServiceFilter.push({ selectedServices: { $in: serviceIdsInCategories } });
+    const serviceIds = (booking.services || []).map(s => s.service);
+    let categoryOrServiceFilter = [];
+
+    if (serviceIds.length > 0) {
+        // Strict match: Vendor must have ALL selected services registered
+        categoryOrServiceFilter = [{ selectedServices: { $all: serviceIds } }];
+    } else {
+        categoryOrServiceFilter = [
+            { selectedCategories: { $in: categoryIds } }
+        ];
+        if (serviceIdsInCategories.length > 0) {
+            categoryOrServiceFilter.push({ selectedServices: { $in: serviceIdsInCategories } });
+        }
     }
 
     const geoQuery = {
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
-        $or: categoryOrServiceFilter,
+        isOnline: true,
+        registrationStep: 'COMPLETED',
+        deletedAt: null,
+        'membership.expiryDate': { $gt: new Date() },
+        $and: [
+            {
+                $or: [
+                    { 'serviceRenewal.expiryDate': { $exists: false } },
+                    { 'serviceRenewal.expiryDate': { $gt: new Date() } }
+                ]
+            },
+            {
+                $or: categoryOrServiceFilter
+            }
+        ],
         liveLocation: {
             $nearSphere: {
                 $geometry: {
@@ -1058,7 +1094,21 @@ const searchVendors = async (booking, broadcast = false) => {
             isVerified: true,
             isSuspended: false,
             isBlocked: false,
-            $or: categoryOrServiceFilter,
+            isOnline: true,
+            registrationStep: 'COMPLETED',
+            deletedAt: null,
+            'membership.expiryDate': { $gt: new Date() },
+            $and: [
+                {
+                    $or: [
+                        { 'serviceRenewal.expiryDate': { $exists: false } },
+                        { 'serviceRenewal.expiryDate': { $gt: new Date() } }
+                    ]
+                },
+                {
+                    $or: categoryOrServiceFilter
+                }
+            ]
         };
         if (nins.length > 0) {
             fallbackQuery._id = { $nin: nins };
