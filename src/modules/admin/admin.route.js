@@ -43,6 +43,7 @@ router.patch('/vendors/:vendorId/reject', adminController.rejectVendorAccount);
 router.get  ('/vendors/eligible', adminController.getEligibleVendors);
 router.get('/vendors/:vendorId/payment-history', adminController.getVendorPaymentHistory);
 router.post('/vendors/:vendorId/deletion-request', adminController.respondToVendorDeletionRequest);
+router.delete('/vendors/:vendorId', adminController.deleteVendor);
 
 // Global Settings management
 router.get('/settings', adminController.getGlobalSettings);

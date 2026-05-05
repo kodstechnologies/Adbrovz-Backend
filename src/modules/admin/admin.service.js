@@ -1023,6 +1023,32 @@ const deleteSubAdmin = async (id) => {
   return subAdmin;
 };
 
+const deleteVendor = async (vendorId, adminId) => {
+  const vendor = await Vendor.findById(vendorId);
+  if (!vendor) {
+    throw new ApiError(404, 'Vendor not found');
+  }
+
+  // Hard Delete related data
+  const Booking = require('../../models/Booking.model');
+  const Notification = require('../../models/Notification.model');
+  const Dispute = require('../../models/Dispute.model');
+  const PaymentRecord = require('../../models/PaymentRecord.model');
+  const CoinTransaction = require('../../models/CoinTransaction.model');
+
+  await Promise.all([
+    Booking.deleteMany({ vendor: vendorId }),
+    Notification.deleteMany({ user: vendorId }), // Vendor notifications use vendorId as user
+    Dispute.deleteMany({ vendor: vendorId }),
+    PaymentRecord.deleteMany({ vendor: vendorId }),
+    CoinTransaction.deleteMany({ targetId: vendorId })
+  ]);
+
+  await Vendor.findByIdAndDelete(vendorId);
+
+  return vendor;
+};
+
 module.exports = {
   getDashboardStats,
   getAllUsers,
@@ -1039,6 +1065,7 @@ module.exports = {
   rejectVendorAccount,
   respondToVendorDeletion,
   getEligibleVendors,
+  deleteVendor,
   getGlobalSettings,
   updateGlobalSettings,
   getSetting,

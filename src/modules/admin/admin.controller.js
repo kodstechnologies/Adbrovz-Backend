@@ -149,6 +149,19 @@ const respondToVendorDeletionRequest = asyncHandler(async (req, res) => {
   );
 });
 
+// Delete vendor
+const deleteVendor = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const { vendorId } = req.params;
+  const adminId = req.user.id;
+
+  const vendor = await adminService.deleteVendor(vendorId, adminId);
+
+  res.status(200).json(
+    new ApiResponse(200, vendor, 'Vendor deleted successfully')
+  );
+});
+
 // Global Settings management
 const getGlobalSettings = asyncHandler(async (req, res) => {
   const settings = await adminService.getGlobalSettings();
@@ -279,6 +292,7 @@ module.exports = {
   getVendorPaymentHistory,
   getGlobalTransactions,
   respondToVendorDeletionRequest,
+  deleteVendor,
   getSubAdmins,
   createSubAdmin,
   updateSubAdmin,
