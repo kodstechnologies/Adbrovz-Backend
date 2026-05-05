@@ -56,6 +56,17 @@ const notificationSchema = new mongoose.Schema(
     expiresAt: {
       type: Date,
     },
+    pushStatus: {
+      type: String,
+      enum: ['not_sent', 'sent', 'failed', 'no_token'],
+      default: 'not_sent',
+    },
+    fcmTokenUsed: {
+      type: String,
+    },
+    pushError: {
+      type: String,
+    },
   },
   {
     timestamps: true,

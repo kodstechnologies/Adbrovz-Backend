@@ -711,7 +711,11 @@ const getAllBookings = async (query = {}) => {
     }
 
     obj.extraServicesAmount = extraServicesTotal;
-    obj.computedTotal = baseServicesTotal + extraServicesTotal + proposedServicesTotal + travelCharge + additionalCharges;
+    
+    const gstPercent = obj.pricing?.gstPercent || 0;
+    const taxableAmount = baseServicesTotal + extraServicesTotal + proposedServicesTotal + travelCharge + additionalCharges;
+    const gstAmount = Math.round((taxableAmount * (gstPercent / 100)) * 100) / 100;
+    obj.computedTotal = Math.round((taxableAmount + gstAmount) * 100) / 100;
     return obj;
   });
 
@@ -797,7 +801,10 @@ const getBookingDetails = async (bookingId) => {
   const proposedServicesTotal = (booking.proposedServices || []).reduce((sum, s) => sum + (s.finalPrice || 0), 0);
   const travelCharge = booking.pricing?.travelCharge || 0;
   const additionalCharges = booking.pricing?.additionalCharges || 0;
-  const computedTotal = baseServicesTotal + extraServicesTotal + proposedServicesTotal + travelCharge + additionalCharges;
+  const gstPercent = booking.pricing?.gstPercent || 0;
+  const taxableAmount = baseServicesTotal + extraServicesTotal + proposedServicesTotal + travelCharge + additionalCharges;
+  const gstAmount = Math.round((taxableAmount * (gstPercent / 100)) * 100) / 100;
+  const computedTotal = Math.round((taxableAmount + gstAmount) * 100) / 100;
 
   const pricingBreakdown = {
     baseServicesTotal,
@@ -805,6 +812,8 @@ const getBookingDetails = async (bookingId) => {
     proposedServicesTotal,
     travelCharge,
     additionalCharges,
+    gstAmount,
+    gstPercent,
     computedTotal,
     storedTotal: booking.pricing?.totalPrice || 0
   };

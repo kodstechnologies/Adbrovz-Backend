@@ -76,10 +76,7 @@ const createBookingRequest = async (
                 ]
             },
             {
-                $or: [
-                    { selectedSubcategories: subcategoryId },
-                    { selectedServices: { $in: serviceIdsInSubcategory } }
-                ]
+                selectedSubcategories: subcategoryId
             }
         ]
     });
@@ -929,9 +926,10 @@ const createBooking = async (userId, bookingData) => {
 
     const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 0;
     
-    // Calculate initial travel charge
-    const distanceKm = bookingData.distance || 0;
-    const calculatedTravelCharge = distanceKm * perKmCharge;
+    const baseCharge = 50; // Default base visit charge
+    let calculatedTravelCharge = baseCharge + (distanceKm * perKmCharge);
+    if (calculatedTravelCharge > 500) calculatedTravelCharge = 500;
+    calculatedTravelCharge = Math.round(calculatedTravelCharge * 100) / 100;
 
     const calculatedBasePrice = processedServices.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
     const calculatedTotalPrice = calculatedBasePrice + calculatedTravelCharge;
@@ -1036,8 +1034,10 @@ const searchVendors = async (booking, broadcast = false) => {
     let categoryOrServiceFilter = [];
 
     if (serviceIds.length > 0) {
+        const mongoose = require('mongoose');
+        const serviceObjectIds = serviceIds.map(id => new mongoose.Types.ObjectId(id));
         // Strict match: Vendor must have ALL selected services registered
-        categoryOrServiceFilter = [{ selectedServices: { $all: serviceIds } }];
+        categoryOrServiceFilter = [{ selectedServices: { $all: serviceObjectIds } }];
     } else {
         categoryOrServiceFilter = [
             { selectedCategories: { $in: categoryIds } }

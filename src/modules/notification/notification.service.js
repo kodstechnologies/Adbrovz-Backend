@@ -28,12 +28,10 @@ const sendPushNotification = async (token, payload) => {
 
     const response = await firebaseAdmin.messaging().send(message);
     console.log('Successfully sent message:', response);
-    return true;
+    return { success: true, messageId: response };
   } catch (error) {
     console.error('Error sending message:', error);
-    // If token is invalid or expired, we might want to remove it from the DB
-    // but for now we just log it
-    return false;
+    return { success: false, error: error.message || String(error) };
   }
 };
 
@@ -52,16 +50,29 @@ const createNotification = async (params) => {
       data: params.data,
     });
 
-    if (params.sendPush && params.fcmToken) {
-      await sendPushNotification(params.fcmToken, {
-        title: params.title,
-        body: params.body,
-        data: {
-          notificationId: notification._id.toString(),
-          type: params.type,
-          ...(params.data || {}),
-        },
-      });
+    if (params.sendPush) {
+      if (!params.fcmToken) {
+        notification.pushStatus = 'no_token';
+      } else {
+        const pushResult = await sendPushNotification(params.fcmToken, {
+          title: params.title,
+          body: params.body,
+          data: {
+            notificationId: notification._id.toString(),
+            type: params.type,
+            ...(params.data || {}),
+          },
+        });
+
+        notification.fcmTokenUsed = params.fcmToken;
+        if (pushResult.success) {
+          notification.pushStatus = 'sent';
+        } else {
+          notification.pushStatus = 'failed';
+          notification.pushError = pushResult.error;
+        }
+      }
+      await notification.save();
     }
 
     // Note: If you have Socket.io running, you could also emit an event here
