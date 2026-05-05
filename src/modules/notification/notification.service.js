@@ -157,9 +157,51 @@ const getNotificationsForUser = async (userId, userModel, query = {}) => {
   };
 };
 
+/**
+ * Marks a single notification as read
+ * @param {string} notificationId - ID of the notification
+ * @param {string} userId - ID of the user (for security)
+ */
+const markAsRead = async (notificationId, userId) => {
+  const notification = await Notification.findOneAndUpdate(
+    { _id: notificationId, user: userId },
+    { isRead: true, readAt: new Date() },
+    { new: true }
+  );
+  return notification;
+};
+
+/**
+ * Marks all notifications for a user as read
+ * @param {string} userId - ID of the user
+ * @param {string} userModel - Model of the user
+ */
+const markAllAsRead = async (userId, userModel) => {
+  return await Notification.updateMany(
+    { user: userId, userModel: userModel, isRead: false },
+    { isRead: true, readAt: new Date() }
+  );
+};
+
+/**
+ * Gets the count of unread notifications for a user
+ * @param {string} userId - ID of the user
+ * @param {string} userModel - Model of the user
+ */
+const getUnreadCount = async (userId, userModel) => {
+  return await Notification.countDocuments({
+    user: userId,
+    userModel: userModel,
+    isRead: false
+  });
+};
+
 module.exports = {
   sendPushNotification,
   createNotification,
   broadcastNotification,
   getNotificationsForUser,
+  markAsRead,
+  markAllAsRead,
+  getUnreadCount,
 };

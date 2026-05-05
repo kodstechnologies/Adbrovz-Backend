@@ -30,10 +30,10 @@ const getServiceManagementRows = asyncHandler(async (req, res) => {
 const getCategorySlots = asyncHandler(async (req, res) => {
     const { categoryId } = req.params;
     const { timezoneOffset } = req.query;
-    
+
     // Default to 330 (IST) if not provided, ensure it's a number
     const offset = timezoneOffset !== undefined ? parseInt(timezoneOffset) : 330;
-    
+
     const slots = await serviceService.getCategorySlots(categoryId, offset);
     res.status(200).json(
         new ApiResponse(200, slots, 'Slots retrieved successfully')
@@ -134,13 +134,13 @@ const getAllServices = asyncHandler(async (req, res) => {
 // Helper to map frontend fee names to backend model names
 const _mapServiceData = (data) => {
     const mapped = { ...data };
-    
+
     // Convert string-numbers to actual numbers
     const numericFields = [
-        'adminPrice', 'bookingPrice', 'concurrencyFee', 'renewalCharge', 
+        'adminPrice', 'bookingPrice', 'concurrencyFee', 'renewalCharge',
         'price', 'approxCompletionTime', 'order', 'vendorConcurrency'
     ];
-    
+
     numericFields.forEach(field => {
         if (mapped[field] !== undefined) {
             mapped[field] = Number(mapped[field]) || 0;
@@ -151,11 +151,11 @@ const _mapServiceData = (data) => {
     if (mapped.adminPrice !== undefined) {
         mapped.serviceCharge = mapped.adminPrice;
     }
-    
+
     if (mapped.concurrencyFee !== undefined) {
         mapped.serviceRenewalCharge = mapped.concurrencyFee;
     }
-    
+
     if (mapped.renewalCharge !== undefined) {
         mapped.membershipRenewalCharge = mapped.renewalCharge;
     }
