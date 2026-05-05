@@ -32,18 +32,24 @@ const getDashboardStats = async (query = {}) => {
 
   try {
     const now = new Date();
-    const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const last30Days = new Date(now);
+    last30Days.setDate(last30Days.getDate() - 30);
+    
+    const prev30Days = new Date(last30Days);
+    prev30Days.setDate(prev30Days.getDate() - 30);
 
-    // Day of week setup for Current Week (Mon-Sun)
-    const dayOfWeek = now.getDay();
-    const diffToMonday = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-    const startOfThisWeek = new Date(now);
-    startOfThisWeek.setDate(diffToMonday);
-    startOfThisWeek.setHours(0, 0, 0, 0);
+    const last7Days = new Date(now);
+    last7Days.setDate(last7Days.getDate() - 7);
+    last7Days.setHours(0, 0, 0, 0);
+    
+    const prev7Days = new Date(last7Days);
+    prev7Days.setDate(prev7Days.getDate() - 7);
 
-    const startOfLastWeek = new Date(startOfThisWeek);
-    startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
+    // Legacy support for these variables if needed elsewhere, but redirected to rolling windows
+    const startOfThisMonth = last30Days;
+    const startOfLastMonth = prev30Days;
+    const startOfThisWeek = last7Days;
+    const startOfLastWeek = prev7Days;
 
     // 1. Stat Cards
     // Total Revenue
@@ -99,30 +105,41 @@ const getDashboardStats = async (query = {}) => {
       ]).then(res => res[0]?.total || 0)
     ]);
 
-    // 2. Week Data (Area Chart)
-    const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    // 2. Rolling 7-Day Data (Area/Bar Chart)
     const weekBookings = await Booking.aggregate([
-      // Use active bookings to show more data in dev
-      { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfThisWeek } } },
+      { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: last7Days } } },
       {
         $group: {
-          _id: { $dayOfWeek: '$createdAt' },
+          _id: { 
+            day: { $dayOfMonth: '$createdAt' },
+            month: { $month: '$createdAt' }
+          },
+          date: { $first: '$createdAt' },
           bookings: { $sum: 1 },
           revenue: { $sum: '$pricing.totalPrice' }
         }
-      }
+      },
+      { $sort: { date: 1 } }
     ]);
 
-    // Map to 'Mon', 'Tue', ...
-    const weekData = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(dayName => {
-      const dbDayIndex = weekDays.indexOf(dayName) + 1; // MongoDB $dayOfWeek is 1(Sun) to 7(Sat)
-      const dayData = weekBookings.find(d => d._id === dbDayIndex);
-      return {
-        name: dayName,
-        bookings: dayData ? dayData.bookings : 0,
-        revenue: dayData ? dayData.revenue : 0
-      };
-    });
+    const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const weekData = [];
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(last7Days);
+        d.setDate(d.getDate() + i + 1);
+        const dayName = weekDays[d.getDay()];
+        const dayOfMonth = d.getDate();
+        const month = d.getMonth() + 1;
+        
+        const dayData = weekBookings.find(wb => wb._id.day === dayOfMonth && wb._id.month === month);
+        
+        weekData.push({
+            name: dayName,
+            date: `${dayOfMonth}/${month}`,
+            bookings: dayData ? dayData.bookings : 0,
+            revenue: dayData ? dayData.revenue : 0
+        });
+    }
 
     // 3. Vendor Performance (Pie Chart)
     const [topVendors, averageVendors, underperformingVendors, unratedVendors] = await Promise.all([
@@ -140,9 +157,39 @@ const getDashboardStats = async (query = {}) => {
       { name: 'Unrated', value: Math.round((unratedVendors / totalVendors) * 100) } // Provide visibility for new test accounts
     ].filter(v => v.value > 0); // Recharts pie might error on all zeros, but we added unrated so it should add up to 100%
 
-    // 4. Peak Hours Analysis
+    // 4. Category Distribution (New Chart Data)
+    const categoryDistribution = await Booking.aggregate([
+        { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: last30Days } } },
+        {
+            $group: {
+                _id: '$category',
+                bookings: { $sum: 1 },
+                revenue: { $sum: '$pricing.totalPrice' }
+            }
+        },
+        {
+            $lookup: {
+                from: 'categories',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'cat'
+            }
+        },
+        { $unwind: { path: '$cat', preserveNullAndEmptyArrays: true } },
+        {
+            $project: {
+                name: { $ifNull: ['$cat.name', 'Other'] },
+                bookings: 1,
+                revenue: 1
+            }
+        },
+        { $sort: { bookings: -1 } },
+        { $limit: 8 }
+    ]);
+
+    // 5. Peak Hours Analysis
     const peakHoursData = await Booking.aggregate([
-      { $match: { createdAt: { $gte: new Date(new Date().setDate(new Date().getDate() - 30)) } } }, // Last 30 days
+      { $match: { createdAt: { $gte: last30Days } } },
       {
         $group: {
           _id: {
@@ -160,7 +207,8 @@ const getDashboardStats = async (query = {}) => {
     let busiestDayName = 'N/A';
     if (peakHoursData.length > 0) {
       maxDailyBookings = peakHoursData[0].count;
-      busiestDayName = weekDays[peakHoursData[0]._id.day - 1]; // MongoDB $dayOfWeek is 1(Sun) to 7(Sat)
+      const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      busiestDayName = weekDays[peakHoursData[0]._id.day - 1]; 
     }
 
     // 5. Service Management Stats
@@ -194,6 +242,7 @@ const getDashboardStats = async (query = {}) => {
       },
       weekData,
       vendorPerf,
+      categoryData: categoryDistribution,
       peakHours: {
         maxDailyBookings,
         busiestDay: busiestDayName
