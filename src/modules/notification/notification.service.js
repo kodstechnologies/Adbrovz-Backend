@@ -117,8 +117,49 @@ const broadcastNotification = async (params) => {
   };
 };
 
+/**
+ * Gets notifications for a specific user with filtering and pagination
+ * @param {string} userId - ID of the user
+ * @param {string} userModel - Model of the user ('User', 'Vendor', 'Admin')
+ * @param {object} query - { startDate, endDate, limit, skip, isRead }
+ */
+const getNotificationsForUser = async (userId, userModel, query = {}) => {
+  const { startDate, endDate, limit = 20, skip = 0, isRead } = query;
+  
+  const filter = {
+    user: userId,
+    userModel: userModel
+  };
+
+  if (isRead !== undefined) {
+    filter.isRead = isRead === 'true';
+  }
+
+  if (startDate || endDate) {
+    filter.createdAt = {};
+    if (startDate) filter.createdAt.$gte = new Date(startDate);
+    if (endDate) filter.createdAt.$lte = new Date(endDate);
+  }
+
+  const [notifications, total] = await Promise.all([
+    Notification.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip)),
+    Notification.countDocuments(filter)
+  ]);
+
+  return {
+    notifications,
+    total,
+    limit: parseInt(limit),
+    skip: parseInt(skip)
+  };
+};
+
 module.exports = {
   sendPushNotification,
   createNotification,
   broadcastNotification,
+  getNotificationsForUser,
 };

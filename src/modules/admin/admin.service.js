@@ -66,13 +66,13 @@ const getDashboardStats = async (query = {}) => {
       ]).then(res => res[0]?.total || 0)
     ]);
 
-    // Weekly Revenue (Skip if filtered)
-    const [thisWeekRevenue, lastWeekRevenue] = hasFilter ? [0, 0] : await Promise.all([
+    // Weekly Revenue (Show filtered revenue if filter exists, otherwise rolling 7 days)
+    const [thisWeekRevenue, lastWeekRevenue] = await Promise.all([
       Booking.aggregate([
-        { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfThisWeek } } },
+        { $match: hasFilter ? revenueMatch : { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfThisWeek } } },
         { $group: { _id: null, total: { $sum: '$pricing.totalPrice' } } }
       ]).then(res => res[0]?.total || 0),
-      Booking.aggregate([
+      hasFilter ? Promise.resolve(0) : Booking.aggregate([
         { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfLastWeek, $lt: startOfThisWeek } } },
         { $group: { _id: null, total: { $sum: '$pricing.totalPrice' } } }
       ]).then(res => res[0]?.total || 0)
@@ -176,9 +176,10 @@ const getDashboardStats = async (query = {}) => {
       { name: 'Unrated', value: Math.round((unratedVendors / totalVendors) * 100) } // Provide visibility for new test accounts
     ].filter(v => v.value > 0); // Recharts pie might error on all zeros, but we added unrated so it should add up to 100%
 
-    // 4. Category Distribution (New Chart Data)
+    // 4. Category Distribution (Respects filters)
+    const catMatch = hasFilter ? { status: { $ne: 'cancelled' }, createdAt: dateFilter } : { status: { $ne: 'cancelled' }, createdAt: { $gte: last30Days } };
     const categoryDistribution = await Booking.aggregate([
-        { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: last30Days } } },
+        { $match: catMatch },
         {
             $group: {
                 _id: '$category',
@@ -206,9 +207,10 @@ const getDashboardStats = async (query = {}) => {
         { $limit: 8 }
     ]);
 
-    // 5. Peak Hours Analysis
+    // 5. Peak Hours Analysis (Respects filters)
+    const peakMatch = hasFilter ? { createdAt: dateFilter } : { createdAt: { $gte: last30Days } };
     const peakHoursData = await Booking.aggregate([
-      { $match: { createdAt: { $gte: last30Days } } },
+      { $match: peakMatch },
       {
         $group: {
           _id: {

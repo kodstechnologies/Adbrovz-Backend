@@ -75,6 +75,7 @@ router.put('/documents/reupload', authenticate, authorize(ROLES.VENDOR), uploadV
 router.get('/verification-status', authenticate, authorize(ROLES.VENDOR), vendorController.getVerificationStatus);
 router.delete('/account', authenticate, authorize(ROLES.VENDOR), vendorController.deleteAccount);
 router.put('/fcm-token', authenticate, authorize(ROLES.VENDOR), vendorController.updateFcmToken);
+router.get('/notifications', authenticate, authorize(ROLES.VENDOR), require('../notification/notification.controller').getNotifications);
 
 // Admin can also get profile by ID
 router.get('/profile/:vendorId', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getProfile);

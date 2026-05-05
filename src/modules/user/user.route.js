@@ -25,6 +25,7 @@ router.put(
     userController.updateProfile
 );
 router.put('/fcm-token', userController.updateFcmToken);
+router.get('/notifications', require('../notification/notification.controller').getNotifications);
 router.delete('/account', userController.deleteAccount);
 
 module.exports = router;
