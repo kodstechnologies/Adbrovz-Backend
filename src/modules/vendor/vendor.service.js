@@ -591,9 +591,12 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
  * Create Razorpay order for membership payment
  * vendorId is extracted from token (req.user), NOT from URL
  */
-const createMembershipOrder = async (vendorId, { durationMonths, amount, membershipId } = {}) => {
+const createMembershipOrder = async (vendorId, { durationMonths, amount, membershipId, planId } = {}) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    // Accept planId as an alias for membershipId (the app sends planId from the plan selection screen)
+    const resolvedMembershipId = membershipId || planId || null;
 
     // Update durationMonths if provided
     if (durationMonths) {
@@ -602,7 +605,7 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount, members
     }
     
     // Calculate full fee using the centralized helper
-    const calc = await _calculateMembershipAmounts({ vendorId, durationMonths, membershipId });
+    const calc = await _calculateMembershipAmounts({ vendorId, durationMonths, membershipId: resolvedMembershipId });
     const totalFee = calc.grandTotal;
 
     // Ensure the resolved membershipId is persisted to the vendor
@@ -1452,7 +1455,7 @@ const updateVendorProfile = async (vendorId, profileData) => {
  * Verify Razorpay membership payment signature
  * On success — activates vendor membership
  */
-const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature, membershipId }) => {
+const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature, membershipId, planId }) => {
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
         throw new ApiError(400, 'razorpay_order_id, razorpay_payment_id and razorpay_signature are required');
     }
@@ -1472,16 +1475,30 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    if (membershipId) {
+    // Accept planId as an alias for membershipId (app may send either field)
+    const resolvedMembershipId = membershipId || planId || vendor.membership?.membershipId || null;
+
+    if (resolvedMembershipId) {
         vendor.membership = vendor.membership || {};
-        vendor.membership.membershipId = membershipId;
+        vendor.membership.membershipId = resolvedMembershipId;
     }
 
     if (vendor.isVerified) {
         const now = new Date();
-        const durationMonths = vendor.membership.durationMonths || 3;
-        const plan = await getPlanByDuration(durationMonths);
-        const validityDays = plan.validityDays || (durationMonths * 30);
+
+        // Resolve plan: prefer planId/membershipId over durationMonths fallback
+        let plan;
+        if (resolvedMembershipId) {
+            const planDoc = await CreditPlan.findById(resolvedMembershipId).lean();
+            if (planDoc) {
+                plan = { validityDays: Number(planDoc.validityDays), durationMonths: Math.round(planDoc.validityDays / 30) };
+            }
+        }
+        if (!plan) {
+            const durationMonths = vendor.membership.durationMonths || 3;
+            plan = await getPlanByDuration(durationMonths);
+        }
+        const validityDays = plan.validityDays;
 
         vendor.membership.startDate = vendor.membership.startDate || now;
         const expiryDate = new Date(vendor.membership.startDate);
