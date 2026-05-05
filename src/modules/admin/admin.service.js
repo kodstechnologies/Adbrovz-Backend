@@ -105,14 +105,20 @@ const getDashboardStats = async (query = {}) => {
       ]).then(res => res[0]?.total || 0)
     ]);
 
-    // 2. Rolling 7-Day Data (Area/Bar Chart)
+    // 2. Trend Data (Area/Bar Chart) - Respects filters
+    const chartStart = hasFilter && dateFilter.$gte ? new Date(dateFilter.$gte) : last7Days;
+    const chartEnd = hasFilter && dateFilter.$lte ? new Date(dateFilter.$lte) : now;
+    
+    const chartMatch = hasFilter ? { status: { $ne: 'cancelled' }, createdAt: dateFilter } : { status: { $ne: 'cancelled' }, createdAt: { $gte: last7Days } };
+
     const weekBookings = await Booking.aggregate([
-      { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: last7Days } } },
+      { $match: chartMatch },
       {
         $group: {
           _id: { 
             day: { $dayOfMonth: '$createdAt' },
-            month: { $month: '$createdAt' }
+            month: { $month: '$createdAt' },
+            year: { $year: '$createdAt' }
           },
           date: { $first: '$createdAt' },
           bookings: { $sum: 1 },
@@ -124,14 +130,27 @@ const getDashboardStats = async (query = {}) => {
 
     const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const weekData = [];
-    for (let i = 0; i < 7; i++) {
-        const d = new Date(last7Days);
-        d.setDate(d.getDate() + i + 1);
+    
+    // Calculate number of days to show (cap at 31 for performance/readability)
+    const diffTime = Math.abs(chartEnd - chartStart);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
+    const numDaysToShow = Math.min(diffDays, 31);
+
+    for (let i = 0; i < numDaysToShow; i++) {
+        const d = new Date(chartStart);
+        // If it's the rolling 7-day view, we start from tomorrow of last7Days. 
+        // If it's a filtered view, we start from the exact startDate.
+        if (!hasFilter) d.setDate(d.getDate() + i + 1);
+        else d.setDate(d.getDate() + i);
+        
+        if (d > chartEnd && hasFilter) break; // Don't overshoot the end date
+
         const dayName = weekDays[d.getDay()];
         const dayOfMonth = d.getDate();
         const month = d.getMonth() + 1;
+        const year = d.getFullYear();
         
-        const dayData = weekBookings.find(wb => wb._id.day === dayOfMonth && wb._id.month === month);
+        const dayData = weekBookings.find(wb => wb._id.day === dayOfMonth && wb._id.month === month && wb._id.year === year);
         
         weekData.push({
             name: dayName,
@@ -606,7 +625,7 @@ const updateMembershipPricing = async (data, adminId) => {
 };
 
 const getAllBookings = async (query = {}) => {
-  const { limit = 10, skip = 0, search = '', status, isToday } = query;
+  const { limit = 10, skip = 0, search = '', status, isToday, startDate, endDate } = query;
 
   const filter = {};
 
@@ -620,6 +639,14 @@ const getAllBookings = async (query = {}) => {
     const end = new Date();
     end.setHours(23, 59, 59, 999);
     filter.scheduledDate = { $gte: start, $lte: end };
+  } else if (startDate || endDate) {
+    filter.createdAt = {};
+    if (startDate) filter.createdAt.$gte = new Date(startDate);
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      filter.createdAt.$lte = end;
+    }
   }
 
   // Pre-fetch matching users/vendors if search involves names
