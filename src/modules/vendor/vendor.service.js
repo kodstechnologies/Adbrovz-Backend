@@ -2615,13 +2615,14 @@ const getHierarchicalMembershipCharges = async (vendorId) => {
  * Add Category: Calculate fee details
  */
 const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds = [], serviceIds = [] } = {}) => {
-    if (!categoryId) throw new ApiError(400, 'categoryId is required');
+    const catIds = parseArrayInput(categoryId);
+    if (catIds.length === 0) throw new ApiError(400, 'categoryId is required');
 
     const vendor = await Vendor.findById(vendorId).lean();
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    const category = await Category.findById(categoryId).lean();
-    if (!category) throw new ApiError(404, 'Category not found');
+    const categories = await Category.find({ _id: { $in: catIds } }).lean();
+    if (categories.length === 0) throw new ApiError(404, 'Category not found');
 
     const parsedSubcategoryIds = parseArrayInput(subcategoryIds);
     const parsedServiceIds = parseArrayInput(serviceIds);
@@ -2629,44 +2630,56 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     const subcategories = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).lean();
     const services = await Service.find({ _id: { $in: parsedServiceIds } }).lean();
 
-    const isCatOwned = (vendor.selectedCategories || []).map(id => id.toString()).includes(categoryId.toString());
-    
-    // Category Charge (0 if already owned)
-    const categoryBaseCharge = _getMembershipCharge(category, 'category');
-    const categoryProration = isCatOwned ? { amount: 0, remainingDays: 0 } : _calculateProration(vendor, categoryId, categoryBaseCharge);
-    
-    let totalFee = categoryProration.amount;
+    let totalFee = 0;
     let additionalSelectionsTotal = 0;
+    const itemBreakdown = [];
+    const categoriesBreakdown = [];
     
-    const breakdown = {
-        category: { 
+    const ownedCatIds = new Set((vendor.selectedCategories || []).map(id => id.toString()));
+    const primaryCatId = catIds[0];
+
+    // Process Categories
+    for (const category of categories) {
+        const isCatOwned = ownedCatIds.has(category._id.toString());
+        const baseCharge = _getMembershipCharge(category, 'category');
+        const proration = isCatOwned ? { amount: 0, remainingDays: 0 } : _calculateProration(vendor, category._id, baseCharge);
+        
+        totalFee += proration.amount;
+
+        const catData = { 
             id: category._id, 
             name: category.name, 
-            charge: categoryProration.amount, 
-            baseCharge: categoryBaseCharge,
-            isProrated: categoryProration.isProrated,
-            remainingDays: categoryProration.remainingDays
-        },
+            charge: proration.amount, 
+            baseCharge: baseCharge,
+            isProrated: proration.isProrated,
+            remainingDays: proration.remainingDays
+        };
+        categoriesBreakdown.push(catData);
+
+        if (proration.amount > 0) {
+            itemBreakdown.push({
+                id: category._id,
+                title: category.name,
+                type: 'category',
+                serviceCharge: 0,
+                membershipCharge: proration.amount,
+                isProrated: proration.isProrated,
+                remainingDays: proration.remainingDays
+            });
+        }
+    }
+
+    const breakdown = {
+        category: categoriesBreakdown[0], // Backward compatibility
+        categories: categoriesBreakdown,
         subcategories: [],
         services: []
     };
-    const itemBreakdown = [];
-
-    if (categoryProration.amount > 0) {
-        itemBreakdown.push({
-            id: category._id,
-            title: category.name,
-            type: 'category',
-            serviceCharge: 0,
-            membershipCharge: categoryProration.amount,
-            isProrated: categoryProration.isProrated,
-            remainingDays: categoryProration.remainingDays
-        });
-    }
 
     subcategories.forEach(sub => {
         const baseCharge = _getMembershipCharge(sub, 'subcategory');
-        const proration = _calculateProration(vendor, categoryId, baseCharge);
+        // Use the primary category or the subcategory's own category for proration alignment
+        const proration = _calculateProration(vendor, sub.category || primaryCatId, baseCharge);
         
         totalFee += proration.amount;
         additionalSelectionsTotal += proration.amount;
@@ -2692,7 +2705,7 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
 
     services.forEach(svc => {
         const baseCharge = _getMembershipCharge(svc, 'service');
-        const proration = _calculateProration(vendor, categoryId, baseCharge);
+        const proration = _calculateProration(vendor, svc.category || primaryCatId, baseCharge);
         
         totalFee += proration.amount;
         additionalSelectionsTotal += proration.amount;
@@ -2721,25 +2734,27 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
     const gstAmount = Math.round(totalFee * (gstPercent / 100));
     const totalWithGst = totalFee + gstAmount;
+    
     return {
         vendorId,
-        categoryId,
-        totalCharge: totalFee, // Subtotal of service charges
+        categoryId: primaryCatId, // Backward compatibility
+        categoryIds: catIds,
+        totalCharge: totalWithGst, // GST-inclusive total (formerly subtotal)
         gstAmount,
         totalWithGst,
         subtotal: totalFee,
         totalServiceFee: additionalSelectionsTotal,
         serviceSelectionsTotal: additionalSelectionsTotal,
-        totalFee: totalWithGst,
+        totalAmount: totalWithGst, // Alias for totalCharge (GST-inclusive)
         platformSubtotal: totalFee,
         gstPercent,
         basePlanFee: 0,
         itemBreakdown,
-        razorpayKeyId: config.RAZORPAY_KEY_ID,
         breakdown,
+        razorpayKeyId: config.RAZORPAY_KEY_ID,
         prorationContext: {
-            remainingDays: categoryProration.remainingDays || 0,
-            expiryDate: categoryProration.expiryDate
+            remainingDays: categoriesBreakdown[0]?.remainingDays || 0,
+            expiryDate: categoriesBreakdown[0]?.expiryDate
         }
     };
 };
@@ -2781,7 +2796,9 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
                 ...feeDetails.breakdown,
                 selectedSubcategories: subcategoryIds,
                 selectedServices: serviceIds,
+                // Store both the raw input (may be array) and the parsed array for reliable recovery
                 categoryId: categoryId,
+                categoryIds: feeDetails.categoryIds,
                 isProrated: (feeDetails.prorationContext?.remainingDays || 30) < 30,
                 alignedExpiryDate: feeDetails.prorationContext?.expiryDate
             }
@@ -2832,7 +2849,8 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
     }
 
     if (paymentRecord && paymentRecord.metadata) {
-        finalCategoryId = finalCategoryId || paymentRecord.metadata.categoryId;
+        // Prefer the stored categoryIds array (set during order creation); fall back to single categoryId
+        finalCategoryId = finalCategoryId || paymentRecord.metadata.categoryIds || paymentRecord.metadata.categoryId;
         finalSubcategories = finalSubcategories || paymentRecord.metadata.selectedSubcategories;
         finalServices = finalServices || paymentRecord.metadata.selectedServices;
     }
@@ -2841,10 +2859,11 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     // Add unique selections to vendor profile
-    if (finalCategoryId) {
-        const catIdStr = String(finalCategoryId);
+    const catIdsToProcess = parseArrayInput(finalCategoryId);
+    for (const catId of catIdsToProcess) {
+        const catIdStr = String(catId);
         if (!vendor.selectedCategories.map(id => String(id)).includes(catIdStr)) {
-            vendor.selectedCategories.push(finalCategoryId);
+            vendor.selectedCategories.push(catId);
         }
     }
 
@@ -2866,9 +2885,9 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
         });
     }
 
-    // Update categorySubscriptions for the newly added category
-    if (finalCategoryId) {
-        const catIdStr = String(finalCategoryId);
+    // Update categorySubscriptions for each newly added category
+    for (const catId of catIdsToProcess) {
+        const catIdStr = String(catId);
         const now = new Date();
         let expiryDate = new Date(now);
         expiryDate.setDate(expiryDate.getDate() + 30); // Default 1 month
@@ -2885,6 +2904,13 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
         const fee = paymentRecord ? paymentRecord.totalAmount : 0;
 
         const existingSubIndex = vendor.categorySubscriptions.findIndex(s => s.category.toString() === catIdStr);
+        
+        // Filter subcategories and services that belong to THIS category
+        // Note: In a robust system, we'd check each subcategory's parent category. 
+        // For now, if multiple categories are added at once, we'll associate all selections with each category 
+        // OR we could refine this by fetching subcategories/services to see where they belong.
+        // Given the current structure, associating all with each is safer for availability.
+        
         if (existingSubIndex > -1) {
             vendor.categorySubscriptions[existingSubIndex].expiryDate = expiryDate;
             vendor.categorySubscriptions[existingSubIndex].status = 'ACTIVE';
@@ -2893,7 +2919,7 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
             vendor.categorySubscriptions[existingSubIndex].services = Array.from(new Set([...(vendor.categorySubscriptions[existingSubIndex].services || []), ...(finalServices || [])]));
         } else {
             vendor.categorySubscriptions.push({
-                category: finalCategoryId,
+                category: catId,
                 subcategories: finalSubcategories || [],
                 services: finalServices || [],
                 startDate: now,
@@ -2905,10 +2931,7 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
     }
 
 
-    // Ensure category is in selectedCategories for notifications/broadcasts
-    if (finalCategoryId && !vendor.selectedCategories.some(id => id.toString() === String(finalCategoryId))) {
-        vendor.selectedCategories.push(finalCategoryId);
-    }
+    // Note: All category IDs are already added to selectedCategories in the loop above.
 
     // Update payment record if it exists
     if (paymentRecord) {
