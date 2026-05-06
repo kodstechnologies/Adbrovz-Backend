@@ -2495,15 +2495,23 @@ const getMembershipPlansWithStatus = async (vendorId) => {
     let currentPlan = null;
     const currentDuration = vendor.membership?.durationMonths || 0;
 
+    const adminService = require('../admin/admin.service');
+    const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
+
     for (const p of plans) {
         const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { durationMonths: p.duration });
         const isCurrent = currentDuration === p.duration;
         
+        const subtotal = feeDetails.subtotal;
+        const gstAmount = Math.round(subtotal * (gstPercent / 100));
+        const totalWithGst = subtotal + gstAmount;
+
         const planObj = {
             id: feeDetails.planId,
             name: p.name,
             isCurrent,
-            renewal: feeDetails.subtotal, // Subtotal includes base plan + hierarchy
+            renewal: totalWithGst, // GST-inclusive total
             validityDays: feeDetails.validityDays
         };
 
