@@ -2088,14 +2088,19 @@ const getServiceRenewalFeeDetails = async (vendorId) => {
         };
     }).filter(c => c.renewalAmount > 0 || (c.subcategories && c.subcategories.length > 0) || (c.services && c.services.length > 0));
 
+    const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
+    const gstAmount = Math.round(serviceSubtotal * (gstPercent / 100));
+    const totalFee = serviceSubtotal + gstAmount;
+
     return {
         vendorId: vendor._id,
         subtotal: serviceSubtotal,
-        gstPercent: 0,
-        gstAmount: 0,
-        totalFee: serviceSubtotal,
+        gstPercent,
+        gstAmount,
+        totalFee,
         serviceRenewal: {
-            fee: serviceSubtotal,
+            fee: totalFee,
             expiryDate: vendor.serviceRenewal?.expiryDate || null,
             breakdown: hierarchy
         },
@@ -2173,9 +2178,10 @@ const getMembershipRenewalFeeDetails = async (vendorId, { planId, durationMonths
     services.forEach(s => membershipHierarchicalSubtotal += (s.membershipRenewalCharge || 0));
 
     const subtotal = basePlanPrice + membershipHierarchicalSubtotal;
-    const gstPercent = 0; // No GST for renewal as per user request
-    const gstAmount = 0;
-    const totalFee = subtotal;
+    const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
+    const gstAmount = Math.round(subtotal * (gstPercent / 100));
+    const totalFee = subtotal + gstAmount;
 
     // Build breakdown for hierarchical charges
     const breakdown = {
@@ -2468,7 +2474,7 @@ const getMembershipPlansWithStatus = async (vendorId) => {
             id: feeDetails.planId,
             name: p.name,
             isCurrent,
-            renewal: feeDetails.subtotal, // Subtotal includes base plan + hierarchy
+            renewal: feeDetails.totalFee, // Total includes base plan + hierarchy + gst
             validityDays: feeDetails.validityDays
         };
 
