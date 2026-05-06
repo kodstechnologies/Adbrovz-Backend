@@ -30,7 +30,7 @@ router.get('/vendor/:id', authenticate, bookingController.getVendorBookingById);
 /**
  * USER – BOOKING FLOW
  */
-router.post('/', bookingController.createBooking); // Temporarily bypassed check
+router.post('/', authenticate, bookingController.createBooking);
 router.get('/my-bookings', authenticate, bookingController.getMyBookings);
 router.get('/completed-history', authenticate, bookingController.getCompletedHistory);
 router.post('/:id/confirm-price', authenticate, bookingController.confirmPrice);

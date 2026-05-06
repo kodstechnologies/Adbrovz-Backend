@@ -15,6 +15,31 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
+/**
+ * Internal helper to send push notifications
+ */
+const _sendPush = async (userId, userModel, type, title, body, data = {}) => {
+    try {
+        const Model = userModel === 'Vendor' ? Vendor : User;
+        const recipient = await Model.findById(userId).select('fcmToken');
+        if (recipient?.fcmToken) {
+            const notificationService = require('../notification/notification.service');
+            await notificationService.createNotification({
+                user: userId,
+                userModel,
+                type,
+                title,
+                body,
+                data: { ...data, type },
+                sendPush: true,
+                fcmToken: recipient.fcmToken
+            });
+        }
+    } catch (err) {
+        console.error(`[PUSH ERROR] Failed to notify ${userModel} of ${type}:`, err.message);
+    }
+};
+
 // Radius expansion tiers are now dynamic and fetched from GlobalConfig (admin settings)
 
 /**
@@ -103,14 +128,20 @@ const createBookingRequest = async (
     const searchTimeoutMins = (await adminService.getSetting('bookings.search_timeout_mins')) || 2;
 
     // Trigger broadcast
-    searchVendors(booking, true).catch(console.error);
+    const notifiedVendors = await searchVendors(booking, true).catch(err => {
+        console.error('Error in initial searchVendors:', err.message);
+        return [];
+    });
 
-    console.log(`[DEBUG] Booking request created: ${booking._id}, status: ${booking.status}`);
+    console.log(`[DEBUG] Booking request created: ${booking._id}, status: ${booking.status}. Initial notified vendors: ${notifiedVendors.length}`);
     return {
         booking,
-        availableVendorsCount: potentialVendors.length,
+        availableVendorsCount: notifiedVendors.length,
+        notifiedVendors,
         searchTimeoutMins,
-        message: 'Booking broadcasted to available vendors'
+        message: notifiedVendors.length > 0 
+            ? `Booking broadcasted to ${notifiedVendors.length} nearby vendors.`
+            : 'Booking created, but no vendors were found nearby at this moment.'
     };
 
 };
@@ -238,6 +269,9 @@ const acceptBooking = async (vendorId, bookingId) => {
 
     emitToUser(userIdStr, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
+
+    // ── Send Push Notification to User ──
+    _sendPush(booking.user, 'User', 'booking_accepted', 'Booking Accepted', `A vendor has accepted your booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
     const io = getIo();
     console.log(`[SOCKET] Notifying other vendors about acceptance`);
@@ -461,6 +495,10 @@ const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
     const { emitToUser, emitToVendor } = require('../../socket');
     emitToUser(booking.user, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
+
+    // ── Send Push Notification to User ──
+    _sendPush(booking.user, 'User', 'booking_completed', 'Booking Completed', `Your booking ${booking.bookingID} has been completed successfully.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+
 
     return { booking: vendorPayload, message: 'Booking completed successfully' };
 
@@ -852,6 +890,10 @@ const createBooking = async (userId, bookingData) => {
     }
 
     const user = await User.findById(userId);
+    if (!user) {
+        throw new ApiError(404, 'User not found. Please log in again.');
+    }
+    
     if (user.bannedUntil && user.bannedUntil > new Date()) {
         throw new ApiError(403, `You are temporarily banned from making bookings until ${user.bannedUntil.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} due to multiple cancellations.`);
     }
@@ -927,6 +969,7 @@ const createBooking = async (userId, bookingData) => {
     const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 0;
     
     const baseCharge = 50; // Default base visit charge
+    const distanceKm = 0; // No vendor assigned yet, so distance is 0
     let calculatedTravelCharge = baseCharge + (distanceKm * perKmCharge);
     if (calculatedTravelCharge > 500) calculatedTravelCharge = 500;
     calculatedTravelCharge = Math.round(calculatedTravelCharge * 100) / 100;
@@ -1084,7 +1127,7 @@ const searchVendors = async (booking, broadcast = false) => {
 
     console.log(`[SEARCH] Searching for vendors for booking ${booking._id} in categoryIds:`, categoryIds);
 
-    let vendors = await Vendor.find(geoQuery).select('_id');
+    let vendors = await Vendor.find(geoQuery).select('_id fcmToken');
     console.log(`[DEBUG] searchVendors - Geo query found ${vendors.length} vendors within ${radiusInKm}km radius`);
 
     // ── Fallback: If no geo results, notify all verified vendors in the category ──
@@ -1113,7 +1156,7 @@ const searchVendors = async (booking, broadcast = false) => {
         if (nins.length > 0) {
             fallbackQuery._id = { $nin: nins };
         }
-        vendors = await Vendor.find(fallbackQuery).select('_id');
+        vendors = await Vendor.find(fallbackQuery).select('_id fcmToken');
         console.log(`[DEBUG] searchVendors - Fallback query found ${vendors.length} vendors (Verified & Category/Service matching)`);
     }
 
@@ -1164,20 +1207,39 @@ const searchVendors = async (booking, broadcast = false) => {
             const notifiedIds = [];
             const { emitToVendor, isVendorOnline } = require('../../socket');
 
-            vendors.forEach(v => {
+            const notificationService = require('../notification/notification.service');
+            
+            for (const v of vendors) {
                 const vendorIdStr = v._id.toString();
                 const online = isVendorOnline(vendorIdStr);
                 
-                console.log(`[DEBUG] searchVendors checking Vendor ${vendorIdStr} - Online: ${online}`);
+                console.log(`[DEBUG] searchVendors notifying Vendor ${vendorIdStr} - Online: ${online}, Has Token: ${!!v.fcmToken}`);
                 
+                // 1. Socket Notification (Real-time)
                 if (online) {
                     emitToVendor(vendorIdStr, 'new_booking_request', payload);
                     broadcastCount++;
-                    notifiedIds.push(v._id);
-                } else {
-                    console.log(`[DEBUG] Vendor ${vendorIdStr} has no active sockets - SKIPPED broadcast`);
                 }
-            });
+
+                // 2. Push Notification (Always or Fallback)
+                // We send it to everyone matched to ensure visibility
+                await notificationService.createNotification({
+                    user: v._id,
+                    userModel: 'Vendor',
+                    type: 'new_booking',
+                    title: 'New Booking Request',
+                    body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
+                    data: {
+                        bookingId: booking._id.toString(),
+                        bookingID: populatedBooking.bookingID,
+                        type: 'new_booking_request'
+                    },
+                    sendPush: true,
+                    fcmToken: v.fcmToken
+                }).catch(err => console.error(`[NOTIFICATION ERROR] Failed to send push to vendor ${vendorIdStr}:`, err.message));
+
+                notifiedIds.push(v._id);
+            }
 
             // Persist notified vendors to DB
             if (notifiedIds.length > 0) {
@@ -1437,6 +1499,9 @@ const cancelBooking = async (userId, bookingId, reason) => {
     emitToUser(booking.user, 'booking_status_updated', populatedBooking);
     if (booking.vendor) {
         emitToVendor(booking.vendor, 'booking_cancellation', populatedBooking);
+
+        // ── Send Push Notification to Vendor ──
+        _sendPush(booking.vendor, 'Vendor', 'booking_cancelled', 'Booking Cancelled', `The user has cancelled booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
     }
 
     return populatedBooking || booking;
@@ -1494,6 +1559,9 @@ const vendorCancelBooking = async (vendorId, bookingId, reason) => {
         ...populatedBooking.toObject(),
         message: 'The vendor has cancelled your booking.'
     });
+
+    // ── Send Push Notification to User ──
+    _sendPush(booking.user, 'User', 'booking_cancelled', 'Booking Cancelled', `The vendor has cancelled your booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
     emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
 
     return populatedBooking || booking;
@@ -1790,8 +1858,9 @@ const retrySearchVendors = async (userId, bookingId) => {
     return {
         found: nearby.length > 0,
         count: nearby.length,
+        notifiedVendorIds: nearby.map(v => v.vendorId),
         message: nearby.length > 0
-            ? `Search restarted from ${RADIUS_TIERS[0]}km radius. Please wait.`
+            ? `Search restarted. Notified ${nearby.length} vendors.`
             : 'No vendors are currently available nearby.'
     };
 };
@@ -1962,6 +2031,10 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
     emitToUser(booking.user, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
+    // ── Send Push Notification to User ──
+    _sendPush(booking.user, 'User', 'price_proposed', 'New Price Proposal', `Vendor has proposed a new price for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+
+
     // Specific notification event
     emitToUser(booking.user, 'booking_price_proposed', userPayload);
 
@@ -2012,6 +2085,10 @@ const confirmBookingPrice = async (userId, bookingId) => {
     // Notify both for state sync
     emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
     emitToUser(userId, 'booking_status_updated', userPayload);
+
+    // ── Send Push Notification to Vendor ──
+    _sendPush(booking.vendor, 'Vendor', 'price_confirmed', 'Price Confirmed', `User has confirmed the proposed price for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+
 
     // Specific notification event
     emitToVendor(booking.vendor, 'booking_price_confirmed', vendorPayload);
@@ -2117,6 +2194,10 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
     emitToUser(userId, 'booking_status_updated', populatedBooking);
     if (booking.vendor) {
         emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
+        
+        // ── Send Push Notification to Vendor ──
+        _sendPush(booking.vendor, 'Vendor', 'price_rejected', 'Price Rejected', `User has rejected the proposed price for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+
         emitToVendor(booking.vendor, 'booking_price_rejected', {
             bookingId: booking._id,
             reason: reason || 'Price rejected by user',
@@ -2281,6 +2362,10 @@ const addServicesToBooking = async (vendorId, bookingId, newServices) => {
     emitToUser(booking.user, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
+    // ── Send Push Notification to User ──
+    _sendPush(booking.user, 'User', 'services_proposed', 'New Services Proposed', `Vendor has proposed additional services for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+
+
     // Legacy event for compatibility if needed, but booking_status_updated is primary
     emitToUser(booking.user, 'booking_services_proposed', {
         bookingId: booking._id,
@@ -2339,6 +2424,10 @@ const confirmProposedServices = async (userId, bookingId) => {
 
     emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
     emitToUser(userId, 'booking_status_updated', userPayload);
+
+    // ── Send Push Notification to Vendor ──
+    _sendPush(booking.vendor, 'Vendor', 'services_confirmed', 'Services Confirmed', `User has confirmed the proposed additional services for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+
 
     // Specific event
     emitToVendor(booking.vendor, 'booking_services_confirmed', {
@@ -2639,6 +2728,10 @@ async function requestExtraServices(userId, bookingId, newServices) {
     emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
     emitToUser(userId, 'booking_status_updated', userPayload);
 
+    // ── Send Push Notification to Vendor ──
+    _sendPush(booking.vendor, 'Vendor', 'extra_services_requested', 'Extra Services Requested', `User has requested additional services for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+
+
     // Specific event to vendor
     const newlyRequestedServices = populatedBooking.userRequestedServices.slice(-newServices.length);
     emitToVendor(booking.vendor, 'extra_services_requested_by_user', {
@@ -2720,6 +2813,10 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
 
     emitToUser(booking.user, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
+
+    // ── Send Push Notification to User ──
+    _sendPush(booking.user, 'User', 'extra_services_priced', 'Extra Services Priced', `Vendor has set prices for your extra service requests in booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+
 
     // Generic event for legacy/general use
     emitToUser(booking.user, 'extra_services_priced_by_vendor', {

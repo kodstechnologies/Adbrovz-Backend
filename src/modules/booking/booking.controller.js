@@ -37,7 +37,7 @@ const acceptLead = asyncHandler(async (req, res) => {
  * Create a new booking
  */
 const createBooking = asyncHandler(async (req, res) => {
-    const userId = req.user?.userId || req.body.userId;
+    const userId = req.user?.id || req.user?.userId || req.body.userId;
     const { booking, searchTimeoutMins } = await bookingService.createBooking(userId, req.body);
 
     res.status(201).json(
