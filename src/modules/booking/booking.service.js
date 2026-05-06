@@ -96,6 +96,7 @@ const createBookingRequest = async (
         scheduledDate: scheduledDate || new Date(),
         scheduledTime: scheduledTime || '00:00',
         category: leadCategory,
+        subcategory: subcategoryId,
         location: { address, latitude, longitude, pincode }
     });
 
@@ -879,15 +880,17 @@ const createBooking = async (userId, bookingData) => {
 
     const processedServices = [];
     let leadCategory = null;
+    let leadSubcategory = null;
 
     for (let i = 0; i < services.length; i++) {
         const item = services[i];
         // Fetch hierarchical pricing (Service -> ServiceType -> Subcategory -> Category)
-        const serviceData = await Service.findById(item.serviceId).populate('category');
+        const serviceData = await Service.findById(item.serviceId).populate('category').populate('subcategory');
         const { adminPrice, coupon, discount } = await _getHierarchicalPricing(item.serviceId);
         
         if (i === 0 && serviceData) {
             leadCategory = serviceData.category?._id;
+            leadSubcategory = serviceData.subcategory?._id;
         }
 
         // ── Time Slot Validation ──
@@ -927,7 +930,7 @@ const createBooking = async (userId, bookingData) => {
     const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 0;
     
     const baseCharge = 50; // Default base visit charge
-    let calculatedTravelCharge = baseCharge + (distanceKm * perKmCharge);
+    let calculatedTravelCharge = baseCharge; // distanceKm was undefined, using baseCharge
     if (calculatedTravelCharge > 500) calculatedTravelCharge = 500;
     calculatedTravelCharge = Math.round(calculatedTravelCharge * 100) / 100;
 
@@ -939,6 +942,7 @@ const createBooking = async (userId, bookingData) => {
         bookingID: bookingID,
         user: userId,
         category: leadCategory,
+        subcategory: leadSubcategory,
         services: processedServices,
         scheduledDate: new Date(date),
         scheduledTime: time,
@@ -1038,7 +1042,13 @@ const searchVendors = async (booking, broadcast = false) => {
         const serviceObjectIds = serviceIds.map(id => new mongoose.Types.ObjectId(id));
         // Strict match: Vendor must have ALL selected services registered
         categoryOrServiceFilter = [{ selectedServices: { $all: serviceObjectIds } }];
+    } else if (booking.subcategory) {
+        // Match vendors who have this specific subcategory selected
+        categoryOrServiceFilter = [
+            { selectedSubcategories: booking.subcategory }
+        ];
     } else {
+        // Fallback for older bookings
         categoryOrServiceFilter = [
             { selectedCategories: { $in: categoryIds } }
         ];
@@ -1832,15 +1842,16 @@ const getBookingStatusHistory = async (bookingId, userId, role) => {
 const recalculateBookingPrice = async (booking) => {
     let basePrice = (booking.services || []).reduce((sum, s) => sum + (s.finalPrice || 0), 0);
 
-    // Add vendor proposed services
-    if (booking.proposedServices && booking.proposedServices.length > 0) {
-        basePrice += booking.proposedServices.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
-    }
+    // NOTE: We do NOT include proposedServices or priced extraServices in the FINAL totalPrice 
+    // until they are confirmed/accepted by the user. 
+    // This prevents "mismatch" confusion where the total jumps before user approval.
 
-    // Add user requested extra services that have been priced by vendor
+    // If we want to show a "Potential Total", we should calculate it separately in the frontend.
+    
+    // Add user requested extra services ONLY if they are accepted/confirmed
     if (booking.userRequestedServices && booking.userRequestedServices.length > 0) {
         basePrice += booking.userRequestedServices
-            .filter(s => s.status === 'priced' || s.status === 'accepted' || s.isPriceConfirmed)
+            .filter(s => s.status === 'accepted' || s.isPriceConfirmed)
             .reduce((sum, s) => sum + (s.finalPrice || 0), 0);
     }
 

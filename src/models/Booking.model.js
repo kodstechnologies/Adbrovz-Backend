@@ -16,6 +16,10 @@ const bookingSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Category',
     },
+    subcategory: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Subcategory',
+    },
     vendor: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Vendor',

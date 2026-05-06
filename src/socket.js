@@ -31,9 +31,30 @@ const registerVendorSocket = async (vendorId, socketId) => {
     if (!sockets.includes(socketId)) sockets.push(socketId);
     console.log(`✅ Vendor ${vId} auto-registered on socket ${socketId}. Total sockets for this vendor: ${sockets.length}. All active vendors: ${[...activeVendors.keys()].join(', ')}`);
 
-    // Persist online status to DB
+    // Persist online status to DB (only if membership is valid)
     try {
         const Vendor = require('./models/Vendor.model');
+        const vendor = await Vendor.findById(vId).select('membership.expiryDate');
+        
+        if (!vendor) {
+            console.error(`⚠️ Vendor ${vId} not found during socket registration`);
+            return;
+        }
+
+        const isExpired = vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) < new Date();
+        
+        if (isExpired) {
+            console.log(`🚫 Vendor ${vId} membership expired (${vendor.membership.expiryDate}). Keeping offline.`);
+            await Vendor.findByIdAndUpdate(vId, { isOnline: false });
+            if (io) {
+                io.to(socketId).emit('membership_expired_error', { 
+                    message: 'Your membership has expired. Please renew to go online.',
+                    expiryDate: vendor.membership.expiryDate
+                });
+            }
+            return;
+        }
+
         await Vendor.findByIdAndUpdate(vId, { isOnline: true });
         console.log(`📡 Vendor ${vId} marked online in DB`);
     } catch (err) {

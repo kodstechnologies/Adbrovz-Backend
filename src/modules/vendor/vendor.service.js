@@ -260,12 +260,39 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, membershi
 
     const membershipTotal = baseFee;
 
-    // "Service Selections Total" comes from membership charges on selected items.
+    // "Service Selections Total" comes from membership charges on EXPLICITLY selected items only
+    // to avoid double-charging across the hierarchy (Category -> Subcategory -> Service)
     let servicesSubtotal = 0;
-    if (items.categories.length > 0) items.categories.forEach(c => servicesSubtotal += _getMembershipCharge(c, 'category'));
-    items.subcategories.forEach(s => servicesSubtotal += _getMembershipCharge(s, 'subcategory'));
-    items.serviceTypes.forEach(t => servicesSubtotal += _getMembershipCharge(t, 'serviceType'));
-    items.services.forEach(s => servicesSubtotal += _getMembershipCharge(s, 'service'));
+    
+    // 1. Explicit Category (if provided)
+    if (categoryId) {
+        const explicitCat = items.categories.find(c => c._id.toString() === categoryId.toString());
+        if (explicitCat) servicesSubtotal += _getMembershipCharge(explicitCat, 'category');
+    }
+    
+    // 2. Explicit Subcategories
+    const explicitSubIds = new Set(subIds.map(id => id.toString()));
+    items.subcategories.forEach(s => {
+        if (explicitSubIds.has(s._id.toString())) {
+            servicesSubtotal += _getMembershipCharge(s, 'subcategory');
+        }
+    });
+    
+    // 3. Explicit Service Types
+    const explicitTypeIds = new Set(typeIds.map(id => id.toString()));
+    items.serviceTypes.forEach(t => {
+        if (explicitTypeIds.has(t._id.toString())) {
+            servicesSubtotal += _getMembershipCharge(t, 'serviceType');
+        }
+    });
+    
+    // 4. Explicit Services
+    const explicitSvcIds = new Set(svcIds.map(id => id.toString()));
+    items.services.forEach(s => {
+        if (explicitSvcIds.has(s._id.toString())) {
+            servicesSubtotal += _getMembershipCharge(s, 'service');
+        }
+    });
 
     const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
     const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
@@ -829,6 +856,13 @@ const getMembershipPlans = async (serviceMembershipFee = 0, options = {}) => {
     }).sort({ price: 1 }).lean();
     
     const vendorId = options?.vendorId;
+    let currentPlanId = options?.currentPlanId || null;
+
+    if (!currentPlanId && vendorId) {
+        const Vendor = require('../../models/Vendor.model');
+        const vendor = await Vendor.findById(vendorId).select('membership.membershipId');
+        currentPlanId = vendor?.membership?.membershipId;
+    }
 
     let resolvedServiceMembershipFee = serviceMembershipFee;
     if ((resolvedServiceMembershipFee === undefined || resolvedServiceMembershipFee === null) && vendorId) {
@@ -863,7 +897,8 @@ const getMembershipPlans = async (serviceMembershipFee = 0, options = {}) => {
             validityDays: Number(validityDays),
             gstAmount,
             totalFee,
-            gstPercent
+            gstPercent,
+            isCurrent: currentPlanId ? plan._id.toString() === currentPlanId.toString() : false
         });
     }
 
