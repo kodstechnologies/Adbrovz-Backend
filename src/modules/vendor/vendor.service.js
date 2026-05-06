@@ -2485,14 +2485,12 @@ const getMembershipPlansWithStatus = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    const plans = [
-        { duration: 3, name: 'Basic' },
-        { duration: 6, name: 'Pro' },
-        { duration: 12, name: 'Elite' }
-    ];
+    const CreditPlan = require('../../models/CreditPlan.model');
+    const plans = await CreditPlan.find({ name: { $in: ['Basic', 'Pro', 'Elite'] } }).sort({ price: 1 }).lean();
 
     const allPlans = [];
     let currentPlan = null;
+    const currentMembershipId = vendor.membership?.membershipId?.toString();
     const currentDuration = vendor.membership?.durationMonths || 0;
 
     const adminService = require('../admin/admin.service');
@@ -2500,19 +2498,27 @@ const getMembershipPlansWithStatus = async (vendorId) => {
     const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
 
     for (const p of plans) {
-        const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { durationMonths: p.duration });
-        const isCurrent = currentDuration === p.duration;
+        const planDurationMonths = Math.max(1, Math.round(p.validityDays / 30));
+        const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { planId: p._id.toString(), durationMonths: planDurationMonths });
+        
+        let isCurrent = false;
+        if (currentMembershipId) {
+            isCurrent = currentMembershipId === p._id.toString();
+        } else {
+            // Fallback for older records without membershipId
+            isCurrent = currentDuration === planDurationMonths;
+        }
         
         const subtotal = feeDetails.subtotal;
         const gstAmount = Math.round(subtotal * (gstPercent / 100));
         const totalWithGst = subtotal + gstAmount;
 
         const planObj = {
-            id: feeDetails.planId,
+            id: p._id.toString(),
             name: p.name,
             isCurrent,
             renewal: totalWithGst, // GST-inclusive total
-            validityDays: feeDetails.validityDays
+            validityDays: p.validityDays
         };
 
         if (isCurrent) {
