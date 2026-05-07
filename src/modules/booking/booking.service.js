@@ -581,6 +581,52 @@ const _getScheduledDateTimeIST = (date, timeString) => {
 };
 
 /**
+ * Internal helper to calculate the start and end time of a booking.
+ * Returns { start: Date, end: Date } or null if invalid.
+ */
+const getBookingTimeRange = async (booking) => {
+    const start = _getScheduledDateTimeIST(booking.scheduledDate, booking.scheduledTime);
+    if (!start) return null;
+
+    let totalDurationMins = 0;
+    
+    // Sum up durations of all services
+    if (booking.services && booking.services.length > 0) {
+        for (const s of booking.services) {
+            // Check if service is populated
+            const svc = s.service;
+            if (svc && typeof svc === 'object') {
+                totalDurationMins += (svc.approxCompletionTime || 60) * (s.quantity || 1);
+            } else {
+                // Fallback: fetch service if not populated (though it usually is in calling contexts)
+                const fullSvc = await Service.findById(svc).select('approxCompletionTime');
+                totalDurationMins += (fullSvc?.approxCompletionTime || 60) * (s.quantity || 1);
+            }
+        }
+    }
+
+    // Include proposed services if any (vendor might have added them)
+    if (booking.proposedServices && booking.proposedServices.length > 0) {
+        for (const s of booking.proposedServices) {
+            const svc = s.service;
+            if (svc && typeof svc === 'object') {
+                totalDurationMins += (svc.approxCompletionTime || 30) * (s.quantity || 1);
+            } else {
+                const fullSvc = await Service.findById(svc).select('approxCompletionTime');
+                totalDurationMins += (fullSvc?.approxCompletionTime || 30) * (s.quantity || 1);
+            }
+        }
+    }
+
+    // Default minimum duration 1 hour if nothing found
+    if (totalDurationMins === 0) totalDurationMins = 60;
+
+    const end = new Date(start.getTime() + totalDurationMins * 60000);
+    return { start, end };
+};
+
+
+/**
  * Helper to consistently format a booking object (convert to IST, handle OTP visibility, etc.)
  */
 const _formatBooking = (bookingDoc, role) => {
