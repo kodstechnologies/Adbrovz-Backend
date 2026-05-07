@@ -18,14 +18,12 @@ const MESSAGES = require('../../constants/messages');
  */
 
 const _calculateServicePricing = (service) => {
-    const adminPrice = service.bookingPrice || 
-                      service.serviceType?.bookingPrice || 
-                      service.subcategory?.bookingPrice || 
-                      service.category?.bookingPrice ||
-                      service.serviceCharge || 
-                      service.serviceType?.serviceCharge || 
-                      service.subcategory?.serviceCharge || 
-                      service.category?.serviceCharge || 0;
+    const categoryPrice = service.category?.bookingPrice || 0;
+    const subcategoryPrice = service.subcategory?.bookingPrice || 0;
+    const serviceTypePrice = service.serviceType?.bookingPrice || 0;
+    const servicePrice = service.bookingPrice || service.serviceCharge || 0;
+
+    const adminPrice = categoryPrice + subcategoryPrice + serviceTypePrice + servicePrice;
 
     const discountPercentage = service.discount || 
                     service.serviceType?.discount || 

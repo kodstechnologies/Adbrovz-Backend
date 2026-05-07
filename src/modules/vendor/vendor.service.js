@@ -773,7 +773,9 @@ const purchaseMembership = async (vendorId) => {
             ? vendor.serviceRenewal.expiryDate
             : now;
         const renExpiry = new Date(baseRenDate);
-        renExpiry.setDate(renExpiry.getDate() + 30);
+        
+        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+        renExpiry.setDate(renExpiry.getDate() + Number(renewalDays));
         vendor.serviceRenewal.expiryDate = renExpiry;
 
         vendor.registrationStep = 'COMPLETED';
@@ -1134,7 +1136,8 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
             vendor.serviceRenewal = vendor.serviceRenewal || {};
             vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || startDate;
             const renExpiryDate = new Date();
-            renExpiryDate.setDate(renExpiryDate.getDate() + 30);
+            const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+            renExpiryDate.setDate(renExpiryDate.getDate() + Number(renewalDays));
             vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiryDate;
 
             vendor.registrationStep = 'COMPLETED';
@@ -1200,8 +1203,8 @@ const verifyAllDocuments = async (vendorId) => {
 
         vendor.serviceRenewal = vendor.serviceRenewal || {};
         vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || startDate;
-        const renExpiryDate = new Date();
-        renExpiryDate.setDate(renExpiryDate.getDate() + 30);
+        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+        renExpiryDate.setDate(renExpiryDate.getDate() + Number(renewalDays));
         vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiryDate;
 
         vendor.registrationStep = 'COMPLETED';
@@ -1509,13 +1512,15 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         vendor.serviceRenewal = vendor.serviceRenewal || {};
         vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || now;
         const renExpiry = new Date(vendor.serviceRenewal.startDate);
-        renExpiry.setDate(renExpiry.getDate() + 30);
+        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+        renExpiry.setDate(renExpiry.getDate() + Number(renewalDays));
         vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiry;
 
         // Initialize category subscriptions for registration categories
         if (vendor.selectedCategories && vendor.selectedCategories.length > 0) {
             const categoryExpiry = new Date(now);
-            categoryExpiry.setDate(categoryExpiry.getDate() + 30); // Service expires in 1 month (30 days)
+            const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+            categoryExpiry.setDate(categoryExpiry.getDate() + Number(renewalDays)); // Service expires based on admin setting
 
             for (const catId of vendor.selectedCategories) {
                 const existingSub = vendor.categorySubscriptions.find(s => s.category.toString() === catId.toString());
@@ -2414,7 +2419,8 @@ const verifyServiceRenewalPayment = async (vendorId, { razorpay_order_id, razorp
         : now;
 
     const newExpiryDate = new Date(baseDate);
-    newExpiryDate.setDate(newExpiryDate.getDate() + 30);
+    const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+    newExpiryDate.setDate(newExpiryDate.getDate() + Number(renewalDays));
 
     vendor.serviceRenewal.expiryDate = newExpiryDate;
 
@@ -2842,7 +2848,8 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
         const catIdStr = String(finalCategoryId);
         const now = new Date();
         let expiryDate = new Date(now);
-        expiryDate.setDate(expiryDate.getDate() + 30); // Default 1 month
+        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+        expiryDate.setDate(expiryDate.getDate() + Number(renewalDays)); // Default based on admin setting
 
         // Align with prorated expiry if provided in payment record
         if (paymentRecord && paymentRecord.metadata && paymentRecord.metadata.alignedExpiryDate) {

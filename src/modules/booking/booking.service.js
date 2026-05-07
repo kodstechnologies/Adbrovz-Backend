@@ -49,6 +49,20 @@ const createBookingRequest = async (
     userId,
     { subcategoryId, address, latitude, longitude, pincode, scheduledDate, scheduledTime }
 ) => {
+    // ── Idempotency Check ──
+    const recentBooking = await Booking.findOne({
+        user: userId,
+        status: 'pending_acceptance',
+        createdAt: { $gt: new Date(Date.now() - 30 * 1000) }
+    });
+    if (recentBooking) {
+        return {
+            booking: recentBooking,
+            availableVendorsCount: 0,
+            message: 'Your request is already being processed.'
+        };
+    }
+
     const todayStr = new Date().toDateString();
 
     const subcategory = await mongoose.model('Subcategory').findById(subcategoryId).populate('category');
@@ -133,6 +147,17 @@ const createBookingRequest = async (
         return [];
     });
 
+    // ── Emit Success Response via Socket ──
+    try {
+        const { emitToUser } = require('../../socket');
+        emitToUser(userId, 'booking_created_success', {
+            booking,
+            message: 'Lead request created successfully. Searching for vendors...'
+        });
+    } catch (socketErr) {
+        console.error('[SOCKET ERROR] Failed to emit booking_created_success in requestLead:', socketErr.message);
+    }
+
     console.log(`[DEBUG] Booking request created: ${booking._id}, status: ${booking.status}. Initial notified vendors: ${notifiedVendors.length}`);
     return {
         booking,
@@ -207,14 +232,28 @@ const acceptBooking = async (vendorId, bookingId) => {
         if (vendor?.liveLocation?.coordinates && source.location?.latitude) {
             const [vLng, vLat] = vendor.liveLocation.coordinates;
             // Ignore [0,0] as it's usually a default/invalid location (off Africa coast)
-            if (vLat !== 0 && vLng !== 0) {
+            // Also ensure coordinates are within reasonable bounds for India
+            if (vLat !== 0 && vLng !== 0 && vLat > 5 && vLat < 40 && vLng > 65 && vLng < 100) {
                 const { latitude: bLat, longitude: bLng } = source.location;
                 distance = calculateDistance(vLat, vLng, bLat, bLng);
+                console.log(`[DISTANCE] Calculated distance: ${distance} km between vendor (${vLat}, ${vLng}) and booking (${bLat}, ${bLng})`);
+            } else {
+                console.warn(`[DISTANCE] Vendor ${vendorId} has invalid or default coordinates: [${vLng}, ${vLat}]. Travel charge will use 0km.`);
             }
         }
 
         const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 10;
-        const baseCharge = 50; // Default base visit charge
+        
+        // Use category specific base charge if available
+        let baseCharge = 50;
+        if (booking.category) {
+            const Category = mongoose.model('Category');
+            const cat = await Category.findById(booking.category);
+            if (cat && cat.serviceCharge) {
+                baseCharge = cat.serviceCharge;
+            }
+        }
+        
         let travelCharge = baseCharge + (distance * perKmCharge);
         
         // Cap travel charge at a reasonable amount (e.g., ₹500)
@@ -351,14 +390,21 @@ const markArrived = async (vendorId, bookingId) => {
         throw new ApiError(400, 'Booking must be on the way first');
     }
 
-    // ── Distance Guard: 1km arrival threshold ──
+    // ── Distance Guard: 1.5km arrival threshold ──
     const vendor = await Vendor.findById(vendorId).select('liveLocation');
     if (vendor?.liveLocation?.coordinates && booking.location?.latitude) {
         const [vLng, vLat] = vendor.liveLocation.coordinates;
         const { latitude: bLat, longitude: bLng } = booking.location;
         
+        // Safety check for [0,0]
+        if (vLat === 0 || vLng === 0) {
+            throw new ApiError(400, 'Your GPS location is invalid. Please ensure GPS is on and try again.');
+        }
+
         const distance = calculateDistance(vLat, vLng, bLat, bLng);
-        if (distance > 1.0) { // 1 km
+        console.log(`[DISTANCE] markArrived: distance=${distance} km`);
+        
+        if (distance > 1.5) { // Increased to 1.5km for better tolerance in city areas
             throw new ApiError(400, `Arrival denied. You are ${(distance * 1000).toFixed(0)}m away. Please reach the customer's location first.`);
         }
     }
@@ -840,14 +886,12 @@ const _getHierarchicalPricing = async (serviceId) => {
     
     if (!service) return { adminPrice: 0, coupon: null, discount: 0 };
 
-    const adminPrice = service.bookingPrice || 
-                      service.serviceType?.bookingPrice || 
-                      service.subcategory?.bookingPrice || 
-                      service.category?.bookingPrice ||
-                      service.serviceCharge || 
-                      service.serviceType?.serviceCharge || 
-                      service.subcategory?.serviceCharge || 
-                      service.category?.serviceCharge || 0;
+    const categoryPrice = service.category?.bookingPrice || 0;
+    const subcategoryPrice = service.subcategory?.bookingPrice || 0;
+    const serviceTypePrice = service.serviceType?.bookingPrice || 0;
+    const servicePrice = service.bookingPrice || service.serviceCharge || 0;
+
+    const adminPrice = categoryPrice + subcategoryPrice + serviceTypePrice + servicePrice;
 
     const coupon = service.coupon || 
                   service.serviceType?.coupon || 
@@ -865,9 +909,26 @@ const _getHierarchicalPricing = async (serviceId) => {
 /**
  * Create booking (full flow)
  */
+/**
+ * Create booking (full flow)
+ */
 const createBooking = async (userId, bookingData) => {
     console.log("createBooking CALLED. userId:", userId);
-    console.log("bookingData:", JSON.stringify(bookingData));
+    
+    // ── Idempotency Check: Prevent duplicate bookings in a short window ──
+    const recentBooking = await Booking.findOne({
+        user: userId,
+        status: 'pending_acceptance',
+        createdAt: { $gt: new Date(Date.now() - 30 * 1000) } // 30 seconds window
+    });
+    if (recentBooking) {
+        console.log(`[IDEMPOTENCY] Found recent pending booking ${recentBooking._id} for user ${userId}. Returning existing.`);
+        return {
+            booking: _formatBooking(recentBooking, 'user'),
+            message: 'Your booking is already being processed. Please wait.'
+        };
+    }
+
     const {
         services,
         date,
@@ -968,7 +1029,16 @@ const createBooking = async (userId, bookingData) => {
 
     const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 0;
     
-    const baseCharge = 50; // Default base visit charge
+    // Use category specific base charge if available
+    let baseCharge = 50;
+    if (leadCategory) {
+        const Category = mongoose.model('Category');
+        const cat = await Category.findById(leadCategory);
+        if (cat && cat.serviceCharge) {
+            baseCharge = cat.serviceCharge;
+        }
+    }
+
     const distanceKm = 0; // No vendor assigned yet, so distance is 0
     let calculatedTravelCharge = baseCharge + (distanceKm * perKmCharge);
     if (calculatedTravelCharge > 500) calculatedTravelCharge = 500;
@@ -998,14 +1068,22 @@ const createBooking = async (userId, bookingData) => {
     await recalculateBookingPrice(booking);
     await booking.save();
 
-    if (confirmation === true) {
-        searchVendors(booking, true).catch(console.error);
-    } else {
-        searchVendors(booking, true).catch(console.error);
-    }
+    // Trigger broadcast (Removed duplicate call)
+    searchVendors(booking, true).catch(err => console.error('[BROADCAST ERROR] initial searchVendors failed:', err.message));
 
     const populatedBooking = await Booking.findById(booking._id).populate('category');
     const formattedBooking = _formatBooking(populatedBooking, 'user');
+
+    // ── Emit Success Response via Socket ──
+    try {
+        const { emitToUser } = require('../../socket');
+        emitToUser(userId, 'booking_created_success', {
+            booking: formattedBooking,
+            message: 'Booking request placed successfully. Searching for vendors...'
+        });
+    } catch (socketErr) {
+        console.error('[SOCKET ERROR] Failed to emit booking_created_success:', socketErr.message);
+    }
 
     return {
         booking: formattedBooking,
@@ -1383,7 +1461,10 @@ const markBookingLater = async (vendorId, bookingId) => {
 const getVendorBookingHistory = async (vendorId) => {
     const Vendor = require('../../models/Vendor.model');
     const vendor = await Vendor.findById(vendorId).select('isVerified documentStatus');
-    if (!vendor?.isVerified || vendor?.documentStatus !== 'approved') {
+    // Allow history if verified OR if they have at least one booking (safety for active vendors)
+    const hasBookings = await Booking.exists({ vendor: vendorIdObj });
+    
+    if (!hasBookings && (!vendor?.isVerified || (vendor?.documentStatus !== 'approved' && vendor?.documentStatus !== 'verified'))) {
         return { pending: [], ongoing: [], completed: [], cancelled: [] };
     }
 
