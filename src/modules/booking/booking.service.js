@@ -1460,6 +1460,7 @@ const markBookingLater = async (vendorId, bookingId) => {
  */
 const getVendorBookingHistory = async (vendorId) => {
     const Vendor = require('../../models/Vendor.model');
+    const vendorIdObj = new mongoose.Types.ObjectId(vendorId);
     const vendor = await Vendor.findById(vendorId).select('isVerified documentStatus');
     // Allow history if verified OR if they have at least one booking (safety for active vendors)
     const hasBookings = await Booking.exists({ vendor: vendorIdObj });
@@ -1467,8 +1468,6 @@ const getVendorBookingHistory = async (vendorId) => {
     if (!hasBookings && (!vendor?.isVerified || (vendor?.documentStatus !== 'approved' && vendor?.documentStatus !== 'verified'))) {
         return { pending: [], ongoing: [], completed: [], cancelled: [] };
     }
-
-    const vendorIdObj = new mongoose.Types.ObjectId(vendorId);
 
     // 1. Pending (Accepted by vendor but not started)
     // 2. Ongoing (started)
