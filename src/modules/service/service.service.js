@@ -21,7 +21,11 @@ const _calculateServicePricing = (service) => {
     const categoryPrice = service.category?.bookingPrice || 0;
     const subcategoryPrice = service.subcategory?.bookingPrice || 0;
     const serviceTypePrice = service.serviceType?.bookingPrice || 0;
-    const servicePrice = service.bookingPrice || service.serviceCharge || 0;
+    
+    // Fix: Only fall back to serviceCharge if bookingPrice is null or undefined, not if it's 0.
+    const servicePrice = (service.bookingPrice !== undefined && service.bookingPrice !== null) 
+        ? service.bookingPrice 
+        : (service.serviceCharge || 0);
 
     const adminPrice = categoryPrice + subcategoryPrice + serviceTypePrice + servicePrice;
 
@@ -1205,10 +1209,20 @@ const getServiceCatalogue = async () => {
  * Public: Get generic available time slots for a category
  * @param {string} categoryId
  * @param {number} timezoneOffset Offset in minutes (e.g., IST = 330). Default is IST.
+ * @param {string} serviceId Optional serviceId to base slot intervals on service duration
  */
-const getCategorySlots = async (categoryId, timezoneOffset = 330) => {
+const getCategorySlots = async (categoryId, timezoneOffset = 330, serviceId = null) => {
     const category = await Category.findById(categoryId);
     if (!category) throw new ApiError(404, 'Category not found');
+
+    let stepMinutes = 30; // Default
+    if (serviceId) {
+        const service = await Service.findById(serviceId);
+        if (service && service.approxCompletionTime) {
+            // Use service duration as the interval, but capped between 30 and 120 mins for UI sanity
+            stepMinutes = Math.max(30, Math.min(service.approxCompletionTime, 120));
+        }
+    }
 
     const parseTime = (timeStr, fallbackH) => {
         if (!timeStr) return [fallbackH, 0];
@@ -1228,30 +1242,24 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330) => {
     const now = new Date();
     const daysList = [];
     const windowDays = 7;
-    const slotDurationMs = 30 * 60 * 1000;
+    const slotDurationMs = stepMinutes * 60 * 1000;
 
     // Correctly calculate the start of the user's "Today" in UTC
-    // 1. Get current time in user's local milliseconds
     const nowLocalMs = now.getTime() + (timezoneOffset * 60000);
-    // 2. Find the start of that day (00:00) in "local" time
     const startOfUserTodayLocal = new Date(nowLocalMs);
     startOfUserTodayLocal.setUTCHours(0, 0, 0, 0);
-    // 3. Convert that "local 00:00" back to UTC
     const todayBaseMs = startOfUserTodayLocal.getTime() - (timezoneOffset * 60000);
     const todayBase = new Date(todayBaseMs);
 
     for (let dayOffset = 0; dayOffset < windowDays; dayOffset++) {
-        // Construct the date for this offset using UTC methods to maintain day boundaries
         const loopDate = new Date(todayBase.getTime());
         loopDate.setUTCDate(loopDate.getUTCDate() + dayOffset);
         
-        // Re-calculate the actual local date string for this day
         const localDateForLoop = new Date(loopDate.getTime() + (timezoneOffset * 60000));
         const dateStr = localDateForLoop.toISOString().split('T')[0];
         let dayLabel = dayOffset === 0 ? 'Today' : (dayOffset === 1 ? 'Tomorrow' : '');
         
         if (!dayLabel) {
-            // Faster manual formatting for generic labels
             const options = { weekday: 'short', month: 'short', day: 'numeric' };
             dayLabel = loopDate.toLocaleDateString('en-US', options);
         }
@@ -1260,16 +1268,12 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330) => {
         const categoryEndMs = (slotEndH * 60 + slotEndM) * 60000;
 
         for (let h = slotStartH; h <= slotEndH; h++) {
-            for (let m = (h === slotStartH ? slotStartM : 0); m < 60; m += 30) {
+            for (let m = (h === slotStartH ? slotStartM : 0); m < 60; m += stepMinutes) {
                 const currentMinutes = h * 60 + m;
                 if (h === slotEndH && m >= slotEndM) break;
                 
-                // Calculate Slot Start and End in UTC to compare with 'now'
-                // since todayBase/loopDate are already normalized to UTC start of the local day.
                 const slotStartUTCMs = loopDate.getTime() + (currentMinutes * 60000);
                 const slotEndUTCMs = slotStartUTCMs + slotDurationMs;
-                
-                // Construct category end in UTC
                 const categoryEndUTCMs = loopDate.getTime() + categoryEndMs;
                 
                 if (slotEndUTCMs > categoryEndUTCMs) break;

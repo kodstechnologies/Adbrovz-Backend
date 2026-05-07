@@ -244,17 +244,7 @@ const acceptBooking = async (vendorId, bookingId) => {
 
         const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 10;
         
-        // Use category specific base charge if available
-        let baseCharge = 50;
-        if (booking.category) {
-            const Category = mongoose.model('Category');
-            const cat = await Category.findById(booking.category);
-            if (cat && cat.serviceCharge) {
-                baseCharge = cat.serviceCharge;
-            }
-        }
-        
-        let travelCharge = baseCharge + (distance * perKmCharge);
+        let travelCharge = (distance * perKmCharge);
         
         // Cap travel charge at a reasonable amount (e.g., ₹500)
         if (travelCharge > 500) travelCharge = 500;
@@ -1073,20 +1063,10 @@ const createBooking = async (userId, bookingData) => {
         });
     }
 
-    const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 0;
+    const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 10;
     
-    // Use category specific base charge if available
-    let baseCharge = 50;
-    if (leadCategory) {
-        const Category = mongoose.model('Category');
-        const cat = await Category.findById(leadCategory);
-        if (cat && cat.serviceCharge) {
-            baseCharge = cat.serviceCharge;
-        }
-    }
-
     const distanceKm = 0; // No vendor assigned yet, so distance is 0
-    let calculatedTravelCharge = baseCharge + (distanceKm * perKmCharge);
+    let calculatedTravelCharge = (distanceKm * perKmCharge);
     if (calculatedTravelCharge > 500) calculatedTravelCharge = 500;
     calculatedTravelCharge = Math.round(calculatedTravelCharge * 100) / 100;
 
