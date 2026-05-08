@@ -925,7 +925,9 @@ const _getHierarchicalPricing = async (serviceId) => {
     const categoryPrice = service.category?.bookingPrice || 0;
     const subcategoryPrice = service.subcategory?.bookingPrice || 0;
     const serviceTypePrice = service.serviceType?.bookingPrice || 0;
-    const servicePrice = service.bookingPrice || service.serviceCharge || 0;
+    const servicePrice = (service.bookingPrice !== undefined && service.bookingPrice !== null) 
+        ? service.bookingPrice 
+        : (service.serviceCharge || 0);
 
     const adminPrice = categoryPrice + subcategoryPrice + serviceTypePrice + servicePrice;
 
