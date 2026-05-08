@@ -71,7 +71,7 @@ const canonicalizeStatus = (status) => {
     if (!status) return 'pending';
     const s = String(status).toLowerCase().trim();
     if (s.startsWith('reject')) return 'rejected';
-    if (s.startsWith('approve') || s.startsWith('verify') || s === 'verified') return 'approved';
+    if (s.startsWith('approve') || s.startsWith('verify') || s === 'verified') return 'verified';
     return s;
 };
 
@@ -1094,12 +1094,21 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
         return d && typeof d === 'object' && canonicalizeStatus(d.status) === 'rejected';
     });
 
-    // Check if all required documents (photo, idProof, addressProof) are verified or approved
+    // Check if all documents that have been uploaded are verified
+    // AND that the basic required documents (photo, idProof, addressProof) are present and verified
     const requiredDocs = ['photo', 'idProof', 'addressProof'];
-    const allRequiredVerified = requiredDocs.every(doc => {
+    const allUploadedVerified = Object.keys(vendor.documents).every(doc => {
         const d = vendor.documents[doc];
-        return d && typeof d === 'object' && (d.status === 'verified' || d.status === 'approved');
+        if (!d || !d.url) return true; // Ignore missing docs
+        return d.status === 'verified' || d.status === 'approved';
     });
+    
+    const basicReqsPresent = requiredDocs.every(doc => {
+        const d = vendor.documents[doc];
+        return d && d.url && (d.status === 'verified' || d.status === 'approved');
+    });
+
+    const allRequiredVerified = allUploadedVerified && basicReqsPresent;
 
     console.log(`DEBUG Check: Vendor ${vendorId} - Doc: ${docType} -> ${status}. All Req Verified: ${allRequiredVerified}, Has Rejections: ${hasRejectedDocs}`);
 
