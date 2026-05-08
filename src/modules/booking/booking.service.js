@@ -299,6 +299,15 @@ const acceptBooking = async (vendorId, bookingId) => {
     emitToUser(userIdStr, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
+    // ── Emit specialized success event for multi-device sync ──
+    emitToVendor(vendorId, 'booking_accepted_success', {
+        booking: vendorPayload,
+        message: 'Booking accepted successfully'
+    });
+
+    // ── Send Push Notification to Vendor ──
+    _sendPush(vendorId, 'Vendor', 'booking_accepted', 'Booking Accepted', `You have accepted booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+
     // ── Send Push Notification to User ──
     _sendPush(booking.user, 'User', 'booking_accepted', 'Booking Accepted', `A vendor has accepted your booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
@@ -366,6 +375,12 @@ const markOnTheWay = async (vendorId, bookingId) => {
     emitToUser(booking.user, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
+    // ── Emit specialized success event for multi-device sync ──
+    emitToVendor(vendorId, 'booking_on_the_way_success', {
+        booking: vendorPayload,
+        message: 'Status updated to On The Way'
+    });
+
     return { booking: vendorPayload, message: 'Status updated to On The Way' };
 };
 
@@ -414,6 +429,12 @@ const markArrived = async (vendorId, bookingId) => {
     emitToUser(booking.user, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
+    // ── Emit specialized success event for multi-device sync ──
+    emitToVendor(vendorId, 'booking_arrived_success', {
+        booking: vendorPayload,
+        message: 'Status updated to Arrived'
+    });
+
     return { booking: vendorPayload, message: 'Status updated to Arrived' };
 
 };
@@ -452,6 +473,12 @@ const startWork = async (vendorId, bookingId, enteredOTP) => {
     emitToUser(booking.user, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
+    // ── Emit specialized success event for multi-device sync ──
+    emitToVendor(vendorId, 'booking_start_work_success', {
+        booking: vendorPayload,
+        message: 'Work started successfully'
+    });
+
     return { booking: vendorPayload, message: 'Work started successfully' };
 
 };
@@ -483,6 +510,12 @@ const requestCompletionOTP = async (vendorId, bookingId) => {
     const { emitToUser, emitToVendor } = require('../../socket');
     emitToUser(booking.user, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
+
+    // ── Emit specialized success event for multi-device sync ──
+    emitToVendor(vendorId, 'booking_completion_otp_requested', {
+        booking: vendorPayload,
+        message: 'Completion OTP generated successfully'
+    });
 
     return { booking: vendorPayload, message: 'Completion OTP generated successfully' };
 
@@ -532,6 +565,12 @@ const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
     emitToUser(booking.user, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
+    // ── Emit specialized success event for multi-device sync ──
+    emitToVendor(vendorId, 'booking_completed_success', {
+        booking: vendorPayload,
+        message: 'Booking completed successfully'
+    });
+
     // ── Send Push Notification to User ──
     _sendPush(booking.user, 'User', 'booking_completed', 'Booking Completed', `Your booking ${booking.bookingID} has been completed successfully.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
@@ -551,10 +590,6 @@ const findBookingByUser = async (bookingId, userId) => {
 
     return Booking.findOne(query);
 };
-
-/**
- * Get full booking details with population
- */
 
 /**
  * Helper to construct a Date object representing a specific IST time.
@@ -944,9 +979,6 @@ const _getHierarchicalPricing = async (serviceId) => {
     return { adminPrice, coupon, discount };
 };
 
-/**
- * Create booking (full flow)
- */
 /**
  * Create booking (full flow)
  */
@@ -1443,6 +1475,18 @@ const rejectBooking = async (vendorId, bookingId) => {
 
     await booking.save();
 
+    // ── Socket Sync ──
+    try {
+        const { emitToVendor } = require('../../socket');
+        emitToVendor(vendorId, 'booking_rejected_success', {
+            bookingId: booking._id,
+            bookingID: booking.bookingID,
+            message: 'Booking rejected and removed from your list'
+        });
+    } catch (socketErr) {
+        console.error('[SOCKET ERROR] Failed to emit booking_rejected_success:', socketErr.message);
+    }
+
     return {
         booking,
         message: 'Booking rejected and removed from your list'
@@ -1476,6 +1520,18 @@ const markBookingLater = async (vendorId, bookingId) => {
     }
 
     await booking.save();
+
+    // ── Socket Sync ──
+    try {
+        const { emitToVendor } = require('../../socket');
+        emitToVendor(vendorId, 'booking_later_success', {
+            bookingId: booking._id,
+            bookingID: booking.bookingID,
+            message: 'Marked as later successfully'
+        });
+    } catch (socketErr) {
+        console.error('[SOCKET ERROR] Failed to emit booking_later_success:', socketErr.message);
+    }
 
     return {
         booking,
@@ -2596,178 +2652,10 @@ const rejectProposedServices = async (userId, bookingId, reason) => {
     };
 };
 
-/**
- * User confirms the priced extra services from the vendor
- */
-async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
-    const booking = await findBookingByUser(bookingId, userId);
-    if (!booking) throw new ApiError(404, 'Booking not found');
-
-    if (!booking.userRequestedServices || booking.userRequestedServices.length === 0) {
-        throw new ApiError(400, 'No extra services pending approval');
-    }
-
-    if (!acceptedServiceIds || acceptedServiceIds.length === 0) {
-        throw new ApiError(400, 'Please provide the IDs of the services you wish to accept');
-    }
-
-    let isUpdated = false;
-
-    // Filter which ones the user accepted and which to keep/discard
-    const remainingRequests = [];
-
-    for (const requestItem of booking.userRequestedServices) {
-        const sid = requestItem.service.toString();
-        
-        // If user accepted this service
-        if (acceptedServiceIds.includes(sid)) {
-            // Must have been priced by vendor
-            if (requestItem.adminPrice === 0 && requestItem.vendorPrice === 0) {
-                // If it's literally free, maybe allow it, but usually this means unpriced
-                // We'll trust finalPrice. If finalPrice is undefined, don't allow.
-                if (requestItem.finalPrice == null) {
-                    remainingRequests.push(requestItem);
-                    continue;
-                }
-            }
-
-            // Move to main services array
-            booking.services.push({
-                service: requestItem.service,
-                quantity: requestItem.quantity,
-                adminPrice: requestItem.adminPrice,
-                vendorPrice: requestItem.vendorPrice,
-                finalPrice: requestItem.finalPrice,
-                isPriceConfirmed: true
-            });
-
-            isUpdated = true;
-        } else {
-            // User did not accept this one (maybe they rejected it or ignored it)
-            // If they explicitly reject, you might want a separate flow, but usually 
-            // we just drop it or keep it pending. Let's drop unaccepted ones for clean state,
-            // or we can leave them. Let's assume acceptedServiceIds is the definitive list of what they want.
-            // So we drop the rest.
-        }
-    }
-
-    if (!isUpdated) {
-        throw new ApiError(400, 'Could not confirm any of the provided services. Ensure they were priced by the vendor.');
-    }
-
-    // Clear userRequestedServices completely since they acted on it
-    booking.userRequestedServices = [];
-
-    // Recalculate total price
-    await recalculateBookingPrice(booking);
-
-    booking.markModified('services');
-    await booking.save();
-
-    const { emitToVendor, emitToUser } = require('../../socket');
-    const vendorPayload = await getBookingDetails(booking._id, booking.vendor, 'vendor');
-    const userPayload = await getBookingDetails(booking._id, userId, 'user');
-
-    emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
-    emitToUser(userId, 'booking_status_updated', userPayload);
-
-    // Specific event
-    emitToVendor(booking.vendor, 'extra_services_confirmed_by_user', {
-        bookingId: booking._id,
-        newTotal: booking.pricing.totalPrice,
-        acceptedServiceIds: acceptedServiceIds,
-        message: 'User has confirmed the extra services and the new price.'
-    });
-
-    return {
-        booking: userPayload,
-        message: 'Extra services confirmed and added to your booking.'
-    };
-}
 
 /**
- * User rejects the priced extra service requests
+ * User requests additional services for an existing booking
  */
-async function userRejectExtraServices(userId, bookingId, rejectedServiceIds, reason) {
-    const booking = await findBookingByUser(bookingId, userId);
-    if (!booking) throw new ApiError(404, 'Booking not found');
-
-    if (!booking.userRequestedServices || booking.userRequestedServices.length === 0) {
-        throw new ApiError(400, 'No extra services pending rejection');
-    }
-
-    const now = new Date();
-    let hasRejected = false;
-    let actualRejectedIds = [];
-
-    const rejectIds = rejectedServiceIds && rejectedServiceIds.length > 0 
-        ? rejectedServiceIds.map(id => id.toString()) 
-        : null;
-
-    const remainingRequests = [];
-
-    booking.userRequestedServices.forEach(s => {
-        const sid = s.service.toString();
-        if (!rejectIds || rejectIds.includes(sid)) {
-            booking.rejectedServices.push({
-                service: s.service,
-                quantity: s.quantity,
-                adminPrice: s.adminPrice,
-                vendorPrice: s.vendorPrice,
-                finalPrice: s.finalPrice,
-                rejectedBy: 'user',
-                rejectionType: 'extra_service',
-                reason: reason || 'User rejected their own requested services after pricing.',
-                rejectedAt: now
-            });
-            actualRejectedIds.push(sid);
-            hasRejected = true;
-        } else {
-            remainingRequests.push(s);
-        }
-    });
-
-    if (!hasRejected) {
-        throw new ApiError(400, 'Could not reject any services. Ensure valid service IDs were provided.');
-    }
-
-    // Update the requests to only have the remaining ones
-    booking.userRequestedServices = remainingRequests;
-
-    // Log in history
-    booking.statusHistory.push({
-        status: 'extra_services_rejected',
-        actor: 'user',
-        reason: reason || 'User rejected their own requested services after pricing.',
-        timestamp: now
-    });
-    booking.markModified('statusHistory');
-    booking.markModified('rejectedServices');
-    booking.markModified('userRequestedServices');
-
-    recalculateBookingPrice(booking);
-    await booking.save();
-
-    const { emitToVendor, emitToUser } = require('../../socket');
-    const vendorPayload = await getBookingDetails(booking._id, booking.vendor, 'vendor');
-    const userPayload = await getBookingDetails(booking._id, userId, 'user');
-
-    emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
-    emitToUser(userId, 'booking_status_updated', userPayload);
-
-    // Specific event
-    emitToVendor(booking.vendor, 'extra_services_rejected_by_user', {
-        bookingId: booking._id,
-        reason: reason || 'User rejected the services.',
-        message: 'User rejected the priced extra services.',
-        rejectedServiceIds: actualRejectedIds
-    });
-
-    return {
-        booking: userPayload,
-        message: 'Extra services rejected.'
-    };
-}
 
 
 
@@ -3297,6 +3185,12 @@ const triggerBroadcast = async (bookingId) => {
 
 module.exports = {
     // Booking flow
+    // Lead flow aliases (for controller compatibility)
+    requestLead: createBookingRequest,
+    acceptLead: acceptBooking,
+    rejectLead: rejectBooking,
+    markLeadLater: markBookingLater,
+
     createBookingRequest,
     createBooking,
     generateBookingID,
