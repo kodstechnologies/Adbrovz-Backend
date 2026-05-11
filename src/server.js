@@ -72,10 +72,9 @@ const startServer = async () => {
    */
   process.on('SIGTERM', () => {
     console.log('🛑 SIGTERM received. Shutting down...');
-    server.close(() => {
-      mongoose.connection.close(false, () => {
-        process.exit(0);
-      });
+    server.close(async () => {
+      await mongoose.connection.close(false);
+      process.exit(0);
     });
   });
 };
