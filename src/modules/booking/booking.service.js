@@ -580,7 +580,11 @@ const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
 };
 
 const findBookingByUser = async (bookingId, userId) => {
-    const query = { user: userId };
+    if (!userId) {
+        throw new ApiError(401, 'Unauthorized user context');
+    }
+
+    const query = {};
 
     if (mongoose.isValidObjectId(bookingId)) {
         query.$or = [{ _id: bookingId }, { bookingID: bookingId }];
@@ -588,7 +592,14 @@ const findBookingByUser = async (bookingId, userId) => {
         query.bookingID = bookingId;
     }
 
-    return Booking.findOne(query);
+    const booking = await Booking.findOne(query);
+    if (!booking) return null;
+
+    if (booking.user?.toString() !== String(userId)) {
+        throw new ApiError(403, 'You are not allowed to access this booking');
+    }
+
+    return booking;
 };
 
 /**
@@ -2665,6 +2676,7 @@ const rejectProposedServices = async (userId, bookingId, reason) => {
 async function requestExtraServices(userId, bookingId, newServices) {
     const booking = await findBookingByUser(bookingId, userId);
     if (!booking) throw new ApiError(404, 'Booking not found');
+    if (!booking.vendor) throw new ApiError(400, 'Vendor not assigned yet');
 
     const allowedStatuses = ['pending', 'on_the_way', 'arrived', 'ongoing'];
     if (!allowedStatuses.includes(booking.status)) {
@@ -2680,7 +2692,25 @@ async function requestExtraServices(userId, bookingId, newServices) {
         booking.userRequestedServices = [];
     }
 
+    const vendor = await Vendor.findById(booking.vendor)
+        .select('selectedServices categorySubscriptions')
+        .lean();
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const allowedServiceIds = new Set([
+        ...((vendor.selectedServices || []).map(id => id.toString())),
+        ...((vendor.categorySubscriptions || [])
+            .flatMap(sub => sub.services || [])
+            .map(id => id.toString()))
+    ]);
+
     for (const item of newServices) {
+        if (!item?.serviceId) throw new ApiError(400, 'serviceId is required for each service');
+        const requestedServiceId = item.serviceId.toString();
+        if (!allowedServiceIds.has(requestedServiceId)) {
+            throw new ApiError(400, `Service ${requestedServiceId} is not available for this vendor`);
+        }
+
         const serviceDoc = await Service.findById(item.serviceId);
         if (!serviceDoc) {
             throw new ApiError(404, `Service ${item.serviceId} not found`);
@@ -2740,6 +2770,65 @@ async function requestExtraServices(userId, bookingId, newServices) {
     return {
         booking: populatedBooking,
         message: 'Extra services requested. Awaiting vendor confirmation.'
+    };
+}
+
+async function getVendorSelectableServicesForBooking(userId, bookingId) {
+    const booking = await findBookingByUser(bookingId, userId);
+    if (!booking) throw new ApiError(404, 'Booking not found');
+    if (!booking.vendor) throw new ApiError(400, 'Vendor not assigned yet');
+
+    const allowedStatuses = ['pending', 'on_the_way', 'arrived', 'ongoing'];
+    if (!allowedStatuses.includes(booking.status)) {
+        throw new ApiError(400, 'Vendor service selection is available only for active bookings');
+    }
+
+    const vendor = await Vendor.findById(booking.vendor)
+        .select('selectedServices categorySubscriptions')
+        .lean();
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const allowedServiceIds = Array.from(new Set([
+        ...((vendor.selectedServices || []).map(id => id.toString())),
+        ...((vendor.categorySubscriptions || [])
+            .flatMap(sub => sub.services || [])
+            .map(id => id.toString()))
+    ]));
+
+    const services = await Service.find({
+        _id: { $in: allowedServiceIds },
+        isActive: true
+    })
+        .populate('category', 'name')
+        .populate('subcategory', 'name')
+        .populate('serviceType', 'name')
+        .select('title photo serviceCharge bookingPrice category subcategory serviceType quantityEnabled priceAdjustmentEnabled approxCompletionTime')
+        .lean();
+
+    return {
+        bookingId: booking._id,
+        bookingID: booking.bookingID,
+        vendorId: booking.vendor,
+        services: services.map(service => {
+            const bookingCharge = (service.bookingPrice !== undefined && service.bookingPrice !== null && service.bookingPrice > 0)
+                ? Number(service.bookingPrice)
+                : Number(service.serviceCharge || 0);
+            return {
+                serviceId: service._id,
+                serviceName: service.title,
+                serviceImage: service.photo || null,
+                categoryId: service.category?._id || null,
+                categoryName: service.category?.name || null,
+                subcategoryId: service.subcategory?._id || null,
+                subcategoryName: service.subcategory?.name || null,
+                typeId: service.serviceType?._id || null,
+                typeName: service.serviceType?.name || null,
+                bookingCharge,
+                quantityEnabled: Boolean(service.quantityEnabled),
+                priceAdjustmentEnabled: Boolean(service.priceAdjustmentEnabled),
+                approxCompletionTime: service.approxCompletionTime || null
+            };
+        })
     };
 }
 
@@ -3232,6 +3321,7 @@ module.exports = {
     vendorRejectExtraServices,
     userConfirmExtraServices,
     userRejectExtraServices,
+    getVendorSelectableServicesForBooking,
     shouldTrackVendor,
     broadcastVendorLocation,
     triggerBroadcast

@@ -48,6 +48,7 @@ router.post('/:id/reject-services', authenticate, bookingController.rejectPropos
 router.post('/vendor/:id/add-services', authenticate, bookingController.addServices);
 
 // User-initiated Extra Services (New)
+router.get('/:id/vendor-selectable-services', authenticate, bookingController.getVendorSelectableServices);
 router.post('/:id/request-extra-services', authenticate, bookingController.requestExtraServices);
 router.post('/vendor/:id/confirm-extra-services', authenticate, bookingController.vendorConfirmExtraServices);
 router.post('/vendor/:id/reject-extra-services', authenticate, bookingController.vendorRejectExtraServices);

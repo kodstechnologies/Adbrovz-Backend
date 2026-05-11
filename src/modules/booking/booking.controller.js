@@ -134,8 +134,8 @@ const rescheduleBooking = asyncHandler(async (req, res) => {
  * Get bookings for logged-in user or vendor
  */
 const getMyBookings = asyncHandler(async (req, res) => {
-    const userId = req.user?.userId;
-    const role = req.user?.role;
+    const userId = req.user?.userId || req.user?._id || req.user?.id;
+    const role = String(req.user?.role || '').toLowerCase();
 
     const rawBookings =
         role === 'vendor'
@@ -163,7 +163,7 @@ const getMyBookings = asyncHandler(async (req, res) => {
 
     const categorized = {
         pending: rawBookings
-            .filter(b => b.status === 'pending')
+            .filter(b => ['pending_acceptance', 'pending'].includes(b.status))
             .map(enhanceBooking),
         active: rawBookings
             .filter(b => ['on_the_way', 'arrived', 'ongoing'].includes(b.status))
@@ -218,7 +218,7 @@ const getVendorBookingById = getBookingById;
  * Get completed booking history for user
  */
 const getCompletedHistory = asyncHandler(async (req, res) => {
-    const userId = req.user?.userId;
+    const userId = req.user?.userId || req.user?._id || req.user?.id;
 
     const bookings = await bookingService.getCompletedBookingsByUser(userId);
 
@@ -273,7 +273,7 @@ const markLeadLater = asyncHandler(async (req, res) => {
  * Get vendor booking history (excluding pending_acceptance/Later)
  */
 const getVendorHistory = asyncHandler(async (req, res) => {
-    const vendorId = req.user?._id || req.user?.userId;
+    const vendorId = req.user?._id || req.user?.userId || req.user?.id;
 
     const result = await bookingService.getVendorBookingHistory(vendorId);
 
@@ -286,7 +286,7 @@ const getVendorHistory = asyncHandler(async (req, res) => {
  * Get vendor later bookings list
  */
 const getVendorLaterBookings = asyncHandler(async (req, res) => {
-    const vendorId = req.user?._id || req.user?.userId;
+    const vendorId = req.user?._id || req.user?.userId || req.user?.id;
 
     const result = await bookingService.getVendorLaterBookings(vendorId);
 
@@ -489,6 +489,20 @@ const requestExtraServices = asyncHandler(async (req, res) => {
 });
 
 /**
+ * User gets services that vendor purchased/accepted (for extra service requests)
+ */
+const getVendorSelectableServices = asyncHandler(async (req, res) => {
+    const userId = req.user?.userId || req.user?._id || req.user?.id;
+    const { id } = req.params;
+
+    const result = await bookingService.getVendorSelectableServicesForBooking(userId, id);
+
+    res.status(200).json(
+        new ApiResponse(200, result, 'Vendor selectable services fetched successfully')
+    );
+});
+
+/**
  * Vendor confirms user's extra service requests
  */
 const vendorConfirmExtraServices = asyncHandler(async (req, res) => {
@@ -596,6 +610,7 @@ module.exports = {
     addServices,
     confirmProposedServices,
     rejectProposedServices,
+    getVendorSelectableServices,
     requestExtraServices,
     vendorConfirmExtraServices,
     vendorRejectExtraServices,
