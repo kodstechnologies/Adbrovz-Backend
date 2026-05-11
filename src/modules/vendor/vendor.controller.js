@@ -305,8 +305,8 @@ const verifyServiceRenewalPayment = asyncHandler(async (req, res) => {
  */
 const getMembershipRenewalFee = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const { durationMonths, planId } = req.query;
-    const result = await vendorService.getMembershipRenewalFeeDetails(vendorId, { durationMonths, planId });
+    const { durationMonths, planId, membershipId } = req.query;
+    const result = await vendorService.getMembershipRenewalFeeDetails(vendorId, { durationMonths, planId: planId || membershipId });
     res.status(200).json(
         new ApiResponse(200, result, 'Membership renewal fee retrieved successfully')
     );
@@ -317,8 +317,8 @@ const getMembershipRenewalFee = asyncHandler(async (req, res) => {
  */
 const createMembershipRenewalOrder = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const { durationMonths, planId } = req.body;
-    const result = await vendorService.createMembershipRenewalOrder(vendorId, { durationMonths, planId });
+    const { durationMonths, planId, membershipId } = req.body;
+    const result = await vendorService.createMembershipRenewalOrder(vendorId, { durationMonths, planId: planId || membershipId });
     res.status(200).json(
         new ApiResponse(200, result, 'Membership renewal order created successfully')
     );
@@ -329,13 +329,13 @@ const createMembershipRenewalOrder = asyncHandler(async (req, res) => {
  */
 const verifyMembershipRenewalPayment = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, durationMonths, planId } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, durationMonths, planId, membershipId } = req.body;
     const result = await vendorService.verifyMembershipRenewalPayment(vendorId, {
         razorpay_order_id,
         razorpay_payment_id,
         razorpay_signature,
         durationMonths,
-        planId
+        planId: planId || membershipId
     });
     res.status(200).json(
         new ApiResponse(200, result, result.message)

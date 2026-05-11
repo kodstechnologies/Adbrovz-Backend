@@ -2125,7 +2125,7 @@ const getServiceRenewalFeeDetails = async (vendorId) => {
 /**
  * Membership Renewal: Calculate fee based on duration
  */
-const getMembershipRenewalFeeDetails = async (vendorId, { planId, durationMonths } = {}) => {
+const getMembershipRenewalFeeDetails = async (vendorId, { planId, membershipId, durationMonths } = {}) => {
     const vendor = await Vendor.findById(vendorId)
         .populate('selectedCategories selectedSubcategories membership.category');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
@@ -2133,8 +2133,9 @@ const getMembershipRenewalFeeDetails = async (vendorId, { planId, durationMonths
     const adminService = require('../admin/admin.service');
     
     let plan;
-    if (planId) {
-        const planDoc = await CreditPlan.findById(planId).lean();
+    const resolvedPlanId = planId || membershipId;
+    if (resolvedPlanId) {
+        const planDoc = await CreditPlan.findById(resolvedPlanId).lean();
         if (!planDoc) throw new ApiError(404, 'Membership plan not found');
         plan = {
             id: planDoc._id,
@@ -2233,8 +2234,8 @@ const getMembershipRenewalFeeDetails = async (vendorId, { planId, durationMonths
 /**
  * Membership Renewal: Create order
  */
-const createMembershipRenewalOrder = async (vendorId, { planId, durationMonths } = {}) => {
-    const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { planId, durationMonths });
+const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, durationMonths } = {}) => {
+    const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { planId, membershipId, durationMonths });
 
     if (feeDetails.totalFee <= 0) {
         throw new ApiError(400, 'Renewal fee is zero. Cannot create payment order.');
@@ -2295,7 +2296,7 @@ const createMembershipRenewalOrder = async (vendorId, { planId, durationMonths }
 /**
  * Membership Renewal: Verify payment
  */
-const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature, planId, durationMonths }) => {
+const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature, planId, membershipId, durationMonths }) => {
     const generated_signature = crypto
         .createHmac('sha256', config.RAZORPAY_KEY_SECRET)
         .update(razorpay_order_id + '|' + razorpay_payment_id)
@@ -2311,8 +2312,9 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
     const now = new Date();
     
     let plan;
-    if (planId) {
-        const planDoc = await CreditPlan.findById(planId).lean();
+    const resolvedPlanId = planId || membershipId;
+    if (resolvedPlanId) {
+        const planDoc = await CreditPlan.findById(resolvedPlanId).lean();
         if (!planDoc) throw new ApiError(404, 'Membership plan not found');
         plan = {
             id: planDoc._id,
