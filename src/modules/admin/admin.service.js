@@ -160,21 +160,20 @@ const getDashboardStats = async (query = {}) => {
         });
     }
 
-    // 3. Vendor Performance (Pie Chart)
+    // 3. Vendor Performance (Bar Chart Data)
     const [topVendors, averageVendors, underperformingVendors, unratedVendors] = await Promise.all([
-      Vendor.countDocuments({ 'performance.rating': { $gte: 4.5 } }),
-      Vendor.countDocuments({ 'performance.rating': { $gte: 3.0, $lt: 4.5 } }),
-      Vendor.countDocuments({ 'performance.rating': { $gt: 0, $lt: 3.0 } }),
-      Vendor.countDocuments({ 'performance.rating': { $in: [0, null] } }) // Group 0/null as Unrated instead of generic underperforming
+      Vendor.countDocuments({ isVerified: true, 'performance.rating': { $gte: 4.5 } }),
+      Vendor.countDocuments({ isVerified: true, 'performance.rating': { $gte: 3.0, $lt: 4.5 } }),
+      Vendor.countDocuments({ isVerified: true, 'performance.rating': { $gt: 0, $lt: 3.0 } }),
+      Vendor.countDocuments({ isVerified: true, 'performance.rating': { $in: [0, null] } })
     ]);
 
-    const totalVendors = topVendors + averageVendors + underperformingVendors + unratedVendors || 1; // Avoid division by zero
     const vendorPerf = [
-      { name: 'Top Vendors', value: Math.round((topVendors / totalVendors) * 100) },
-      { name: 'Average', value: Math.round((averageVendors / totalVendors) * 100) },
-      { name: 'Underperforming', value: Math.round((underperformingVendors / totalVendors) * 100) },
-      { name: 'Unrated', value: Math.round((unratedVendors / totalVendors) * 100) } // Provide visibility for new test accounts
-    ].filter(v => v.value > 0); // Recharts pie might error on all zeros, but we added unrated so it should add up to 100%
+      { name: 'Top Vendors', value: topVendors },
+      { name: 'Average', value: averageVendors },
+      { name: 'Underperforming', value: underperformingVendors },
+      { name: 'Unrated', value: unratedVendors }
+    ];
 
     // 4. Category Distribution (Respects filters)
     const catMatch = hasFilter ? { status: { $ne: 'cancelled' }, createdAt: dateFilter } : { status: { $ne: 'cancelled' }, createdAt: { $gte: last30Days } };
