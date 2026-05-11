@@ -2484,12 +2484,19 @@ const getMembershipPlansWithStatus = async (vendorId) => {
     for (const p of plans) {
         const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { durationMonths: p.duration });
         const isCurrent = currentDuration === p.duration;
+        const membershipAmount = Number(feeDetails?.breakdown?.basePlan?.price || 0);
+        const renewalAmount = Math.max(0, Number(feeDetails.subtotal || 0) - membershipAmount);
         
         const planObj = {
             id: feeDetails.planId,
             name: p.name,
             isCurrent,
-            renewal: feeDetails.totalFee, // Total includes base plan + hierarchy + gst
+            renewal: feeDetails.totalFee, // Backward compatibility
+            renewalAmount,
+            membershipAmount,
+            gstAmount: Number(feeDetails.gstAmount || 0),
+            totalAmount: Number(feeDetails.totalFee || 0),
+            gstPercent: Number(feeDetails.gstPercent || 0),
             validityDays: feeDetails.validityDays
         };
 
