@@ -980,48 +980,117 @@ const _calculateProration = (vendor, categoryId, amount) => {
 };
 
 const getAvailablePurchaseCategories = async (vendorId) => {
-    const vendor = await Vendor.findById(vendorId);
+    const vendor = await Vendor.findById(vendorId).lean();
     if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
 
     const allCategories = await Category.find({}).lean();
     const allSubcategories = await Subcategory.find({}).lean();
     const allServices = await Service.find({}).lean();
     const allServiceTypes = await ServiceType.find({}).lean();
 
-    const selectedServiceIds = (vendor.selectedServices || []).map(id => id.toString());
+    const selectedCategoryIds = new Set((vendor.selectedCategories || []).map(id => id.toString()));
+    const selectedSubcategoryIds = new Set((vendor.selectedSubcategories || []).map(id => id.toString()));
+    const selectedTypeIds = new Set((vendor.selectedServiceTypes || []).map(id => id.toString()));
+    const selectedServiceIds = new Set((vendor.selectedServices || []).map(id => id.toString()));
 
-    const result = [];
+    const categoryMap = new Map();
+    const subcategoryMap = new Map(allSubcategories.map(sub => [sub._id.toString(), sub]));
+    const typeMap = new Map(allServiceTypes.map(type => [type._id.toString(), type]));
 
-    for (const svc of allServices) {
-        const svcIdStr = svc._id.toString();
-        
-        const catId = svc.category?.toString();
-        const subId = svc.subcategory?.toString();
-        const typeId = svc.serviceType?.toString();
+    const ensureCategory = (cat) => {
+        const catId = cat._id.toString();
+        if (!categoryMap.has(catId)) {
+            categoryMap.set(catId, {
+                categoryId: cat._id,
+                categoryName: cat.name,
+                categoryCharge: _getMembershipCharge(cat, 'category'),
+                isPurchased: selectedCategoryIds.has(catId),
+                subCategories: []
+            });
+        }
+        return categoryMap.get(catId);
+    };
 
-        const cat = allCategories.find(c => c._id.toString() === catId);
-        const sub = allSubcategories.find(s => s._id.toString() === subId);
-        const st = allServiceTypes.find(t => t._id.toString() === typeId);
+    const ensureSubcategory = (catNode, sub) => {
+        const subId = sub._id.toString();
+        let subNode = catNode.subCategories.find(item => item.subcategoryId.toString() === subId);
+        if (!subNode) {
+            subNode = {
+                subcategoryId: sub._id,
+                subcategoryName: sub.name,
+                subcategoryCharge: _getMembershipCharge(sub, 'subcategory'),
+                isPurchased: selectedSubcategoryIds.has(subId),
+                types: []
+            };
+            catNode.subCategories.push(subNode);
+        }
+        return subNode;
+    };
 
-        const servicePrice = _getMembershipCharge(svc, 'service');
-        const categoryCharge = _getMembershipCharge(cat, 'category');
-        const subCategoryCharge = _getMembershipCharge(sub, 'subcategory');
-        const typeCharge = _getMembershipCharge(st, 'serviceType');
+    const ensureType = (subNode, type) => {
+        const typeId = type._id.toString();
+        let typeNode = subNode.types.find(item => item.typeId.toString() === typeId);
+        if (!typeNode) {
+            typeNode = {
+                typeId: type._id,
+                typeName: type.name,
+                typeCharge: _getMembershipCharge(type, 'serviceType'),
+                isPurchased: selectedTypeIds.has(typeId),
+                services: []
+            };
+            subNode.types.push(typeNode);
+        }
+        return typeNode;
+    };
 
-        result.push({
-            id: svc._id,
-            name: svc.title,
-            pricing: {
-                servicePrice,
-                categoryCharge,
-                subCategoryCharge,
-                typeCharge,
-                total: servicePrice + categoryCharge + subCategoryCharge + typeCharge
+    for (const service of allServices) {
+        const catId = service.category?.toString();
+        const subId = service.subcategory?.toString();
+        const typeId = service.serviceType?.toString();
+        if (!catId || !subId || !typeId) continue;
+
+        const cat = allCategories.find(item => item._id.toString() === catId);
+        const sub = subcategoryMap.get(subId);
+        const type = typeMap.get(typeId);
+        if (!cat || !sub || !type) continue;
+
+        const catNode = ensureCategory(cat);
+        const subNode = ensureSubcategory(catNode, sub);
+        const typeNode = ensureType(subNode, type);
+
+        const isServicePurchased = selectedServiceIds.has(service._id.toString());
+        const serviceCharge = _getMembershipCharge(service, 'service');
+        const categoryChargeToPay = catNode.isPurchased ? 0 : catNode.categoryCharge;
+        const subcategoryChargeToPay = subNode.isPurchased ? 0 : subNode.subcategoryCharge;
+        const typeChargeToPay = typeNode.isPurchased ? 0 : typeNode.typeCharge;
+        const serviceChargeToPay = isServicePurchased ? 0 : serviceCharge;
+        const subtotalToPay = categoryChargeToPay + subcategoryChargeToPay + typeChargeToPay + serviceChargeToPay;
+        const gstToPay = Math.round(subtotalToPay * (gstPercent / 100));
+        const totalToPay = subtotalToPay + gstToPay;
+
+        typeNode.services.push({
+            serviceId: service._id,
+            serviceName: service.title,
+            serviceCharge,
+            isPurchased: isServicePurchased,
+            isSelectable: !isServicePurchased,
+            payable: {
+                categoryCharge: categoryChargeToPay,
+                subcategoryCharge: subcategoryChargeToPay,
+                typeCharge: typeChargeToPay,
+                serviceCharge: serviceChargeToPay,
+                gstPercent,
+                gstAmount: gstToPay,
+                subtotal: subtotalToPay,
+                total: totalToPay
             }
         });
     }
 
-    return result;
+    return Array.from(categoryMap.values());
 };
 
 
