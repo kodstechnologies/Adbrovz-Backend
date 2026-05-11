@@ -1061,12 +1061,16 @@ const getAvailablePurchaseCategories = async (vendorId) => {
         const subNode = ensureSubcategory(catNode, sub);
         const typeNode = ensureType(subNode, type);
 
-        const isServicePurchased = selectedServiceIds.has(service._id.toString());
-        const serviceCharge = _getMembershipCharge(service, 'service');
+const isServicePurchased = selectedServiceIds.has(service._id.toString());
+        const categoryRegistrationCharge = catNode.categoryCharge;
+        const subcategoryRegistrationCharge = subNode.subcategoryCharge;
+        const typeRegistrationCharge = typeNode.typeCharge;
+        const serviceRegistrationCharge = _getMembershipCharge(service, 'service');
+        const serviceCharge = categoryRegistrationCharge + subcategoryRegistrationCharge + typeRegistrationCharge + serviceRegistrationCharge;
         const categoryChargeToPay = catNode.isPurchased ? 0 : catNode.categoryCharge;
         const subcategoryChargeToPay = subNode.isPurchased ? 0 : subNode.subcategoryCharge;
         const typeChargeToPay = typeNode.isPurchased ? 0 : typeNode.typeCharge;
-        const serviceChargeToPay = isServicePurchased ? 0 : serviceCharge;
+        const serviceChargeToPay = isServicePurchased ? 0 : serviceRegistrationCharge;
         const subtotalToPay = categoryChargeToPay + subcategoryChargeToPay + typeChargeToPay + serviceChargeToPay;
         const gstToPay = Math.round(subtotalToPay * (gstPercent / 100));
         const totalToPay = subtotalToPay + gstToPay;
