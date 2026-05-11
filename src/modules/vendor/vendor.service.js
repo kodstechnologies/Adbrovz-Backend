@@ -2143,7 +2143,9 @@ const getMembershipRenewalFeeDetails = async (vendorId, { planId, durationMonths
             validityDays: Number(planDoc.validityDays)
         };
     } else {
-        plan = await getPlanByDuration(Number(durationMonths || 3));
+        // If planId is not passed, prefer requested duration, then vendor's current duration,
+        // and only then fallback to 3 months.
+        plan = await getPlanByDuration(Number(durationMonths || vendor.membership?.durationMonths || 3));
     }
 
     const basePlanPrice = plan.price;
@@ -2265,10 +2267,20 @@ const createMembershipRenewalOrder = async (vendorId, { planId, durationMonths }
         throw new ApiError(400, `Payment Error: ${errorMsg}`);
     }
 
+    const membershipAmount = Number(feeDetails?.breakdown?.basePlan?.price || 0);
+    const renewalAmount = Math.max(0, Number(feeDetails.subtotal || 0) - membershipAmount);
+
     return {
         vendorId: vendorId.toString(),
         planId: feeDetails.planId,
+        membershipAmount,
+        renewalAmount,
+        gstAmount: Number(feeDetails.gstAmount || 0),
+        totalAmount: Number(feeDetails.totalFee || 0),
         totalFee: feeDetails.totalFee,
+        subtotal: Number(feeDetails.subtotal || 0),
+        gstPercent: Number(feeDetails.gstPercent || 0),
+        validityDays: feeDetails.validityDays,
         razorpayKeyId: feeDetails.razorpayKeyId,
         razorpayOrder: {
             id: razorpayOrder.id,
