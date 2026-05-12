@@ -410,6 +410,74 @@ const verifyAddCategoryPayment = asyncHandler(async (req, res) => {
     );
 });
 
+
+/**
+ * API 1: List all membership plans with vendor status (expiry and renewal totals)
+ */
+const getMembershipPlansWithStatusController = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.getMembershipPlansWithStatus(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Membership plans with status retrieved successfully')
+    );
+});
+
+/**
+ * API 2: Renewal Membership without GST
+ */
+const getMembershipRenewalFeeNoGstController = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const { durationMonths } = req.query;
+    const result = await vendorService.getMembershipRenewalFeeNoGst(vendorId, { durationMonths });
+    res.status(200).json(
+        new ApiResponse(200, result, 'Membership renewal fee (no GST) retrieved successfully')
+    );
+});
+
+/**
+ * API 3: Hierarchical Renewal Charges Only
+ */
+const getHierarchicalMembershipChargesController = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.getHierarchicalMembershipCharges(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Hierarchical membership charges retrieved successfully')
+    );
+});
+
+/**
+ * Add Category: Get fee details
+ */
+const getAddCategoryFee = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.getAddCategoryFeeDetails(vendorId, req.body);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Add category fee details retrieved successfully')
+    );
+});
+
+/**
+ * Add Category: Create Razorpay order
+ */
+const createAddCategoryOrder = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.createAddCategoryOrder(vendorId, req.body);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Add category payment order created successfully')
+    );
+});
+
+/**
+ * Add Category: Verify Payment
+ */
+const verifyAddCategoryPayment = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.verifyAddCategoryPayment(vendorId, req.body);
+    res.status(200).json(
+        new ApiResponse(200, result, result.message)
+    );
+});
+
 /**
  * Add Category: Direct Activation (Admin bypass)
  */
@@ -446,11 +514,12 @@ const getPurchaseCategories = asyncHandler(async (req, res) => {
 
 /**
  * POST /vendor/purchase-categories/payment-detail
- * Body: { serviceIds: ["id1", "id2", ...] }
+ * Body: { serviceIds: ["id1", "id2", ...], vendorId? }
  * Returns an itemised payment breakdown for the selected services.
  */
 const getPurchasePaymentDetail = asyncHandler(async (req, res) => {
-    const vendorId = req.user.userId || req.user.id || req.user._id;
+    // If vendorId is in params (admin route) or body, use it. Otherwise use token (vendor route)
+    const vendorId = req.params.vendorId || req.body.vendorId || req.user.userId || req.user.id || req.user._id;
 
     // Accept array OR comma-separated string
     let { serviceIds } = req.body;
@@ -517,4 +586,3 @@ module.exports = {
     getPurchasePaymentDetail,
     updateFcmToken,
 };
-

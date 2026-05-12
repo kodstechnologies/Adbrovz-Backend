@@ -2652,7 +2652,7 @@ const getMembershipRenewalFeeNoGst = async (vendorId, { durationMonths = 3 } = {
     return {
         ...details,
         totalFee: details.subtotal, // Total is just the subtotal (no GST)
-        gstAmount: 0,
+        gstAmount: 0, 
         message: 'Renewal fee calculated without GST'
     };
 };

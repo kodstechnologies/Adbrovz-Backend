@@ -30,6 +30,7 @@ router.post('/register/:vendorId/purchase-plan', authenticate, authorize(ROLES.A
 // Admin-level Add Category Configuration
 router.post('/register/:vendorId/add-category/fee', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getAddCategoryFee);
 router.post('/register/:vendorId/add-category/activate', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.activateAddCategory);
+router.post('/register/:vendorId/purchase-categories/payment-detail', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getPurchasePaymentDetail);
 router.get('/register/categories-data', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getCategoryRegistrationData);
 
 // Membership create-order — vendorId is extracted from JWT token, NOT from URL
@@ -44,7 +45,7 @@ router.post('/membership/verify', authenticate, authorize(ROLES.VENDOR), vendorC
 router.post('/add-category/fee', authenticate, authorize(ROLES.VENDOR), vendorController.getAddCategoryFee);
 router.post('/add-category/create-order', authenticate, authorize(ROLES.VENDOR), vendorController.createAddCategoryOrder);
 router.post('/add-category/verify-payment', authenticate, authorize(ROLES.VENDOR), vendorController.verifyAddCategoryPayment);
-router.post('/purchase-categories/payment-detail', authenticate, authorize(ROLES.VENDOR), vendorController.getPurchasePaymentDetail);
+router.post('/purchase-categories/payment-detail', authenticate, authorize(ROLES.VENDOR, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getPurchasePaymentDetail);
 router.get('/purchase-categories', authenticate, authorize(ROLES.VENDOR), vendorController.getPurchaseCategories);
 
 // Service Renewal API
