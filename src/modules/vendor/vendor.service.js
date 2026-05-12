@@ -996,6 +996,24 @@ const getAvailablePurchaseCategories = async (vendorId) => {
     const selectedTypeIds = new Set((vendor.selectedServiceTypes || []).map(id => id.toString()));
     const selectedServiceIds = new Set((vendor.selectedServices || []).map(id => id.toString()));
 
+    // Rule: If any service is purchased, its parent hierarchy (Category, Subcategory, Type) 
+    // should also be considered purchased.
+    const purchasedCategoryIdsFromServices = new Set();
+    const purchasedSubcategoryIdsFromServices = new Set();
+    const purchasedTypeIdsFromServices = new Set();
+
+    for (const s of allServices) {
+        if (selectedServiceIds.has(s._id.toString())) {
+            if (s.category) purchasedCategoryIdsFromServices.add(s.category.toString());
+            if (s.subcategory) purchasedSubcategoryIdsFromServices.add(s.subcategory.toString());
+            if (s.serviceType) purchasedTypeIdsFromServices.add(s.serviceType.toString());
+        }
+    }
+
+    const finalPurchasedCategoryIds = new Set([...selectedCategoryIds, ...purchasedCategoryIdsFromServices]);
+    const finalPurchasedSubcategoryIds = new Set([...selectedSubcategoryIds, ...purchasedSubcategoryIdsFromServices]);
+    const finalPurchasedTypeIds = new Set([...selectedTypeIds, ...purchasedTypeIdsFromServices]);
+
     const categoryMap = new Map();
     const subcategoryMap = new Map(allSubcategories.map(sub => [sub._id.toString(), sub]));
     const typeMap = new Map(allServiceTypes.map(type => [type._id.toString(), type]));
@@ -1007,7 +1025,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
                 categoryId: cat._id,
                 categoryName: cat.name,
                 categoryCharge: _getMembershipCharge(cat, 'category'),
-                isPurchased: selectedCategoryIds.has(catId),
+                isPurchased: finalPurchasedCategoryIds.has(catId),
                 subCategories: []
             });
         }
@@ -1022,7 +1040,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
                 subcategoryId: sub._id,
                 subcategoryName: sub.name,
                 subcategoryCharge: _getMembershipCharge(sub, 'subcategory'),
-                isPurchased: selectedSubcategoryIds.has(subId),
+                isPurchased: finalPurchasedSubcategoryIds.has(subId),
                 types: []
             };
             catNode.subCategories.push(subNode);
@@ -1038,7 +1056,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
                 typeId: type._id,
                 typeName: type.name,
                 typeCharge: _getMembershipCharge(type, 'serviceType'),
-                isPurchased: selectedTypeIds.has(typeId),
+                isPurchased: finalPurchasedTypeIds.has(typeId),
                 services: []
             };
             subNode.types.push(typeNode);
