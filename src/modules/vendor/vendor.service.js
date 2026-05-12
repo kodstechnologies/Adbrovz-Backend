@@ -3161,9 +3161,10 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     // Also fold in selectedCategories / selectedSubcategories (registration flow)
     const selectedCategoryIds    = new Set((vendor.selectedCategories    || []).map(id => id.toString()));
     const selectedSubcategoryIds = new Set((vendor.selectedSubcategories || []).map(id => id.toString()));
+    const selectedTypeIds        = new Set((vendor.selectedServiceTypes || []).map(id => id.toString()));
     const finalPurchasedCategoryIds    = new Set([...selectedCategoryIds,    ...purchasedCategoryIds]);
     const finalPurchasedSubcategoryIds = new Set([...selectedSubcategoryIds, ...purchasedSubcategoryIds]);
-    // Note: type uses purchasedTypeIds only (not selectedServiceTypes), matching getAvailablePurchaseCategories
+    const finalPurchasedTypeIds        = new Set([...selectedTypeIds,        ...purchasedTypeIds]);
 
     // ── 2. Load the requested services with their parent documents ──
     const parsedIds  = serviceIds.map(id => id.toString());
@@ -3215,7 +3216,7 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
         // --- Type charge ---
         const typeCharge = _getMembershipCharge(type, 'serviceType');
         let typeChargeToPay = 0;
-        if (type && !purchasedTypeIds.has(typeId) && !chargedTypeIds.has(typeId)) {
+        if (type && !finalPurchasedTypeIds.has(typeId) && !chargedTypeIds.has(typeId)) {
             typeChargeToPay = typeCharge;
             chargedTypeIds.add(typeId);
         }
@@ -3234,10 +3235,10 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
         subtotal += lineSubtotal;
 
         // Flat line items — one entry per non-zero charge, each with name + charge only
-        if (catChargeToPay > 0) items.push({ name: cat.name, charge: catChargeToPay });
-        if (subChargeToPay > 0) items.push({ name: sub.name, charge: subChargeToPay });
-        if (typeChargeToPay > 0) items.push({ name: type.name, charge: typeChargeToPay });
-        if (svcChargeToPay > 0) items.push({ name: service.title, charge: svcChargeToPay });
+        if (catChargeToPay > 0) items.push({ name: `Category: ${cat.name} (Registration Service Charge (₹))`, charge: catChargeToPay });
+        if (subChargeToPay > 0) items.push({ name: `Subcategory: ${sub.name} (Registration Service Charge (₹))`, charge: subChargeToPay });
+        if (typeChargeToPay > 0) items.push({ name: `Type: ${type.name} (Registration Service Charge (₹))`, charge: typeChargeToPay });
+        if (svcChargeToPay > 0) items.push({ name: `Service: ${service.title} (Registration Service Charge (₹))`, charge: svcChargeToPay });
     }
 
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
