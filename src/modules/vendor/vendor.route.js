@@ -14,6 +14,34 @@ router.use((req, res, next) => {
     next();
 });
 
+// High-priority purchase routes
+router.post('/purchase-categories/payment-detail', 
+    authenticate, 
+    (req, res, next) => {
+        const allowedRoles = [ROLES.VENDOR, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN];
+        const userRole = req.user?.role;
+        
+        console.log('🔍 [AUTHZ DEBUG]', {
+            path: req.originalUrl,
+            userRole,
+            allowedRoles,
+            isMatch: allowedRoles.includes(userRole)
+        });
+
+        if (allowedRoles.includes(userRole)) {
+            return next();
+        }
+
+        return res.status(403).json({
+            success: false,
+            message: `Access Forbidden: Your role '${userRole}' is not authorized for this endpoint. Required: ${allowedRoles.join(' or ')}`,
+            debug: { userRole, allowedRoles }
+        });
+    },
+    vendorController.getPurchasePaymentDetail
+);
+router.get('/purchase-categories', authenticate, authorize(ROLES.VENDOR), vendorController.getPurchaseCategories);
+
 // Registration utility routes (Can be called during registration flow)
 router.post('/get-membership', vendorController.getMembership);
 router.get('/membership-plans', optionalAuth, vendorController.getMembershipPlans);
@@ -45,9 +73,6 @@ router.post('/membership/verify', authenticate, authorize(ROLES.VENDOR), vendorC
 router.post('/add-category/fee', authenticate, authorize(ROLES.VENDOR), vendorController.getAddCategoryFee);
 router.post('/add-category/create-order', authenticate, authorize(ROLES.VENDOR), vendorController.createAddCategoryOrder);
 router.post('/add-category/verify-payment', authenticate, authorize(ROLES.VENDOR), vendorController.verifyAddCategoryPayment);
-router.post('/purchase-categories/payment-detail', authenticate, authorize(ROLES.VENDOR, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getPurchasePaymentDetail);
-router.get('/purchase-categories', authenticate, authorize(ROLES.VENDOR), vendorController.getPurchaseCategories);
-
 // Service Renewal API
 router.get('/renewal/fee', authenticate, authorize(ROLES.VENDOR), vendorController.getServiceRenewalFee);
 router.post('/renewal/create-order', authenticate, authorize(ROLES.VENDOR), vendorController.createServiceRenewalOrder);
