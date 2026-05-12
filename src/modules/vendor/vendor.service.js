@@ -2744,7 +2744,18 @@ const getHierarchicalMembershipCharges = async (vendorId) => {
  * Add Category: Calculate fee details
  */
 const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds = [], serviceIds = [] } = {}) => {
-    if (!categoryId) throw new ApiError(400, 'categoryId is required');
+    let parsedServiceIds = parseArrayInput(serviceIds);
+    let parsedSubcategoryIds = parseArrayInput(subcategoryIds);
+
+    // If categoryId is missing, derive it from the provided services
+    if (!categoryId && parsedServiceIds.length > 0) {
+        const sampleService = await Service.findById(parsedServiceIds[0]).lean();
+        if (sampleService) {
+            categoryId = sampleService.category;
+        }
+    }
+
+    if (!categoryId) throw new ApiError(400, 'categoryId is required or could not be derived from services');
 
     const vendor = await Vendor.findById(vendorId).lean();
     if (!vendor) throw new ApiError(404, 'Vendor not found');
@@ -2752,8 +2763,15 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     const category = await Category.findById(categoryId).lean();
     if (!category) throw new ApiError(404, 'Category not found');
 
-    const parsedSubcategoryIds = parseArrayInput(subcategoryIds);
-    const parsedServiceIds = parseArrayInput(serviceIds);
+    // If subcategoryIds are missing but services are provided, derive the subcategories to ensure hierarchical charges are applied
+    if (parsedSubcategoryIds.length === 0 && parsedServiceIds.length > 0) {
+        const servicesData = await Service.find({ _id: { $in: parsedServiceIds } }).lean();
+        const derivedSubIds = new Set();
+        servicesData.forEach(s => {
+            if (s.subcategory) derivedSubIds.add(s.subcategory.toString());
+        });
+        parsedSubcategoryIds = Array.from(derivedSubIds);
+    }
 
     const subcategories = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).lean();
     const services = await Service.find({ _id: { $in: parsedServiceIds } }).lean();
