@@ -1,0 +1,36 @@
+name: Auto Deploy Adbrovz Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+
+            echo "🚀 Starting deployment..."
+
+            cd /root/Adbrovz-Backend
+
+            echo "📥 Pulling latest code..."
+            git reset --hard
+            git pull origin main
+
+            echo "📦 Installing dependencies..."
+            npm install --production
+
+            echo "🔄 Restarting backend..."
+            pm2 restart adbrovz-backend || pm2 start src/server.js --name adbrovz-backend
+
+            echo "✅ Backend deployed successfully!"
