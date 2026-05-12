@@ -344,17 +344,6 @@ const verifyMembershipRenewalPayment = asyncHandler(async (req, res) => {
 
 
 /**
- * API 1: List all membership plans with vendor status (expiry and renewal totals)
- */
-const getMembershipPlansWithStatusController = asyncHandler(async (req, res) => {
-    const vendorId = req.user.userId || req.user.id || req.user._id;
-    const result = await vendorService.getMembershipPlansWithStatus(vendorId);
-    res.status(200).json(
-        new ApiResponse(200, result, 'Membership plans with status retrieved successfully')
-    );
-});
-
-/**
  * API 2: Renewal Membership without GST
  */
 const getMembershipRenewalFeeNoGstController = asyncHandler(async (req, res) => {
