@@ -993,11 +993,19 @@ const getAvailablePurchaseCategories = async (vendorId) => {
 
     const selectedCategoryIds = new Set((vendor.selectedCategories || []).map(id => id.toString()));
     const selectedSubcategoryIds = new Set((vendor.selectedSubcategories || []).map(id => id.toString()));
-    const selectedTypeIds = new Set((vendor.selectedServiceTypes || []).map(id => id.toString()));
     const selectedServiceIds = new Set((vendor.selectedServices || []).map(id => id.toString()));
 
-    // Rule: If any service is purchased, its parent hierarchy (Category, Subcategory, Type) 
-    // should also be considered purchased.
+    // Also include services purchased via the "add category" flow (categorySubscriptions)
+    for (const catSub of (vendor.categorySubscriptions || [])) {
+        for (const svcId of (catSub.services || [])) {
+            selectedServiceIds.add(svcId.toString());
+        }
+    }
+
+    // Derive purchased hierarchy strictly from purchased services.
+    // Rule 1: A category/subcategory/type is "purchased" only if at least one of its
+    // services is in selectedServiceIds. We do NOT use selectedCategories/selectedSubcategories
+    // alone because those are registration selections, not guaranteed purchases.
     const purchasedCategoryIdsFromServices = new Set();
     const purchasedSubcategoryIdsFromServices = new Set();
     const purchasedTypeIdsFromServices = new Set();
@@ -1010,9 +1018,13 @@ const getAvailablePurchaseCategories = async (vendorId) => {
         }
     }
 
+    // Merge with explicit selectedCategories/selectedSubcategories for backwards-compat
+    // (vendors who paid via the initial registration flow store category/sub IDs there).
     const finalPurchasedCategoryIds = new Set([...selectedCategoryIds, ...purchasedCategoryIdsFromServices]);
     const finalPurchasedSubcategoryIds = new Set([...selectedSubcategoryIds, ...purchasedSubcategoryIdsFromServices]);
-    const finalPurchasedTypeIds = new Set([...selectedTypeIds, ...purchasedTypeIdsFromServices]);
+    // NOTE: finalPurchasedTypeIds is intentionally NOT used for typeNode.isPurchased —
+    // purchasedTypeIdsFromServices is used directly so only types with purchased services
+    // are suppressed (see ensureType). finalPurchasedTypeIds kept for possible future use.
 
     const categoryMap = new Map();
     const subcategoryMap = new Map(allSubcategories.map(sub => [sub._id.toString(), sub]));
@@ -1056,7 +1068,10 @@ const getAvailablePurchaseCategories = async (vendorId) => {
                 typeId: type._id,
                 typeName: type.name,
                 typeCharge: _getMembershipCharge(type, 'serviceType'),
-                isPurchased: finalPurchasedTypeIds.has(typeId),
+                // Rule 2: A type is purchased only if it has at least one purchased service
+                // directly under it. Sibling types in the same subcategory (with no purchased
+                // services) remain unpurchased even if the subcategory itself is purchased.
+                isPurchased: purchasedTypeIdsFromServices.has(typeId),
                 services: []
             };
             subNode.types.push(typeNode);
@@ -1079,16 +1094,24 @@ const getAvailablePurchaseCategories = async (vendorId) => {
         const subNode = ensureSubcategory(catNode, sub);
         const typeNode = ensureType(subNode, type);
 
-const isServicePurchased = selectedServiceIds.has(service._id.toString());
+        const isServicePurchased = selectedServiceIds.has(service._id.toString());
         const categoryRegistrationCharge = catNode.categoryCharge;
         const subcategoryRegistrationCharge = subNode.subcategoryCharge;
         const typeRegistrationCharge = typeNode.typeCharge;
         const serviceRegistrationCharge = _getMembershipCharge(service, 'service');
+
+        // Total display charge = full sum of all registration levels (unchanged, for display)
         const serviceCharge = categoryRegistrationCharge + subcategoryRegistrationCharge + typeRegistrationCharge + serviceRegistrationCharge;
+
+        // Rule 1: Category/subcategory charges are suppressed if purchased via ANY service.
+        // Rule 2: Type charge is suppressed only for THIS type if it has a purchased service;
+        //         sibling types with no purchased services still owe their typeCharge.
+        // Rule 3: Service charge is suppressed only for THIS specific purchased service.
         const categoryChargeToPay = catNode.isPurchased ? 0 : catNode.categoryCharge;
         const subcategoryChargeToPay = subNode.isPurchased ? 0 : subNode.subcategoryCharge;
         const typeChargeToPay = typeNode.isPurchased ? 0 : typeNode.typeCharge;
         const serviceChargeToPay = isServicePurchased ? 0 : serviceRegistrationCharge;
+
         const subtotalToPay = categoryChargeToPay + subcategoryChargeToPay + typeChargeToPay + serviceChargeToPay;
         const gstToPay = Math.round(subtotalToPay * (gstPercent / 100));
         const totalToPay = subtotalToPay + gstToPay;
