@@ -1,11 +1,10 @@
-const vendorService = require('./vendor.service');
 const asyncHandler = require('../../utils/asyncHandler');
 const ApiResponse = require('../../utils/ApiResponse');
+const vendorService = require('./vendor.service');
+const { parseArrayInput } = require('../../utils/dataParser');
 
 /**
- * Get all vendors
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
+ * Get all vendors (Admin)
  */
 const getAllVendors = asyncHandler(async (req, res) => {
     const vendors = await vendorService.getAllVendors();
@@ -15,65 +14,28 @@ const getAllVendors = asyncHandler(async (req, res) => {
 });
 
 /**
- * Get membership info and total fee
+ * Get membership info for registration
  */
 const getMembership = asyncHandler(async (req, res) => {
-    const data = { ...req.body };
-    // If not in body, try to get from authenticated user
-    if (!data.vendorId && req.user) {
-        data.vendorId = req.user.userId || req.user.id || req.user._id;
-    }
+    const result = await vendorService.getMembershipInfo(req.body);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Membership info retrieved successfully')
+    );
+});
 
-    const result = await vendorService.getMembershipInfo(data);
+/**
+ * Get vendor membership details
+ */
+const getVendorMembership = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.getVendorMembershipDetails(vendorId, req.query);
     res.status(200).json(
         new ApiResponse(200, result, 'Membership details retrieved successfully')
     );
 });
 
 /**
- * Get membership info for a specific vendor
- */
-const getVendorMembership = asyncHandler(async (req, res) => {
-    // Extract vendorId from token if not in params
-    const vendorId = req.params.vendorId || req.user.userId || req.user._id;
-    console.log('DEBUG: getVendorMembership called for vendorId:', vendorId);
-
-    // Support passing serviceIds or subcategoryIds in body or query for dynamic calculation
-    const overrides = { ...req.body };
-    if (req.query.serviceIds) {
-        overrides.serviceIds = Array.isArray(req.query.serviceIds)
-            ? req.query.serviceIds
-            : req.query.serviceIds.split(',');
-    }
-    if (req.query.subcategoryIds) {
-        overrides.subcategoryIds = Array.isArray(req.query.subcategoryIds)
-            ? req.query.subcategoryIds
-            : req.query.subcategoryIds.split(',');
-    }
-    if (req.query.categoryId) {
-        overrides.categoryId = req.query.categoryId;
-    }
-
-    const result = await vendorService.getVendorMembershipDetails(vendorId, overrides);
-    res.status(200).json(
-        new ApiResponse(200, result, 'Vendor membership details retrieved successfully')
-    );
-});
-
-/**
- * Select services and calculate fee
- */
-const selectServices = asyncHandler(async (req, res) => {
-    const vendorId = req.params.vendorId || req.user.userId || req.user._id;
-    const result = await vendorService.selectServices(vendorId, req.body);
-    res.status(200).json(
-        new ApiResponse(200, result, 'Services selected and price calculated')
-    );
-});
-
-/**
- * Create Razorpay order for membership payment
- * vendorId is taken from token — NOT from URL
+ * Create Razorpay order for membership
  */
 const createMembershipOrder = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
@@ -84,56 +46,76 @@ const createMembershipOrder = asyncHandler(async (req, res) => {
 });
 
 /**
- * Verify Razorpay payment for membership
- * vendorId from token; razorpay_* from body
+ * Verify membership payment
  */
 const verifyMembershipPayment = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    // Accept both membershipId and planId — the app may send either
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, membershipId, planId } = req.body;
-    const result = await vendorService.verifyMembershipPayment(vendorId, {
-        razorpay_order_id,
-        razorpay_payment_id,
-        razorpay_signature,
-        membershipId,
-        planId,
-    });
+    const result = await vendorService.verifyMembershipPayment(vendorId, req.body);
     res.status(200).json(
-        new ApiResponse(200, result, result.message)
+        new ApiResponse(200, result, 'Membership payment verified successfully')
     );
 });
 
 /**
- * Membership aliases - create and verify
+ * Step 3: Create Membership (Manual/Internal)
  */
-const createMembership = createMembershipOrder;
-const verifyMembership = verifyMembershipPayment;
-
-
-const purchaseMembership = asyncHandler(async (req, res) => {
-    const vendorId = req.params.vendorId || req.user.userId || req.user._id;
+const createMembership = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
     const result = await vendorService.purchaseMembership(vendorId);
     res.status(200).json(
-        new ApiResponse(200, result, result.message)
+        new ApiResponse(200, result, 'Membership created successfully')
     );
 });
 
 /**
- * Purchase credit plan (Demo)
+ * Step 4: Verify Membership (Manual/Internal)
+ */
+const verifyMembership = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.purchaseMembership(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Membership verified successfully')
+    );
+});
+
+/**
+ * Step 2: Select services and calculate fee
+ */
+const selectServices = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.selectServices(vendorId, req.body);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Services selected and fee calculated successfully')
+    );
+});
+
+/**
+ * Step 3: Purchase Membership
+ */
+const purchaseMembership = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.purchaseMembership(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Membership purchased successfully')
+    );
+});
+
+/**
+ * Step 4: Purchase Credit Plan
  */
 const purchaseCreditPlan = asyncHandler(async (req, res) => {
-    const { vendorId } = req.params;
+    const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
     const result = await vendorService.purchaseCreditPlan(vendorId, req.body);
     res.status(200).json(
-        new ApiResponse(200, result, result.message)
+        new ApiResponse(200, result, 'Credit plan purchased successfully')
     );
 });
 
 /**
- * Toggle online/offline status
+ * Toggle Online/Offline status
  */
 const toggleOnlineStatus = asyncHandler(async (req, res) => {
-    const vendorId = req.params.vendorId || req.user.userId || req.user._id;
+    const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
     const { isOnline } = req.body;
     const result = await vendorService.toggleOnlineStatus(vendorId, isOnline);
     res.status(200).json(
@@ -142,54 +124,50 @@ const toggleOnlineStatus = asyncHandler(async (req, res) => {
 });
 
 /**
- * Get logged-in vendor profile
+ * Get vendor profile
  */
 const getProfile = asyncHandler(async (req, res) => {
-    // If vendorId is provided in params (admin use case), use it. Otherwise use logged-in user.
-    const vendorId = req.params.vendorId || req.user.userId;
-    const profile = await vendorService.getVendorProfile(vendorId);
+    const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.getVendorProfile(vendorId);
     res.status(200).json(
-        new ApiResponse(200, profile, 'Vendor profile retrieved successfully')
+        new ApiResponse(200, result, 'Profile retrieved successfully')
     );
 });
 
 /**
- * Get vendor coins balance
+ * Get vendor coins
  */
 const getCoins = asyncHandler(async (req, res) => {
-    const vendorId = req.user.userId;
-    const vendor = await require('../../models/Vendor.model').findById(vendorId);
-    if (!vendor) {
-        const ApiError = require('../../utils/ApiError');
-        throw new ApiError(404, 'Vendor not found');
-    }
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const vendor = await require('../../models/Vendor.model').findById(vendorId).select('coins');
     res.status(200).json(
-        new ApiResponse(200, { coins: vendor.coins || 0 }, 'Vendor coins retrieved successfully')
+        new ApiResponse(200, { coins: vendor.coins || 0 }, 'Coins retrieved successfully')
     );
 });
 
 /**
- * Update logged-in vendor profile
+ * Update vendor profile
  */
 const updateProfile = asyncHandler(async (req, res) => {
-    const vendorId = req.user.userId;
-    const data = { ...req.body };
-
-    if (req.file && req.file.cloudinary) {
-        data.image = req.file.cloudinary.url;
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    
+    // If files are uploaded to Cloudinary, they will be in req.file.path or req.files
+    const profileData = { ...req.body };
+    if (req.file) {
+        profileData.image = req.file.path;
     }
-
-    const profile = await vendorService.updateVendorProfile(vendorId, data);
+    
+    const result = await vendorService.updateVendorProfile(vendorId, profileData);
     res.status(200).json(
-        new ApiResponse(200, profile, 'Vendor profile updated successfully')
+        new ApiResponse(200, result, 'Profile updated successfully')
     );
 });
 
 /**
- * Get vendor verification status
+ * Get verification status
  */
 const getVerificationStatus = asyncHandler(async (req, res) => {
-    const vendorId = req.params.vendorId || req.user.userId;
+    const vendorId = req.user.userId || req.user.id || req.user._id;
     const result = await vendorService.getVerificationStatus(vendorId);
     res.status(200).json(
         new ApiResponse(200, result, 'Verification status retrieved successfully')
@@ -197,84 +175,82 @@ const getVerificationStatus = asyncHandler(async (req, res) => {
 });
 
 /**
- * Delete vendor account (Self-service)
+ * Delete account request
  */
 const deleteAccount = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
     const result = await vendorService.deleteVendorAccount(vendorId);
     res.status(200).json(
-        new ApiResponse(200, result, 'Account deleted successfully')
+        new ApiResponse(200, result, result.message)
     );
 });
 
 /**
- * Get vendor dashboard metrics
+ * Get dashboard metrics
  */
 const getDashboardMetrics = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const metrics = await vendorService.getDashboardMetrics(vendorId);
+    const result = await vendorService.getDashboardMetrics(vendorId);
     res.status(200).json(
-        new ApiResponse(200, metrics, 'Dashboard metrics retrieved successfully')
+        new ApiResponse(200, result, 'Dashboard metrics retrieved successfully')
     );
 });
 
 /**
- * Get available membership plans
+ * Get membership plans
  */
 const getMembershipPlans = asyncHandler(async (req, res) => {
-    const vendorId = req.user?.userId || req.user?.id || req.user?._id || req.query.vendorId;
-    const plans = await vendorService.getMembershipPlans(undefined, { vendorId });
+    const result = await vendorService.getMembershipPlans();
     res.status(200).json(
-        new ApiResponse(200, plans, 'Membership plans retrieved successfully')
+        new ApiResponse(200, result, 'Membership plans retrieved successfully')
     );
 });
 
 /**
- * Get all categories with subcategories and services for registration
+ * Get category registration data
  */
 const getCategoryRegistrationData = asyncHandler(async (req, res) => {
-    const data = await vendorService.getCategoryRegistrationData();
+    const result = await vendorService.getCategoryRegistrationData();
     res.status(200).json(
-        new ApiResponse(200, data, 'Registration category data retrieved successfully')
+        new ApiResponse(200, result, 'Category registration data retrieved successfully')
     );
 });
 
 /**
- * Reupload rejected documents
+ * Reupload documents
  */
 const reuploadDocuments = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    
-    // Cloudinary middleware (uploadToCloudinary/processVendorDocs) places the URLs directly into req.body
     const result = await vendorService.reuploadDocuments(vendorId, req.body);
-    
     res.status(200).json(
-        new ApiResponse(200, result, 'Documents reuploaded successfully')
+        new ApiResponse(200, result.payload, result.payload.message)
     );
 });
 
 /**
- * Get Subscription Status for Mobile App
+ * Get subscription status
  */
 const getSubscriptionStatus = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
     const result = await vendorService.getSubscriptionStatus(vendorId);
-    res.status(200).json(result);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Subscription status retrieved successfully')
+    );
 });
 
 /**
- * Service Renewal: Get Fee Details
+ * Service Renewal: Get fee details
  */
 const getServiceRenewalFee = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
     const result = await vendorService.getServiceRenewalFeeDetails(vendorId);
     res.status(200).json(
-        new ApiResponse(200, result, 'Service renewal fee retrieved successfully')
+        new ApiResponse(200, result, 'Service renewal fee details retrieved successfully')
     );
 });
 
 /**
- * Service Renewal: Create Razorpay Order
+ * Service Renewal: Create order
  */
 const createServiceRenewalOrder = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
@@ -285,66 +261,51 @@ const createServiceRenewalOrder = asyncHandler(async (req, res) => {
 });
 
 /**
- * Service Renewal: Verify Payment
+ * Service Renewal: Verify payment
  */
 const verifyServiceRenewalPayment = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-    const result = await vendorService.verifyServiceRenewalPayment(vendorId, {
-        razorpay_order_id,
-        razorpay_payment_id,
-        razorpay_signature,
-    });
+    const result = await vendorService.verifyServiceRenewalPayment(vendorId, req.body);
     res.status(200).json(
         new ApiResponse(200, result, result.message)
     );
 });
 
 /**
- * Membership Renewal: Get Fee Details
+ * Membership Renewal: Get fee details
  */
 const getMembershipRenewalFee = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const { durationMonths, planId, membershipId } = req.query;
-    const result = await vendorService.getMembershipRenewalFeeDetails(vendorId, { durationMonths, planId: planId || membershipId });
+    const result = await vendorService.getMembershipRenewalFeeDetails(vendorId, req.query);
     res.status(200).json(
-        new ApiResponse(200, result, 'Membership renewal fee retrieved successfully')
+        new ApiResponse(200, result, 'Membership renewal fee details retrieved successfully')
     );
 });
 
 /**
- * Membership Renewal: Create Razorpay Order
+ * Membership Renewal: Create order
  */
 const createMembershipRenewalOrder = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const { durationMonths, planId, membershipId } = req.body;
-    const result = await vendorService.createMembershipRenewalOrder(vendorId, { durationMonths, planId: planId || membershipId });
+    const result = await vendorService.createMembershipRenewalOrder(vendorId, req.body);
     res.status(200).json(
         new ApiResponse(200, result, 'Membership renewal order created successfully')
     );
 });
 
 /**
- * Membership Renewal: Verify Payment
+ * Membership Renewal: Verify payment
  */
 const verifyMembershipRenewalPayment = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, durationMonths, planId, membershipId } = req.body;
-    const result = await vendorService.verifyMembershipRenewalPayment(vendorId, {
-        razorpay_order_id,
-        razorpay_payment_id,
-        razorpay_signature,
-        durationMonths,
-        planId: planId || membershipId
-    });
+    const result = await vendorService.verifyMembershipRenewalPayment(vendorId, req.body);
     res.status(200).json(
         new ApiResponse(200, result, result.message)
     );
 });
 
-
 /**
- * API 1: List all membership plans with vendor status (expiry and renewal totals)
+ * Membership Renewal: Get plans with status
  */
 const getMembershipPlansWithStatusController = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
@@ -355,25 +316,24 @@ const getMembershipPlansWithStatusController = asyncHandler(async (req, res) => 
 });
 
 /**
- * API 2: Renewal Membership without GST
+ * Membership Renewal: Get fee no GST
  */
 const getMembershipRenewalFeeNoGstController = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const { durationMonths } = req.query;
-    const result = await vendorService.getMembershipRenewalFeeNoGst(vendorId, { durationMonths });
+    const result = await vendorService.getMembershipRenewalFeeNoGst(vendorId, req.query);
     res.status(200).json(
-        new ApiResponse(200, result, 'Membership renewal fee (no GST) retrieved successfully')
+        new ApiResponse(200, result, result.message)
     );
 });
 
 /**
- * API 3: Hierarchical Renewal Charges Only
+ * Membership Renewal: Get hierarchical charges
  */
 const getHierarchicalMembershipChargesController = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
     const result = await vendorService.getHierarchicalMembershipCharges(vendorId);
     res.status(200).json(
-        new ApiResponse(200, result, 'Hierarchical membership charges retrieved successfully')
+        new ApiResponse(200, result, 'Hierarchical charges retrieved successfully')
     );
 });
 
@@ -437,7 +397,7 @@ const activateAddCategory = asyncHandler(async (req, res) => {
  * Get available categories for purchase (Excluding already selected ones)
  */
 const getPurchaseCategories = asyncHandler(async (req, res) => {
-    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const vendorId = req.body.vendorId || req.user.userId || req.user.id || req.user._id;
     const categories = await vendorService.getAvailablePurchaseCategories(vendorId);
     res.status(200).json(
         new ApiResponse(200, categories, 'Available categories fetched successfully')
@@ -446,11 +406,11 @@ const getPurchaseCategories = asyncHandler(async (req, res) => {
 
 /**
  * POST /vendor/purchase-categories/payment-detail
- * Body: { serviceIds: ["id1", "id2", ...] }
+ * Body: { serviceIds: ["id1", "id2", ...], vendorId: "optional-for-admins" }
  * Returns an itemised payment breakdown for the selected services.
  */
 const getPurchasePaymentDetail = asyncHandler(async (req, res) => {
-    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const vendorId = req.body.vendorId || req.user.userId || req.user.id || req.user._id;
 
     // Accept array OR comma-separated string
     let { serviceIds } = req.body;
@@ -517,4 +477,3 @@ module.exports = {
     getPurchasePaymentDetail,
     updateFcmToken,
 };
-

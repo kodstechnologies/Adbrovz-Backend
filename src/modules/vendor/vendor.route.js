@@ -44,8 +44,8 @@ router.post('/membership/verify', authenticate, authorize(ROLES.VENDOR), vendorC
 router.post('/add-category/fee', authenticate, authorize(ROLES.VENDOR), vendorController.getAddCategoryFee);
 router.post('/add-category/create-order', authenticate, authorize(ROLES.VENDOR), vendorController.createAddCategoryOrder);
 router.post('/add-category/verify-payment', authenticate, authorize(ROLES.VENDOR), vendorController.verifyAddCategoryPayment);
-router.post('/purchase-categories/payment-detail', authenticate, authorize(ROLES.VENDOR), vendorController.getPurchasePaymentDetail);
-router.get('/purchase-categories', authenticate, authorize(ROLES.VENDOR), vendorController.getPurchaseCategories);
+router.post('/purchase-categories/payment-detail', authenticate, authorize(ROLES.VENDOR, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getPurchasePaymentDetail);
+router.get('/purchase-categories', authenticate, authorize(ROLES.VENDOR, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getPurchaseCategories);
 
 // Service Renewal API
 router.get('/renewal/fee', authenticate, authorize(ROLES.VENDOR), vendorController.getServiceRenewalFee);

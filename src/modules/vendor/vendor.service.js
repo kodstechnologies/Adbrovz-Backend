@@ -1326,6 +1326,7 @@ const verifyAllDocuments = async (vendorId) => {
 
         vendor.serviceRenewal = vendor.serviceRenewal || {};
         vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || startDate;
+        const renExpiryDate = new Date();
         const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
         renExpiryDate.setDate(renExpiryDate.getDate() + Number(renewalDays));
         vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiryDate;
@@ -2061,20 +2062,14 @@ const getServiceRenewalFeeDetails = async (vendorId) => {
     const serviceTypeIds = new Set();
     const serviceIds = new Set();
 
-    // Gather IDs from vendor's selections (Same logic as before to ensure totalFee is correct)
-    if (vendor.selectedCategories) {
-        vendor.selectedCategories.forEach(c => categoryIds.add(String(c._id || c)));
-    }
-    if (vendor.membership?.category) {
-        categoryIds.add(String(vendor.membership.category._id || vendor.membership.category));
-    }
+    if (vendor.selectedCategories) vendor.selectedCategories.forEach(c => categoryIds.add(String(c._id || c)));
+    if (vendor.membership?.category) categoryIds.add(String(vendor.membership.category._id || vendor.membership.category));
     if (vendor.selectedSubcategories) {
         vendor.selectedSubcategories.forEach(s => {
             subcategoryIds.add(String(s._id || s));
             if (s.category) categoryIds.add(String(s.category._id || s.category));
         });
     }
-
     if (vendor.selectedServices && vendor.selectedServices.length > 0) {
         const fullServices = await Service.find({ _id: { $in: vendor.selectedServices } });
         fullServices.forEach(svc => {
@@ -2085,7 +2080,6 @@ const getServiceRenewalFeeDetails = async (vendorId) => {
         });
     }
 
-    // Fetch all entities to build the hierarchy
     const [categories, subcategories, serviceTypes, services] = await Promise.all([
         Category.find({ _id: { $in: Array.from(categoryIds) } }).lean(),
         Subcategory.find({ _id: { $in: Array.from(subcategoryIds) } }).lean(),
@@ -2772,6 +2766,7 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
         services: []
     };
     const itemBreakdown = [];
+    const items = [];
 
     if (categoryProration.amount > 0) {
         itemBreakdown.push({
@@ -2782,6 +2777,10 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
             membershipCharge: categoryProration.amount,
             isProrated: categoryProration.isProrated,
             remainingDays: categoryProration.remainingDays
+        });
+        items.push({
+            categoryName: category.name,
+            amount: categoryProration.amount
         });
     }
 
@@ -2807,6 +2806,10 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
                 membershipCharge: proration.amount,
                 isProrated: proration.isProrated,
                 remainingDays: proration.remainingDays
+            });
+            items.push({
+                subcategoryName: sub.name,
+                amount: proration.amount
             });
         }
     });
@@ -2834,6 +2837,10 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
                 isProrated: proration.isProrated,
                 remainingDays: proration.remainingDays
             });
+            items.push({
+                serviceName: svc.title,
+                amount: proration.amount
+            });
         }
     });
 
@@ -2842,6 +2849,7 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
     const gstAmount = Math.round(totalFee * (gstPercent / 100));
     const totalWithGst = totalFee + gstAmount;
+    
     return {
         vendorId,
         categoryId,
@@ -2856,6 +2864,7 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
         gstPercent,
         basePlanFee: 0,
         itemBreakdown,
+        items,
         razorpayKeyId: config.RAZORPAY_KEY_ID,
         breakdown,
         prorationContext: {
@@ -2864,7 +2873,6 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
         }
     };
 };
-
 
 /**
  * Add Category: Create order
@@ -3233,11 +3241,11 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
         const lineSubtotal = catChargeToPay + subChargeToPay + typeChargeToPay + svcChargeToPay;
         subtotal += lineSubtotal;
 
-        // Flat line items — one entry per non-zero charge, each with name + charge only
-        if (catChargeToPay > 0) items.push({ name: cat.name, charge: catChargeToPay });
-        if (subChargeToPay > 0) items.push({ name: sub.name, charge: subChargeToPay });
-        if (typeChargeToPay > 0) items.push({ name: type.name, charge: typeChargeToPay });
-        if (svcChargeToPay > 0) items.push({ name: service.title, charge: svcChargeToPay });
+        // Flat line items — one entry per non-zero charge, each with specific key + amount
+        if (catChargeToPay > 0) items.push({ categoryName: cat.name, amount: catChargeToPay });
+        if (subChargeToPay > 0) items.push({ subcategoryName: sub.name, amount: subChargeToPay });
+        if (typeChargeToPay > 0) items.push({ typeName: type.name, amount: typeChargeToPay });
+        if (svcChargeToPay > 0) items.push({ serviceName: service.title, amount: svcChargeToPay });
     }
 
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
