@@ -1110,8 +1110,6 @@ const getAvailablePurchaseCategories = async (vendorId) => {
         const typeRegistrationCharge = typeNode.typeCharge;
         const serviceRegistrationCharge = _getMembershipCharge(service, 'service');
 
-        // Total display charge = full sum of all registration levels (unchanged, for display)
-        const serviceCharge = categoryRegistrationCharge + subcategoryRegistrationCharge + typeRegistrationCharge + serviceRegistrationCharge;
 
         // Rule 1: Category/subcategory charges are suppressed if purchased via ANY service.
         // Rule 2: Type charge is suppressed only for THIS type if it has a purchased service;
@@ -1129,7 +1127,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
         typeNode.services.push({
             serviceId: service._id,
             serviceName: service.title,
-            serviceCharge,
+            serviceCharge: serviceRegistrationCharge,
             isPurchased: isServicePurchased,
             isSelectable: !isServicePurchased,
             payable: {
