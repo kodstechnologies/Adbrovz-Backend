@@ -154,14 +154,19 @@ const _deriveVendorHierarchy = async (vendor) => {
  */
 const _getMembershipCharge = (item, type = 'service') => {
     if (!item) return 0;
-    const charge = toNumber(item.membershipCharge || item.membershipFee);
-    if (charge > 0) return charge;
 
-    // Specific fallback for subcategories
+    // Prioritize serviceCharge (commonly used as Registration Service Charge (₹))
+    const svcCharge = toNumber(item.serviceCharge);
+    if (svcCharge > 0) return svcCharge;
+
+    // Fallback to membershipCharge/membershipFee
+    const memCharge = toNumber(item.membershipCharge || item.membershipFee);
+    if (memCharge > 0) return memCharge;
+
+    // Specific fallback for subcategories price field
     if (type === 'subcategory' && item.price > 0) return toNumber(item.price);
 
-    // Last resort fallback to serviceCharge (commonly used in admin panel as registration fee)
-    return toNumber(item.serviceCharge);
+    return 0;
 };
 
 
