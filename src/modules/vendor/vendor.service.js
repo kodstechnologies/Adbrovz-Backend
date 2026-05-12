@@ -1023,13 +1023,10 @@ const getAvailablePurchaseCategories = async (vendorId) => {
         }
     }
 
-    // Merge with explicit selectedCategories/selectedSubcategories for backwards-compat
-    // (vendors who paid via the initial registration flow store category/sub IDs there).
-    const finalPurchasedCategoryIds = new Set([...selectedCategoryIds, ...purchasedCategoryIdsFromServices]);
+    // Merge with explicit selected IDs for suppression
+    const finalPurchasedCategoryIds    = new Set([...selectedCategoryIds,    ...purchasedCategoryIdsFromServices]);
     const finalPurchasedSubcategoryIds = new Set([...selectedSubcategoryIds, ...purchasedSubcategoryIdsFromServices]);
-    // NOTE: finalPurchasedTypeIds is intentionally NOT used for typeNode.isPurchased —
-    // purchasedTypeIdsFromServices is used directly so only types with purchased services
-    // are suppressed (see ensureType). finalPurchasedTypeIds kept for possible future use.
+    const finalPurchasedTypeIds        = new Set([...(vendor.selectedServiceTypes || []).map(id => id.toString()), ...purchasedTypeIdsFromServices]);
 
     const categoryMap = new Map();
     const subcategoryMap = new Map(allSubcategories.map(sub => [sub._id.toString(), sub]));
@@ -1073,10 +1070,8 @@ const getAvailablePurchaseCategories = async (vendorId) => {
                 typeId: type._id,
                 typeName: type.name,
                 typeCharge: _getMembershipCharge(type, 'serviceType'),
-                // Rule 2: A type is purchased only if it has at least one purchased service
-                // directly under it. Sibling types in the same subcategory (with no purchased
-                // services) remain unpurchased even if the subcategory itself is purchased.
-                isPurchased: purchasedTypeIdsFromServices.has(typeId),
+                // A type is purchased if it has a purchased service OR was selected during registration
+                isPurchased: finalPurchasedTypeIds.has(typeId),
                 services: []
             };
             subNode.types.push(typeNode);
