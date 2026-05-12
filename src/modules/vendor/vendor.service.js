@@ -748,8 +748,12 @@ const purchaseMembership = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    if (vendor.registrationStep !== 'SERVICES_SELECTED' && vendor.registrationStep !== 'PENDING') {
-        throw new ApiError(400, 'Please select services before purchasing membership');
+    // Block only if membership is already active — allow any pre-payment step
+    // (PENDING, SIGNUP_COMPLETED, SERVICES_SELECTED, PIN_PENDING, etc.)
+    const alreadyPaidSteps = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'];
+    const isMemActive = vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) > new Date();
+    if (alreadyPaidSteps.includes(vendor.registrationStep) && isMemActive) {
+        throw new ApiError(400, 'Membership is already active. Please use the renewal flow instead.');
     }
 
     if (vendor.isVerified) {
