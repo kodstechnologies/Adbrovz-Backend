@@ -2747,15 +2747,34 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     let parsedServiceIds = parseArrayInput(serviceIds);
     let parsedSubcategoryIds = parseArrayInput(subcategoryIds);
 
-    // If categoryId is missing, derive it from the provided services
-    if (!categoryId && parsedServiceIds.length > 0) {
-        const sampleService = await Service.findById(parsedServiceIds[0]).lean();
-        if (sampleService) {
-            categoryId = sampleService.category;
+    // Debug log to help troubleshoot derivation issues
+    console.log(`🔍 [Derive Category] vendorId=${vendorId} categoryId=${categoryId}, services=${JSON.stringify(serviceIds)}, subcategories=${JSON.stringify(subcategoryIds)}`);
+
+    // If categoryId is missing, derive it from the provided services or subcategories
+    if (!categoryId) {
+        if (parsedServiceIds.length > 0) {
+            const sampleService = await Service.findById(parsedServiceIds[0]).lean();
+            if (sampleService) {
+                categoryId = sampleService.category;
+                console.log(`   ✅ Derived categoryId ${categoryId} from service ${parsedServiceIds[0]}`);
+            } else {
+                console.log(`   ❌ Could not find service ${parsedServiceIds[0]} to derive category`);
+            }
+        } else if (parsedSubcategoryIds.length > 0) {
+            const sampleSub = await Subcategory.findById(parsedSubcategoryIds[0]).lean();
+            if (sampleSub) {
+                categoryId = sampleSub.category;
+                console.log(`   ✅ Derived categoryId ${categoryId} from subcategory ${parsedSubcategoryIds[0]}`);
+            } else {
+                console.log(`   ❌ Could not find subcategory ${parsedSubcategoryIds[0]} to derive category`);
+            }
         }
     }
 
-    if (!categoryId) throw new ApiError(400, 'categoryId is required or could not be derived from services');
+    if (!categoryId) {
+        console.log('   ❌ Final categoryId is still missing');
+        throw new ApiError(400, 'categoryId is required or could not be derived from services/subcategories. Please ensure you are sending valid serviceIds or subcategoryIds.');
+    }
 
     const vendor = await Vendor.findById(vendorId).lean();
     if (!vendor) throw new ApiError(404, 'Vendor not found');
