@@ -3112,6 +3112,146 @@ const respondToDeletionRequest = async (vendorId, { action }) => {
     }
 };
 
+/**
+ * Calculate payment detail for a set of serviceIds the vendor wants to purchase.
+ *
+ * Rules (mirroring getAvailablePurchaseCategories):
+ *  1. If a parent (category / subcategory / type) already has a purchased service
+ *     → that level's charge is 0.
+ *  2. A parent charge is counted AT MOST ONCE across all selected services in this
+ *     request — even when multiple services share the same category/sub/type.
+ *  3. If a service is already purchased → its serviceCharge is 0.
+ *
+ * @param {string} vendorId
+ * @param {string[]} serviceIds  - IDs of services the vendor wants to buy
+ * @returns {{ items, subtotal, gstPercent, gstAmount, total }}
+ */
+const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
+    const vendor = await Vendor.findById(vendorId).lean();
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    if (!serviceIds.length) {
+        return { items: [], subtotal: 0, gstPercent: 18, gstAmount: 0, total: 0 };
+    }
+
+    const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
+
+    // ── 1. Build the same purchased-service set as getAvailablePurchaseCategories ──
+    const purchasedServiceIds = new Set((vendor.selectedServices || []).map(id => id.toString()));
+    for (const catSub of (vendor.categorySubscriptions || [])) {
+        for (const svcId of (catSub.services || [])) {
+            purchasedServiceIds.add(svcId.toString());
+        }
+    }
+
+    // Derive which categories / subcategories / types are already paid
+    const allServices = await Service.find({}).lean();
+    const purchasedCategoryIds   = new Set();
+    const purchasedSubcategoryIds = new Set();
+    const purchasedTypeIds        = new Set();
+    for (const s of allServices) {
+        if (purchasedServiceIds.has(s._id.toString())) {
+            if (s.category)    purchasedCategoryIds.add(s.category.toString());
+            if (s.subcategory) purchasedSubcategoryIds.add(s.subcategory.toString());
+            if (s.serviceType) purchasedTypeIds.add(s.serviceType.toString());
+        }
+    }
+
+    // Also fold in selectedCategories / selectedSubcategories (registration flow)
+    const selectedCategoryIds    = new Set((vendor.selectedCategories    || []).map(id => id.toString()));
+    const selectedSubcategoryIds = new Set((vendor.selectedSubcategories || []).map(id => id.toString()));
+    const finalPurchasedCategoryIds    = new Set([...selectedCategoryIds,    ...purchasedCategoryIds]);
+    const finalPurchasedSubcategoryIds = new Set([...selectedSubcategoryIds, ...purchasedSubcategoryIds]);
+    // Note: type uses purchasedTypeIds only (not selectedServiceTypes), matching getAvailablePurchaseCategories
+
+    // ── 2. Load the requested services with their parent documents ──
+    const parsedIds  = serviceIds.map(id => id.toString());
+    const targetServices = allServices.filter(s => parsedIds.includes(s._id.toString()));
+
+    const allCategories    = await Category.find({}).lean();
+    const allSubcategories = await Subcategory.find({}).lean();
+    const allTypes         = await ServiceType.find({}).lean();
+
+    const catMap  = new Map(allCategories.map(c => [c._id.toString(), c]));
+    const subMap  = new Map(allSubcategories.map(s => [s._id.toString(), s]));
+    const typeMap = new Map(allTypes.map(t => [t._id.toString(), t]));
+
+    // ── 3. Build line items; deduplicate parent charges across services ──
+    // Track which parent IDs have already been charged IN THIS REQUEST
+    const chargedCategoryIds    = new Set();
+    const chargedSubcategoryIds = new Set();
+    const chargedTypeIds        = new Set();
+
+    const items = [];
+    let subtotal = 0;
+
+    for (const service of targetServices) {
+        const catId  = service.category?.toString();
+        const subId  = service.subcategory?.toString();
+        const typeId = service.serviceType?.toString();
+
+        const cat  = catId  ? catMap.get(catId)   : null;
+        const sub  = subId  ? subMap.get(subId)   : null;
+        const type = typeId ? typeMap.get(typeId) : null;
+
+        // --- Category charge ---
+        // 0 if: already purchased OR already charged in this request
+        const catCharge = _getMembershipCharge(cat, 'category');
+        let catChargeToPay = 0;
+        if (cat && !finalPurchasedCategoryIds.has(catId) && !chargedCategoryIds.has(catId)) {
+            catChargeToPay = catCharge;
+            chargedCategoryIds.add(catId);
+        }
+
+        // --- Subcategory charge ---
+        const subCharge = _getMembershipCharge(sub, 'subcategory');
+        let subChargeToPay = 0;
+        if (sub && !finalPurchasedSubcategoryIds.has(subId) && !chargedSubcategoryIds.has(subId)) {
+            subChargeToPay = subCharge;
+            chargedSubcategoryIds.add(subId);
+        }
+
+        // --- Type charge ---
+        const typeCharge = _getMembershipCharge(type, 'serviceType');
+        let typeChargeToPay = 0;
+        if (type && !purchasedTypeIds.has(typeId) && !chargedTypeIds.has(typeId)) {
+            typeChargeToPay = typeCharge;
+            chargedTypeIds.add(typeId);
+        }
+
+        // --- Service charge ---
+        const svcCharge = _getMembershipCharge(service, 'service');
+        const isServicePurchased = purchasedServiceIds.has(service._id.toString());
+
+        // Skip already-purchased services entirely — do not include in the list.
+        // Parent charges already marked in chargedCategoryIds / chargedSubcategoryIds /
+        // chargedTypeIds so sibling services in this request don't double-count.
+        if (isServicePurchased) continue;
+
+        const svcChargeToPay = svcCharge;
+        const lineSubtotal = catChargeToPay + subChargeToPay + typeChargeToPay + svcChargeToPay;
+        subtotal += lineSubtotal;
+
+        // Flat line items — one entry per non-zero charge, each with name + charge only
+        if (catChargeToPay > 0) items.push({ name: cat.name, charge: catChargeToPay });
+        if (subChargeToPay > 0) items.push({ name: sub.name, charge: subChargeToPay });
+        if (typeChargeToPay > 0) items.push({ name: type.name, charge: typeChargeToPay });
+        if (svcChargeToPay > 0) items.push({ name: service.title, charge: svcChargeToPay });
+    }
+
+    const gstAmount = Math.round(subtotal * (gstPercent / 100));
+    const total = subtotal + gstAmount;
+
+    return {
+        items,
+        subtotal,
+        gstPercent,
+        gstAmount,
+        total,
+    };
+};
+
 module.exports = {
     getAllVendors,
     getMembershipInfo,
@@ -3150,4 +3290,5 @@ module.exports = {
     createAddCategoryOrder,
     verifyAddCategoryPayment,
     getAvailablePurchaseCategories,
+    calculatePurchasePaymentDetail,
 };

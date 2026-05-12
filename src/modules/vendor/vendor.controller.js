@@ -445,6 +445,27 @@ const getPurchaseCategories = asyncHandler(async (req, res) => {
 });
 
 /**
+ * POST /vendor/purchase-categories/payment-detail
+ * Body: { serviceIds: ["id1", "id2", ...] }
+ * Returns an itemised payment breakdown for the selected services.
+ */
+const getPurchasePaymentDetail = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+
+    // Accept array OR comma-separated string
+    let { serviceIds } = req.body;
+    if (typeof serviceIds === 'string') {
+        serviceIds = serviceIds.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    serviceIds = Array.isArray(serviceIds) ? serviceIds : [];
+
+    const result = await vendorService.calculatePurchasePaymentDetail(vendorId, serviceIds);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Purchase payment detail calculated successfully')
+    );
+});
+
+/**
  * Update FCM Token for push notifications
  */
 const updateFcmToken = asyncHandler(async (req, res) => {
@@ -493,6 +514,7 @@ module.exports = {
     verifyAddCategoryPayment,
     activateAddCategory,
     getPurchaseCategories,
+    getPurchasePaymentDetail,
     updateFcmToken,
 };
 
