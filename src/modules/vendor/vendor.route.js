@@ -40,6 +40,31 @@ router.post('/purchase-categories/payment-detail',
     },
     vendorController.getPurchasePaymentDetail
 );
+router.post('/purchase-categories/payment-details', 
+    authenticate, 
+    (req, res, next) => {
+        const allowedRoles = [ROLES.VENDOR, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN];
+        const userRole = req.user?.role;
+        
+        console.log('🔍 [AUTHZ DEBUG PLURAL]', {
+            path: req.originalUrl,
+            userRole,
+            allowedRoles,
+            isMatch: allowedRoles.includes(userRole)
+        });
+
+        if (allowedRoles.includes(userRole)) {
+            return next();
+        }
+
+        return res.status(403).json({
+            success: false,
+            message: `Access Forbidden: Your role '${userRole}' is not authorized for this endpoint. Required: ${allowedRoles.join(' or ')}`,
+            debug: { userRole, allowedRoles }
+        });
+    },
+    vendorController.getPurchasePaymentDetail
+);
 router.get('/purchase-categories', authenticate, authorize(ROLES.VENDOR), vendorController.getPurchaseCategories);
 
 // Registration utility routes (Can be called during registration flow)
@@ -59,6 +84,7 @@ router.post('/register/:vendorId/purchase-plan', authenticate, authorize(ROLES.A
 router.post('/register/:vendorId/add-category/fee', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getAddCategoryFee);
 router.post('/register/:vendorId/add-category/activate', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.activateAddCategory);
 router.post('/register/:vendorId/purchase-categories/payment-detail', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getPurchasePaymentDetail);
+router.post('/register/:vendorId/purchase-categories/payment-details', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getPurchasePaymentDetail);
 router.get('/register/categories-data', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getCategoryRegistrationData);
 
 // Membership create-order — vendorId is extracted from JWT token, NOT from URL
