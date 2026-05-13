@@ -82,10 +82,25 @@ const getUserCoins = asyncHandler(async (req, res) => {
 
 // Update FCM Token for push notifications
 const updateFcmToken = asyncHandler(async (req, res) => {
-  const userId = req.user.userId || req.user._id;
+  const userId = req.user.id || req.user.userId || req.user._id;
   const { fcmToken } = req.body;
 
-  await require('../../models/User.model').findByIdAndUpdate(userId, { fcmToken });
+  console.log(`🔍 [FCM UPDATE] User ${userId}: ${fcmToken ? 'TOKEN_RECEIVED' : 'TOKEN_MISSING'}`);
+
+  if (!fcmToken) {
+    throw new ApiError(400, 'fcmToken is required');
+  }
+
+  const User = require('../../models/User.model');
+  const user = await User.findByIdAndUpdate(userId, { fcmToken }, { new: true });
+  
+  if (!user) {
+    console.log(`❌ [FCM UPDATE] User ${userId} not found in User collection`);
+    throw new ApiError(404, 'User not found');
+  }
+
+  console.log(`✅ [FCM UPDATE] User ${userId} token updated successfully`);
+
   res.status(200).json(
     new ApiResponse(200, null, 'FCM token updated successfully')
   );

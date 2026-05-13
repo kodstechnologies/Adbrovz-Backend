@@ -492,10 +492,25 @@ const verifyPurchasePayment = asyncHandler(async (req, res) => {
  * Update FCM Token for push notifications
  */
 const updateFcmToken = asyncHandler(async (req, res) => {
-    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const vendorId = req.user.id || req.user.userId || req.user._id;
     const { fcmToken } = req.body;
     
-    await require('../../models/Vendor.model').findByIdAndUpdate(vendorId, { fcmToken });
+    console.log(`🔍 [FCM UPDATE] Vendor ${vendorId}: ${fcmToken ? 'TOKEN_RECEIVED' : 'TOKEN_MISSING'}`);
+
+    if (!fcmToken) {
+        throw new ApiError(400, 'fcmToken is required');
+    }
+
+    const Vendor = require('../../models/Vendor.model');
+    const vendor = await Vendor.findByIdAndUpdate(vendorId, { fcmToken }, { new: true });
+
+    if (!vendor) {
+        console.log(`❌ [FCM UPDATE] Vendor ${vendorId} not found in Vendor collection`);
+        throw new ApiError(404, 'Vendor not found');
+    }
+
+    console.log(`✅ [FCM UPDATE] Vendor ${vendorId} token updated successfully`);
+
     res.status(200).json(
         new ApiResponse(200, null, 'FCM token updated successfully')
     );
