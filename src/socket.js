@@ -78,10 +78,12 @@ const registerUserSocket = (userId, socketId) => {
 const initSocket = (server) => {
     io = new Server(server, {
         cors: {
-            origin: config.CORS_ORIGIN === '*' ? (origin, callback) => callback(null, true) : (config.CORS_ORIGIN?.split(',') || ['http://localhost:3000']),
+            origin: config.CORS_ORIGIN === '*' ? true : (config.CORS_ORIGIN?.split(',') || ['http://localhost:3000']),
             methods: ['GET', 'POST'],
             credentials: true
         },
+        transports: ['polling', 'websocket'],
+        upgrade: true,
         pingTimeout: 120000,
         pingInterval: 30000,
         connectTimeout: 45000,
