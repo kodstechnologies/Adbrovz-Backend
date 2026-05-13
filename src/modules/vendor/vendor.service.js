@@ -1580,6 +1580,11 @@ const updateVendorProfile = async (vendorId, profileData) => {
         vendor.set('documents.photo.url', profileData.image);
     }
 
+    // Update FCM Token if provided in profile data
+    if (profileData.fcmToken) {
+        vendor.fcmToken = profileData.fcmToken;
+    }
+
     await vendor.save();
 
     return getVendorProfile(vendorId);

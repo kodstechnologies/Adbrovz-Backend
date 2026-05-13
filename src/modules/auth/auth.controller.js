@@ -16,7 +16,8 @@ const userInitiateSignup = asyncHandler(async (req, res) => {
 });
 
 const userCompleteSignup = asyncHandler(async (req, res) => {
-  const result = await authService.completeUserSignup(req.body, req);
+  const { signupId, pin, confirmPin, acceptedPolicies, fcmToken } = req.body;
+  const result = await authService.completeUserSignup({ signupId, pin, confirmPin, acceptedPolicies, fcmToken }, req);
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
@@ -77,7 +78,8 @@ const vendorSignup = asyncHandler(async (req, res) => {
 });
 
 const vendorCompleteSignup = asyncHandler(async (req, res) => {
-  const result = await authService.completeVendorSignup(req.body);
+  const { signupId, pin, confirmPin, acceptedTerms, acceptedPrivacyPolicy, fcmToken } = req.body;
+  const result = await authService.completeVendorSignup({ signupId, pin, confirmPin, acceptedTerms, acceptedPrivacyPolicy, fcmToken });
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 

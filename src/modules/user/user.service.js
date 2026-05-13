@@ -38,6 +38,11 @@ const updateUser = async (userId, updateData, req = null) => {
     user.photo = updateData.image || updateData.photo;
   }
 
+  // Handle FCM Token update during profile edit
+  if (updateData.fcmToken) {
+    user.fcmToken = updateData.fcmToken;
+  }
+
   console.log('DEBUG: updateUser Service Data before save:', { userId, updateData });
 
   await user.save();
