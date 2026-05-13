@@ -32,7 +32,7 @@ const connectDB = async () => {
 const startServer = async () => {
   await connectDB();
 
-  const server = app.listen(config.PORT, () => {
+  const server = app.listen(config.PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${config.PORT}`);
     console.log(`📦 API: http://localhost:${config.PORT}/api/${config.API_VERSION}`);
   });
