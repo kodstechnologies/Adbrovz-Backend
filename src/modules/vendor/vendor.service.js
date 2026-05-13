@@ -2743,7 +2743,11 @@ const getHierarchicalMembershipCharges = async (vendorId) => {
 /**
  * Add Category: Calculate fee details
  */
-const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds = [], serviceIds = [] } = {}) => {
+const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds = [], serviceIds = [], subcategories, services } = {}) => {
+    // Support aliases often used by frontend
+    if ((!subcategoryIds || !subcategoryIds.length) && subcategories) subcategoryIds = subcategories;
+    if ((!serviceIds || !serviceIds.length) && services) serviceIds = services;
+
     let parsedServiceIds = parseArrayInput(serviceIds);
     let parsedSubcategoryIds = parseArrayInput(subcategoryIds);
 
@@ -2914,7 +2918,11 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
 /**
  * Add Category: Create order
  */
-const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [], serviceIds = [] } = {}) => {
+const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [], serviceIds = [], subcategories, services } = {}) => {
+    // Support aliases often used by frontend
+    if ((!subcategoryIds || !subcategoryIds.length) && subcategories) subcategoryIds = subcategories;
+    if ((!serviceIds || !serviceIds.length) && services) serviceIds = services;
+
     const feeDetails = await getAddCategoryFeeDetails(vendorId, { categoryId, subcategoryIds, serviceIds });
 
     const totalToPay = feeDetails.totalWithGst;
@@ -2975,7 +2983,11 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
 /**
  * Add Category: Verify payment and activate
  */
-const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature, isAdminBypass = false, categoryId, selectedSubcategories, selectedServices }) => {
+const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature, isAdminBypass = false, categoryId, selectedSubcategories, selectedServices, subcategories, services }) => {
+    // Support aliases often used by frontend
+    if ((!selectedSubcategories || !selectedSubcategories.length) && subcategories) selectedSubcategories = subcategories;
+    if ((!selectedServices || !selectedServices.length) && services) selectedServices = services;
+
     if (!isAdminBypass) {
         const generated_signature = crypto
             .createHmac('sha256', config.RAZORPAY_KEY_SECRET)

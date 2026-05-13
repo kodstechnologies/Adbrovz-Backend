@@ -414,7 +414,9 @@ const verifyAddCategoryPayment = asyncHandler(async (req, res) => {
  */
 const activateAddCategory = asyncHandler(async (req, res) => {
     const { vendorId } = req.params;
-    const { categoryId, subcategoryIds, serviceIds } = req.body;
+    const { categoryId, subcategoryIds, serviceIds, subcategories, services } = req.body;
+    const finalSubcategoryIds = subcategoryIds || subcategories || [];
+    const finalServiceIds = serviceIds || services || [];
     
     // Simulate a completed payment for direct activation
     const result = await vendorService.verifyAddCategoryPayment(vendorId, {
@@ -423,8 +425,8 @@ const activateAddCategory = asyncHandler(async (req, res) => {
         razorpay_signature: 'skipped_by_admin',
         isAdminBypass: true,
         categoryId,
-        selectedSubcategories: subcategoryIds,
-        selectedServices: serviceIds
+        selectedSubcategories: finalSubcategoryIds,
+        selectedServices: finalServiceIds
     });
 
     res.status(200).json(
