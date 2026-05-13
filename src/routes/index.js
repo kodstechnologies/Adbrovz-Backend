@@ -31,7 +31,7 @@ router.get('/registration-category-data', vendorController.getCategoryRegistrati
 // Welcome message
 router.get('/', (req, res) => {
   res.status(200).json({
-    message: 'Welcome to Adbrovz API',
+    message: 'Welcomeee to Adbrovz API',
     version: 'v1.0.0',
     documentation: 'https://api.adbrovz.com/docs',
   });
