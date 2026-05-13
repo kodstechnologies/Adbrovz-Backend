@@ -463,7 +463,7 @@ const getPurchasePaymentDetail = asyncHandler(async (req, res) => {
 
     const result = await vendorService.calculatePurchasePaymentDetail(vendorId, serviceIds);
     res.status(200).json(
-        new ApiResponse(200, result, 'Purchase payment detail calculated successfully')
+        new ApiResponse(200, result, 'Payment details fetched successfully')
     );
 });
 

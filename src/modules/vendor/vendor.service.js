@@ -3291,22 +3291,24 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
         const lineSubtotal = catChargeToPay + subChargeToPay + typeChargeToPay + svcChargeToPay;
         subtotal += lineSubtotal;
 
-        // Flat line items — one entry per non-zero charge, each with name + charge only
-        if (catChargeToPay > 0) items.push({ name: `Category: ${cat.name} (Registration Service Charge (₹))`, charge: catChargeToPay });
-        if (subChargeToPay > 0) items.push({ name: `Subcategory: ${sub.name} (Registration Service Charge (₹))`, charge: subChargeToPay });
-        if (typeChargeToPay > 0) items.push({ name: `Type: ${type.name} (Registration Service Charge (₹))`, charge: typeChargeToPay });
-        if (svcChargeToPay > 0) items.push({ name: `Service: ${service.title} (Registration Service Charge (₹))`, charge: svcChargeToPay });
+        // Flat line items — matching requested JSON format
+        if (catChargeToPay > 0) items.push({ purchaseType: 'category', id: cat._id.toString(), name: cat.name, serviceCharge: catChargeToPay });
+        if (subChargeToPay > 0) items.push({ purchaseType: 'subcategory', id: sub._id.toString(), name: sub.name, serviceCharge: subChargeToPay });
+        if (typeChargeToPay > 0) items.push({ purchaseType: 'type', id: type._id.toString(), name: type.name, serviceCharge: typeChargeToPay });
+        if (svcChargeToPay > 0) items.push({ purchaseType: 'service', id: service._id.toString(), name: service.title, serviceCharge: svcChargeToPay });
     }
 
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
-    const total = subtotal + gstAmount;
+    const totalAmount = subtotal + gstAmount;
 
     return {
-        items,
-        subtotal,
-        gstPercent,
-        gstAmount,
-        total,
+        purchasedItems: items,
+        summary: {
+            subTotal: subtotal,
+            gstPercent,
+            gstAmount,
+            totalAmount
+        }
     };
 };
 
