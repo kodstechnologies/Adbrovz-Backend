@@ -78,16 +78,25 @@ const registerUserSocket = (userId, socketId) => {
 const initSocket = (server) => {
     io = new Server(server, {
         cors: {
-            origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3000'],
+            origin: config.CORS_ORIGIN === '*' ? (origin, callback) => callback(null, true) : (config.CORS_ORIGIN?.split(',') || ['http://localhost:3000']),
             methods: ['GET', 'POST'],
             credentials: true
         },
         pingTimeout: 120000,
         pingInterval: 30000,
+        connectTimeout: 45000,
+        allowEIO3: true // Allow compatibility if needed
     });
 
     io.on('connection', (socket) => {
-        console.log(`🔌 New WebSocket Connection: ${socket.id}`);
+        const transport = socket.conn.transport.name;
+        console.log(`🔌 New Connection: ${socket.id} [Transport: ${transport}] [IP: ${socket.handshake.address}]`);
+
+        // Log upgrade events
+        socket.conn.on('upgrade', () => {
+            const upgradedTransport = socket.conn.transport.name;
+            console.log(`🚀 Socket ${socket.id} upgraded to ${upgradedTransport}`);
+        });
 
         // ─── AUTO-REGISTRATION FROM JWT ────────────────────────────────────
         // App passes token via socket.handshake.auth.token or query.token
