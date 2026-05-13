@@ -3019,40 +3019,77 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     // Add unique selections to vendor profile
+    // Identify all categories involved in this purchase
+    const categoriesToUpdate = new Map();
+
+    // 1. If we have a single categoryId passed or in metadata, use it as the primary
     if (finalCategoryId) {
-        const catIdStr = String(finalCategoryId);
-        if (!vendor.selectedCategories.map(id => String(id)).includes(catIdStr)) {
-            vendor.selectedCategories.push(finalCategoryId);
+        categoriesToUpdate.set(String(finalCategoryId), {
+            services: finalServices || [],
+            subcategories: finalSubcategories || [],
+            // Assign total fees to the primary category for now, or split if metadata allows
+            fee: paymentRecord ? paymentRecord.totalAmount : 0,
+            subtotal: paymentRecord ? paymentRecord.amount : 0,
+            gstAmount: paymentRecord ? paymentRecord.gstAmount : 0
+        });
+    }
+
+    // 2. If no categoryId but we have services, derive all categories from the services
+    if (categoriesToUpdate.size === 0 && finalServices && finalServices.length > 0) {
+        const servicesData = await Service.find({ _id: { $in: finalServices } }).lean();
+        servicesData.forEach(svc => {
+            const catId = String(svc.category);
+            if (!categoriesToUpdate.has(catId)) {
+                categoriesToUpdate.set(catId, { services: [], subcategories: [], fee: 0, subtotal: 0, gstAmount: 0 });
+            }
+            categoriesToUpdate.get(catId).services.push(svc._id);
+        });
+        
+        // Also add total fees to the first category if not already set
+        if (categoriesToUpdate.size > 0 && paymentRecord) {
+            const firstCatId = Array.from(categoriesToUpdate.keys())[0];
+            categoriesToUpdate.get(firstCatId).fee = paymentRecord.totalAmount;
+            categoriesToUpdate.get(firstCatId).subtotal = paymentRecord.amount;
+            categoriesToUpdate.get(firstCatId).gstAmount = paymentRecord.gstAmount;
         }
     }
 
-    if (finalSubcategories && Array.isArray(finalSubcategories)) {
-        finalSubcategories.forEach(subId => {
-            const subIdStr = String(subId);
-            if (!vendor.selectedSubcategories.map(id => String(id)).includes(subIdStr)) {
-                vendor.selectedSubcategories.push(subId);
-            }
-        });
-    }
+    // Update vendor profile for each category involved
+    const now = new Date();
+    const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
 
-    if (finalServices && Array.isArray(finalServices)) {
-        finalServices.forEach(svcId => {
-            const svcIdStr = String(svcId);
-            if (!vendor.selectedServices.map(id => String(id)).includes(svcIdStr)) {
-                vendor.selectedServices.push(svcId);
-            }
-        });
-    }
+    for (const [catIdStr, data] of categoriesToUpdate.entries()) {
+        const catId = mongoose.Types.ObjectId(catIdStr);
 
-    // Update categorySubscriptions for the newly added category
-    if (finalCategoryId) {
-        const catIdStr = String(finalCategoryId);
-        const now = new Date();
+        // Add to selectedCategories
+        if (!vendor.selectedCategories.map(id => String(id)).includes(catIdStr)) {
+            vendor.selectedCategories.push(catId);
+        }
+
+        // Add services to selectedServices
+        if (data.services && Array.isArray(data.services)) {
+            data.services.forEach(svcId => {
+                const svcIdStr = String(svcId);
+                if (!vendor.selectedServices.map(id => String(id)).includes(svcIdStr)) {
+                    vendor.selectedServices.push(svcId);
+                }
+            });
+        }
+
+        // Add subcategories to selectedSubcategories
+        if (data.subcategories && Array.isArray(data.subcategories)) {
+            data.subcategories.forEach(subId => {
+                const subIdStr = String(subId);
+                if (!vendor.selectedSubcategories.map(id => String(id)).includes(subIdStr)) {
+                    vendor.selectedSubcategories.push(subId);
+                }
+            });
+        }
+
+        // Expiry Date Logic
         let expiryDate = new Date(now);
-        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
-        expiryDate.setDate(expiryDate.getDate() + Number(renewalDays)); // Default based on admin setting
+        expiryDate.setDate(expiryDate.getDate() + Number(renewalDays));
 
-        // Align with prorated expiry if provided in payment record
         if (paymentRecord && paymentRecord.metadata && paymentRecord.metadata.alignedExpiryDate) {
             const alignedDate = new Date(paymentRecord.metadata.alignedExpiryDate);
             if (alignedDate > now) {
@@ -3060,24 +3097,29 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
             }
         }
 
-        // Use the total amount paid from the payment record if available for accuracy
-        const fee = paymentRecord ? paymentRecord.totalAmount : 0;
-
+        // Update or Push to categorySubscriptions
         const existingSubIndex = vendor.categorySubscriptions.findIndex(s => s.category.toString() === catIdStr);
         if (existingSubIndex > -1) {
             vendor.categorySubscriptions[existingSubIndex].expiryDate = expiryDate;
             vendor.categorySubscriptions[existingSubIndex].status = 'ACTIVE';
-            vendor.categorySubscriptions[existingSubIndex].fee = (vendor.categorySubscriptions[existingSubIndex].fee || 0) + fee;
-            vendor.categorySubscriptions[existingSubIndex].subcategories = Array.from(new Set([...(vendor.categorySubscriptions[existingSubIndex].subcategories || []), ...(finalSubcategories || [])]));
-            vendor.categorySubscriptions[existingSubIndex].services = Array.from(new Set([...(vendor.categorySubscriptions[existingSubIndex].services || []), ...(finalServices || [])]));
+            vendor.categorySubscriptions[existingSubIndex].fee = (vendor.categorySubscriptions[existingSubIndex].fee || 0) + data.fee;
+            vendor.categorySubscriptions[existingSubIndex].subtotal = (vendor.categorySubscriptions[existingSubIndex].subtotal || 0) + data.subtotal;
+            vendor.categorySubscriptions[existingSubIndex].gstAmount = (vendor.categorySubscriptions[existingSubIndex].gstAmount || 0) + data.gstAmount;
+            vendor.categorySubscriptions[existingSubIndex].paymentRecordId = paymentRecord ? paymentRecord._id : vendor.categorySubscriptions[existingSubIndex].paymentRecordId;
+            
+            vendor.categorySubscriptions[existingSubIndex].subcategories = Array.from(new Set([...(vendor.categorySubscriptions[existingSubIndex].subcategories || []), ...(data.subcategories || [])]));
+            vendor.categorySubscriptions[existingSubIndex].services = Array.from(new Set([...(vendor.categorySubscriptions[existingSubIndex].services || []), ...(data.services || [])]));
         } else {
             vendor.categorySubscriptions.push({
-                category: finalCategoryId,
-                subcategories: finalSubcategories || [],
-                services: finalServices || [],
+                category: catId,
+                subcategories: data.subcategories || [],
+                services: data.services || [],
                 startDate: now,
                 expiryDate: expiryDate,
-                fee: fee,
+                fee: data.fee,
+                subtotal: data.subtotal,
+                gstAmount: data.gstAmount,
+                paymentRecordId: paymentRecord ? paymentRecord._id : null,
                 status: 'ACTIVE'
             });
         }
@@ -3312,6 +3354,65 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     };
 };
 
+/**
+ * Purchase Categories: Create order for multi-category selection
+ */
+const createPurchaseOrder = async (vendorId, { serviceIds = [] } = {}) => {
+    const feeDetails = await calculatePurchasePaymentDetail(vendorId, serviceIds);
+
+    const totalToPay = feeDetails.summary.totalAmount;
+
+    if (totalToPay <= 0) {
+        throw new ApiError(400, 'Total fee for the selected services is zero. Cannot create payment order.');
+    }
+
+    let razorpayOrder;
+    try {
+        razorpayOrder = await getRazorpay().orders.create({
+            amount: Math.round(totalToPay * 100),
+            currency: 'INR',
+            receipt: `pur_cat_${vendorId.toString().slice(-10)}_${Date.now()}`,
+            notes: {
+                vendorId: vendorId.toString(),
+                purpose: 'multi_category_purchase',
+            },
+        });
+
+        // Log the pending payment record
+        await PaymentRecord.create({
+            vendor: vendorId,
+            orderId: razorpayOrder.id,
+            purpose: 'CATEGORY_PURCHASE',
+            amount: feeDetails.summary.subTotal,
+            gstAmount: feeDetails.summary.gstAmount,
+            totalAmount: totalToPay,
+            status: 'PENDING',
+            metadata: {
+                serviceIds: serviceIds,
+                breakdown: feeDetails.purchasedItems,
+                summary: feeDetails.summary
+            }
+        });
+
+    } catch (error) {
+        console.error('Razorpay Purchase Order Error:', error);
+        const errorMsg = error.error?.description || error.message || 'Failed to create payment order with Razorpay';
+        throw new ApiError(400, `Payment Error: ${errorMsg}`);
+    }
+
+    return {
+        ...feeDetails,
+        status: razorpayOrder.status,
+        razorpayOrder: {
+            id: razorpayOrder.id,
+            amount: razorpayOrder.amount,
+            amountInRupees: razorpayOrder.amount / 100,
+            currency: razorpayOrder.currency,
+            status: razorpayOrder.status,
+        }
+    };
+};
+
 module.exports = {
     getAllVendors,
     getMembershipInfo,
@@ -3351,4 +3452,5 @@ module.exports = {
     verifyAddCategoryPayment,
     getAvailablePurchaseCategories,
     calculatePurchasePaymentDetail,
+    createPurchaseOrder,
 };

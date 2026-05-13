@@ -61,7 +61,6 @@ const paymentRecordSchema = new mongoose.Schema(
 
 // Indexes
 paymentRecordSchema.index({ vendor: 1, createdAt: -1 });
-paymentRecordSchema.index({ orderId: 1 });
 paymentRecordSchema.index({ status: 1 });
 
 const PaymentRecord = mongoose.model('PaymentRecord', paymentRecordSchema);

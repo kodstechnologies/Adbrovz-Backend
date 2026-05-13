@@ -214,6 +214,9 @@ const vendorSchema = new mongoose.Schema(
       subcategories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subcategory' }],
       services: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Service' }],
       fee: { type: Number },
+      subtotal: { type: Number },
+      gstAmount: { type: Number },
+      paymentRecordId: { type: mongoose.Schema.Types.ObjectId, ref: 'PaymentRecord' },
       startDate: { type: Date },
       expiryDate: { type: Date },
       status: { type: String, enum: ['ACTIVE', 'EXPIRED'], default: 'ACTIVE' }

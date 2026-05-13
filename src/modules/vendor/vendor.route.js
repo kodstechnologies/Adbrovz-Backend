@@ -65,6 +65,8 @@ router.post('/purchase-categories/payment-details',
     },
     vendorController.getPurchasePaymentDetail
 );
+router.post('/purchase-categories/create-order', authenticate, authorize(ROLES.VENDOR, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.createPurchaseOrder);
+router.post('/purchase-categories/verify-payment', authenticate, authorize(ROLES.VENDOR, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.verifyPurchasePayment);
 router.get('/purchase-categories', authenticate, authorize(ROLES.VENDOR), vendorController.getPurchaseCategories);
 
 // Registration utility routes (Can be called during registration flow)
@@ -85,6 +87,8 @@ router.post('/register/:vendorId/add-category/fee', authenticate, authorize(ROLE
 router.post('/register/:vendorId/add-category/activate', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.activateAddCategory);
 router.post('/register/:vendorId/purchase-categories/payment-detail', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getPurchasePaymentDetail);
 router.post('/register/:vendorId/purchase-categories/payment-details', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getPurchasePaymentDetail);
+router.post('/register/:vendorId/purchase-categories/create-order', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.createPurchaseOrder);
+router.post('/register/:vendorId/purchase-categories/verify-payment', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.verifyPurchasePayment);
 router.get('/register/categories-data', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getCategoryRegistrationData);
 
 // Membership create-order — vendorId is extracted from JWT token, NOT from URL

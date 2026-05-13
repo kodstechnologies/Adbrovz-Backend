@@ -1,6 +1,7 @@
 const vendorService = require('./vendor.service');
 const asyncHandler = require('../../utils/asyncHandler');
 const ApiResponse = require('../../utils/ApiResponse');
+const ApiError = require('../../utils/ApiError');
 
 /**
  * Get all vendors
@@ -451,20 +452,40 @@ const getPurchaseCategories = asyncHandler(async (req, res) => {
  * Returns an itemised payment breakdown for the selected services.
  */
 const getPurchasePaymentDetail = asyncHandler(async (req, res) => {
-    // If vendorId is in params (admin route) or body, use it. Otherwise use token (vendor route)
-    const vendorId = req.params.vendorId || req.body.vendorId || req.user.userId || req.user.id || req.user._id;
+    const vendorId = req.params.vendorId || req.user.id;
+    const { serviceIds } = req.body;
 
-    // Accept array OR comma-separated string
-    let { serviceIds } = req.body;
-    if (typeof serviceIds === 'string') {
-        serviceIds = serviceIds.split(',').map(s => s.trim()).filter(Boolean);
+    if (!serviceIds || !Array.isArray(serviceIds)) {
+        throw new ApiError(400, 'serviceIds must be an array');
     }
-    serviceIds = Array.isArray(serviceIds) ? serviceIds : [];
 
-    const result = await vendorService.calculatePurchasePaymentDetail(vendorId, serviceIds);
-    res.status(200).json(
-        new ApiResponse(200, result, 'Payment details fetched successfully')
-    );
+    const detail = await vendorService.calculatePurchasePaymentDetail(vendorId, serviceIds);
+    res.status(200).json(new ApiResponse(200, detail, 'Purchase payment details calculated'));
+});
+
+const createPurchaseOrder = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.id;
+    const { serviceIds } = req.body;
+
+    if (!serviceIds || !Array.isArray(serviceIds)) {
+        throw new ApiError(400, 'serviceIds must be an array');
+    }
+
+    const result = await vendorService.createPurchaseOrder(vendorId, { serviceIds });
+    res.status(200).json(new ApiResponse(200, result, 'Purchase order created successfully'));
+});
+
+const verifyPurchasePayment = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.id;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+    const result = await vendorService.verifyAddCategoryPayment(vendorId, {
+        razorpay_order_id,
+        razorpay_payment_id,
+        razorpay_signature
+    });
+
+    res.status(200).json(new ApiResponse(200, result, 'Purchase verified and services activated'));
 });
 
 /**
@@ -518,4 +539,6 @@ module.exports = {
     getPurchaseCategories,
     getPurchasePaymentDetail,
     updateFcmToken,
+    createPurchaseOrder,
+    verifyPurchasePayment,
 };
