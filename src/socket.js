@@ -783,7 +783,7 @@ const emitToUser = (userId, event, data) => {
 // Helper to check if a specific vendor is online
 const isVendorOnline = (vendorId) => {
     const sockets = activeVendors.get(vendorId.toString());
-    return sockets && sockets.length > 0;
+    return !!(sockets && sockets.length > 0);
 };
 
 // Helper to get a vendor's socket IDs

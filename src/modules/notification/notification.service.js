@@ -30,10 +30,12 @@ const sendPushNotification = async (token, payload) => {
     console.log('Successfully sent message:', response);
     return { success: true, messageId: response };
   } catch (error) {
-    console.error('Error sending message:', error);
-    return { success: false, error: error.message || String(error) };
+    const errorCode = error.errorInfo?.code || '';
+    console.error(`[FCM] Error sending message. Code: ${errorCode}, Message: ${error.message}`);
+    return { success: false, error: error.message || String(error), errorCode };
   }
 };
+
 
 /**
  * Creates a notification in DB and optionally sends a push notification
@@ -70,10 +72,27 @@ const createNotification = async (params) => {
         } else {
           notification.pushStatus = 'failed';
           notification.pushError = pushResult.error;
+
+          // Auto-clear stale/invalid FCM token from the user/vendor document
+          const STALE_TOKEN_ERRORS = [
+            'messaging/registration-token-not-registered',
+            'messaging/invalid-registration-token',
+            'messaging/invalid-argument',
+          ];
+          if (STALE_TOKEN_ERRORS.includes(pushResult.errorCode) && params.user && params.userModel) {
+            try {
+              const Model = require('mongoose').model(params.userModel);
+              await Model.findByIdAndUpdate(params.user, { $unset: { fcmToken: 1 } });
+              console.warn(`[FCM] Cleared stale FCM token for ${params.userModel} ${params.user} (Error: ${pushResult.errorCode})`);
+            } catch (clearErr) {
+              console.error(`[FCM] Failed to clear stale token:`, clearErr.message);
+            }
+          }
         }
       }
       await notification.save();
     }
+
 
     // Note: If you have Socket.io running, you could also emit an event here
     // const io = require('../../socket').getIO();
