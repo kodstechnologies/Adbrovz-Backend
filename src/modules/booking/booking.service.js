@@ -1216,7 +1216,8 @@ const searchVendors = async (booking, broadcast = false) => {
 
     const ignoredVendors = [
         ...(booking.rejectedVendors || []),
-        ...(booking.laterVendors || [])
+        ...(booking.laterVendors || []),
+        ...(booking.notifiedVendors || []) // Exclude already notified vendors to prevent spamming
     ].map(id => id.toString());
 
     // ── Vendors can receive new requests even if they have ongoing bookings (Allow concurrent orders) ──
