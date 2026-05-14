@@ -244,11 +244,13 @@ const acceptBooking = async (vendorId, bookingId) => {
 
         const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 10;
         
+        // Round distance to nearest integer to avoid fractional charges (e.g., 3.002 -> 3)
+        distance = Math.round(distance);
         let travelCharge = (distance * perKmCharge);
         
         // Cap travel charge at a reasonable amount (e.g., ₹500)
         if (travelCharge > 500) travelCharge = 500;
-        travelCharge = Math.round(travelCharge * 100) / 100; // Round to 2 decimals
+        travelCharge = Math.round(travelCharge);
 
         // Finalize existing Booking
         booking.vendor = vendorId;

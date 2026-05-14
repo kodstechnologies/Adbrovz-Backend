@@ -77,17 +77,24 @@ const registerUserSocket = (userId, socketId) => {
 
 const initSocket = (server) => {
     io = new Server(server, {
+        path: '/socket.io/',
         cors: {
-            origin: config.CORS_ORIGIN === '*' ? true : (config.CORS_ORIGIN?.split(',') || ['http://localhost:3000']),
+            origin: config.CORS_ORIGIN === '*' ? '*' : (config.CORS_ORIGIN?.split(',') || ['http://localhost:3000']),
             methods: ['GET', 'POST'],
-            credentials: true
+            credentials: config.CORS_ORIGIN !== '*'
         },
         transports: ['polling', 'websocket'],
         upgrade: true,
         pingTimeout: 120000,
         pingInterval: 30000,
         connectTimeout: 45000,
-        allowEIO3: true // Allow compatibility if needed
+        allowEIO3: true,
+        maxHttpBufferSize: 1e7
+    });
+
+    // Log connection errors for debugging
+    io.engine.on("connection_error", (err) => {
+        console.error(`[SOCKET ENGINE ERROR] Code: ${err.code}, Message: ${err.message}, URL: ${err.req?.url}`);
     });
 
     io.on('connection', (socket) => {
