@@ -103,11 +103,16 @@ const createBookingRequest = async (
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
-        isOnline: true,
+        // isOnline: true, // Removed strict online requirement to allow pre-check for all active vendors
         registrationStep: 'COMPLETED',
         deletedAt: null,
-        'membership.expiryDate': { $gt: new Date() },
         $and: [
+            {
+                $or: [
+                    { 'membership.expiryDate': { $exists: false } },
+                    { 'membership.expiryDate': { $gt: new Date() } }
+                ]
+            },
             {
                 $or: [
                     { 'serviceRenewal.expiryDate': { $exists: false } },
@@ -1227,11 +1232,18 @@ const searchVendors = async (booking, broadcast = false) => {
     const serviceIds = (booking.services || []).map(s => s.service);
     let categoryOrServiceFilter = [];
 
-    if (serviceIds.length > 0) {
+        if (serviceIds.length > 0) {
         const mongoose = require('mongoose');
         const serviceObjectIds = serviceIds.map(id => new mongoose.Types.ObjectId(id));
-        // Strict match: Vendor must have ALL selected services registered
-        categoryOrServiceFilter = [{ selectedServices: { $all: serviceObjectIds } }];
+        // Inclusive match: Vendor must have ALL selected services OR the parent category/subcategory
+        categoryOrServiceFilter = [
+            {
+                $or: [
+                    { selectedServices: { $all: serviceObjectIds } },
+                    { selectedCategories: { $in: categoryIds } }
+                ]
+            }
+        ];
     } else {
         categoryOrServiceFilter = [
             { selectedCategories: { $in: categoryIds } }
@@ -1241,15 +1253,20 @@ const searchVendors = async (booking, broadcast = false) => {
         }
     }
 
-    const geoQuery = {
+        const geoQuery = {
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
-        isOnline: true,
+        // isOnline: true, // Removed strict online requirement to allow Push notifications for offline vendors
         registrationStep: 'COMPLETED',
         deletedAt: null,
-        'membership.expiryDate': { $gt: new Date() },
         $and: [
+            {
+                $or: [
+                    { 'membership.expiryDate': { $exists: false } },
+                    { 'membership.expiryDate': { $gt: new Date() } }
+                ]
+            },
             {
                 $or: [
                     { 'serviceRenewal.expiryDate': { $exists: false } },
@@ -1284,15 +1301,20 @@ const searchVendors = async (booking, broadcast = false) => {
     // ── Fallback: If no geo results, notify all verified vendors in the category ──
     if (vendors.length === 0) {
         console.warn(`[SEARCH] No vendors found within ${radiusInKm}km geo radius. Falling back to category/service-based search.`);
-        const fallbackQuery = {
+                const fallbackQuery = {
             isVerified: true,
             isSuspended: false,
             isBlocked: false,
-            isOnline: true,
+            // isOnline: true, // Removed strict online requirement
             registrationStep: 'COMPLETED',
             deletedAt: null,
-            'membership.expiryDate': { $gt: new Date() },
             $and: [
+                {
+                    $or: [
+                        { 'membership.expiryDate': { $exists: false } },
+                        { 'membership.expiryDate': { $gt: new Date() } }
+                    ]
+                },
                 {
                     $or: [
                         { 'serviceRenewal.expiryDate': { $exists: false } },
