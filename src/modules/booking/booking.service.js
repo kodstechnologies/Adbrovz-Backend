@@ -1384,9 +1384,12 @@ const searchVendors = async (booking, broadcast = false) => {
             
             for (const v of vendors) {
                 const vendorIdStr = v._id.toString();
-                const online = isVendorOnline(vendorIdStr);
+                                const online = isVendorOnline(vendorIdStr);
                 
                 console.log(`[DEBUG] searchVendors notifying Vendor ${vendorIdStr} - Online: ${online}, Has Token: ${!!v.fcmToken}`);
+                try {
+                    require('fs').appendFileSync(require('path').join(__dirname, '../../../scratch/notify_debug.txt'), `[DEBUG] ${new Date().toISOString()} | Booking: ${booking._id} | Vendor: ${vendorIdStr} | Socket Online: ${online} | FCM Token Present: ${!!v.fcmToken}\n`);
+                } catch(e) {}
                 
                 // 1. Socket Notification (Real-time)
                 if (online) {
