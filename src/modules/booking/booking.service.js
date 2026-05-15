@@ -65,6 +65,29 @@ const createBookingRequest = async (
 
     const todayStr = new Date().toDateString();
 
+    // ── Auto-Cancel Previous Pending Bookings ──
+    // To prevent multiple overlapping search broadcasts for the same user, 
+    // we cancel any existing bookings that are still pending acceptance.
+    await Booking.updateMany(
+        { user: userId, status: 'pending_acceptance' },
+        { 
+            $set: { 
+                status: 'cancelled', 
+                'cancellation.cancelledBy': 'system', 
+                'cancellation.reason': 'Auto-cancelled because user created a new booking request.',
+                'cancellation.cancelledAt': new Date()
+            },
+            $push: {
+                statusHistory: {
+                    status: 'cancelled',
+                    actor: 'system',
+                    reason: 'Auto-cancelled because user created a new booking request.',
+                    timestamp: new Date()
+                }
+            }
+        }
+    );
+
     const subcategory = await mongoose.model('Subcategory').findById(subcategoryId).populate('category');
     const leadCategory = subcategory?.category?._id;
 
@@ -1016,6 +1039,29 @@ const createBooking = async (userId, bookingData) => {
             message: 'Your booking is already being processed. Please wait.'
         };
     }
+
+    // ── Auto-Cancel Previous Pending Bookings ──
+    // To prevent multiple overlapping search broadcasts for the same user, 
+    // we cancel any existing bookings that are still pending acceptance.
+    await Booking.updateMany(
+        { user: userId, status: 'pending_acceptance' },
+        { 
+            $set: { 
+                status: 'cancelled', 
+                'cancellation.cancelledBy': 'system', 
+                'cancellation.reason': 'Auto-cancelled because user created a new booking request.',
+                'cancellation.cancelledAt': new Date()
+            },
+            $push: {
+                statusHistory: {
+                    status: 'cancelled',
+                    actor: 'system',
+                    reason: 'Auto-cancelled because user created a new booking request.',
+                    timestamp: new Date()
+                }
+            }
+        }
+    );
 
     const {
         services,
