@@ -9,6 +9,7 @@ const Booking = require('../../models/Booking.model');
 const ApiError = require('../../utils/ApiError');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const config = require('../../config/env');
 const { emitToVendor } = require('../../socket');
 const { parseArrayInput } = require('../../utils/dataParser');
@@ -3097,7 +3098,7 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
     const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
 
     for (const [catIdStr, data] of categoriesToUpdate.entries()) {
-        const catId = mongoose.Types.ObjectId(catIdStr);
+        const catId = new mongoose.Types.ObjectId(catIdStr);
 
         // Add to selectedCategories
         if (!vendor.selectedCategories.map(id => String(id)).includes(catIdStr)) {
