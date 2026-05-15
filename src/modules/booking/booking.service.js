@@ -882,6 +882,7 @@ const _formatBooking = (bookingDoc, role) => {
 
     if (bookingObj.category) {
         bookingObj.categoryName = bookingObj.category.title || bookingObj.category.name || "N/A";
+        bookingObj.categoryId = bookingObj.category._id ? bookingObj.category._id : bookingObj.category;
     }
 
     return bookingObj;
