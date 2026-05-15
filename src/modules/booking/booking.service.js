@@ -947,7 +947,7 @@ const getBookingDetails = async (bookingId, userId, role) => {
         // For all other statuses: only canViewDispute is true
         const isReopened = dispute.status === 'REOPENED';
         formattedBooking.actions.canRaiseDispute = false;
-        formattedBooking.actions.canViewDispute = !isReopened;
+        formattedBooking.actions.canViewDispute = true;
         formattedBooking.actions.canReuploadDispute = isReopened;
     } else {
         formattedBooking.dispute = {

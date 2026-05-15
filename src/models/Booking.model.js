@@ -60,7 +60,7 @@ const bookingSchema = new mongoose.Schema(
         required: true
       },
       reason: { type: String },
-      actor: { 
+      actor: {
         type: String,
         enum: ['user', 'vendor', 'admin', 'system']
       },
