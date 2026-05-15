@@ -1965,6 +1965,16 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
                 message: 'User has rescheduled this booking.',
                 booking: vendorPayload
             });
+
+            // ── Send Push Notification to Vendor ──
+            _sendPush(
+                booking.vendor, 
+                'Vendor', 
+                'booking_rescheduled', 
+                'Booking Rescheduled', 
+                `Your booking ${booking.bookingID} got rescheduled to ${date} at ${time}.`, 
+                { bookingId: booking._id.toString(), bookingID: booking.bookingID }
+            );
         } catch (socketErr) {
             console.error(`[SOCKET] Failed to notify vendor on reschedule: ${socketErr.message}`);
         }

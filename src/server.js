@@ -42,7 +42,10 @@ const startServer = async () => {
 
   // Initialize Cron Jobs
   const { initAutoCancelJob } = require('./jobs/bookingAutoCancel.job');
+  const { initMembershipRenewalJob } = require('./jobs/membershipRenewal.job');
+  
   initAutoCancelJob();
+  initMembershipRenewalJob();
 
   /**
    * Port already in use

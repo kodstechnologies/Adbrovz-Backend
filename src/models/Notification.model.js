@@ -29,6 +29,8 @@ const notificationSchema = new mongoose.Schema(
         'account_unbanned',
         'deletion_approved',
         'coupon_received',
+        'membership_warning',
+        'membership_expired',
       ],
       required: true,
     },
