@@ -944,7 +944,7 @@ const getCategoryRegistrationData = async () => {
  * Internal helper to calculate prorated amount based on remaining days of membership or category subscription.
  * Calculation: (Amount / 30) * RemainingDays
  */
-const _calculateProration = (vendor, categoryId, amount) => {
+const _calculateProration = (vendor, categoryId, amount, renewalDays = 30) => {
     if (amount <= 0) return { amount: 0, remainingDays: 0, factor: 0 };
     
     const now = new Date();
@@ -967,11 +967,11 @@ const _calculateProration = (vendor, categoryId, amount) => {
         }
     }
 
-    // 3. If no active period found, no proration possible (assume full 30 days)
+    // 3. If no active period found, no proration possible (assume full renewalDays)
     if (!expiryDate) {
         return { 
             amount, 
-            remainingDays: 30, 
+            remainingDays: renewalDays, 
             factor: 1, 
             isProrated: false 
         };
@@ -980,10 +980,9 @@ const _calculateProration = (vendor, categoryId, amount) => {
     const diffTime = expiryDate - now;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
-    // Calculate factor based on a standard 30-day billing cycle
-    // We cap the factor at 1.0 (full price) even if they have >30 days remaining,
-    // as service charges are typically for 30-day blocks.
-    const factor = Math.max(0, Math.min(1, diffDays / 30));
+    // Calculate factor based on the billing cycle (typically 30 days)
+    // We cap the factor at 1.0 (full price) even if they have > renewalDays remaining
+    const factor = Math.max(0, Math.min(1, diffDays / renewalDays));
     
     return {
         amount: Math.round(amount * factor),
@@ -2791,6 +2790,9 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     const category = await Category.findById(categoryId).lean();
     if (!category) throw new ApiError(404, 'Category not found');
 
+    const renewalDaysSetting = await adminService.getSetting('pricing.service_renewal_days');
+    const renewalDays = renewalDaysSetting ? Number(renewalDaysSetting) : 30;
+
     // If subcategoryIds are missing but services are provided, derive the subcategories to ensure hierarchical charges are applied
     if (parsedSubcategoryIds.length === 0 && parsedServiceIds.length > 0) {
         const servicesData = await Service.find({ _id: { $in: parsedServiceIds } }).lean();
@@ -2808,9 +2810,10 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     
     // Category Charge (0 if already owned)
     const categoryBaseCharge = _getMembershipCharge(category, 'category');
-    const categoryProration = isCatOwned ? { amount: 0, remainingDays: 0 } : _calculateProration(vendor, categoryId, categoryBaseCharge);
+    const categoryProration = isCatOwned ? { amount: 0, remainingDays: 0 } : _calculateProration(vendor, categoryId, categoryBaseCharge, renewalDays);
     
     let totalFee = categoryProration.amount;
+    let unproratedTotalFee = isCatOwned ? 0 : categoryBaseCharge;
     let additionalSelectionsTotal = 0;
     
     const breakdown = {
@@ -2841,9 +2844,10 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
 
     subcategories.forEach(sub => {
         const baseCharge = _getMembershipCharge(sub, 'subcategory');
-        const proration = _calculateProration(vendor, categoryId, baseCharge);
+        const proration = _calculateProration(vendor, categoryId, baseCharge, renewalDays);
         
         totalFee += proration.amount;
+        unproratedTotalFee += baseCharge;
         additionalSelectionsTotal += proration.amount;
         
         if (proration.amount > 0) {
@@ -2867,9 +2871,10 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
 
     services.forEach(svc => {
         const baseCharge = _getMembershipCharge(svc, 'service');
-        const proration = _calculateProration(vendor, categoryId, baseCharge);
+        const proration = _calculateProration(vendor, categoryId, baseCharge, renewalDays);
         
         totalFee += proration.amount;
+        unproratedTotalFee += baseCharge;
         additionalSelectionsTotal += proration.amount;
         
         if (proration.amount > 0) {
@@ -2896,6 +2901,11 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
     const gstAmount = Math.round(totalFee * (gstPercent / 100));
     const totalWithGst = totalFee + gstAmount;
+
+    const unproratedGstAmount = Math.round(unproratedTotalFee * (gstPercent / 100));
+    const unproratedTotalWithGst = unproratedTotalFee + unproratedGstAmount;
+    const discountAmount = unproratedTotalWithGst - totalWithGst;
+
     return {
         vendorId,
         categoryId,
@@ -2909,6 +2919,11 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
         platformSubtotal: totalFee,
         gstPercent,
         basePlanFee: 0,
+        originalSubtotal: unproratedTotalFee,
+        originalGstAmount: unproratedGstAmount,
+        originalTotalWithGst: unproratedTotalWithGst,
+        discountAmount,
+        purchasedDays: categoryProration.remainingDays || 30,
         itemBreakdown,
         razorpayKeyId: config.RAZORPAY_KEY_ID,
         breakdown,
@@ -3241,6 +3256,9 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
     const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
 
+    const renewalDaysSetting = await adminService.getSetting('pricing.service_renewal_days');
+    const renewalDays = renewalDaysSetting ? Number(renewalDaysSetting) : 30;
+
     // ── 1. Build the same purchased-service set as getAvailablePurchaseCategories ──
     const purchasedServiceIds = new Set((vendor.selectedServices || []).map(id => id.toString()));
     for (const catSub of (vendor.categorySubscriptions || [])) {
@@ -3290,6 +3308,9 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
 
     const items = [];
     let subtotal = 0;
+    let originalSubtotal = 0;
+    let summaryPurchasedDays = 30; // Track the lowest or general remaining days
+
 
     for (const service of targetServices) {
         const catId  = service.category?.toString();
@@ -3304,24 +3325,48 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
         // 0 if: already purchased OR already charged in this request
         const catCharge = _getMembershipCharge(cat, 'category');
         let catChargeToPay = 0;
+        let catOriginalCharge = 0;
+        let catIsProrated = false;
+        let catPurchasedDays = 30;
         if (cat && !finalPurchasedCategoryIds.has(catId) && !chargedCategoryIds.has(catId)) {
-            catChargeToPay = catCharge;
+            const proration = _calculateProration(vendor, catId, catCharge, renewalDays);
+            catChargeToPay = proration.amount;
+            catOriginalCharge = catCharge;
+            catIsProrated = proration.isProrated;
+            catPurchasedDays = proration.remainingDays;
+            summaryPurchasedDays = proration.remainingDays;
             chargedCategoryIds.add(catId);
         }
 
         // --- Subcategory charge ---
         const subCharge = _getMembershipCharge(sub, 'subcategory');
         let subChargeToPay = 0;
+        let subOriginalCharge = 0;
+        let subIsProrated = false;
+        let subPurchasedDays = 30;
         if (sub && !finalPurchasedSubcategoryIds.has(subId) && !chargedSubcategoryIds.has(subId)) {
-            subChargeToPay = subCharge;
+            const proration = _calculateProration(vendor, catId, subCharge, renewalDays);
+            subChargeToPay = proration.amount;
+            subOriginalCharge = subCharge;
+            subIsProrated = proration.isProrated;
+            subPurchasedDays = proration.remainingDays;
+            summaryPurchasedDays = proration.remainingDays;
             chargedSubcategoryIds.add(subId);
         }
 
         // --- Type charge ---
         const typeCharge = _getMembershipCharge(type, 'serviceType');
         let typeChargeToPay = 0;
+        let typeOriginalCharge = 0;
+        let typeIsProrated = false;
+        let typePurchasedDays = 30;
         if (type && !finalPurchasedTypeIds.has(typeId) && !chargedTypeIds.has(typeId)) {
-            typeChargeToPay = typeCharge;
+            const proration = _calculateProration(vendor, catId, typeCharge, renewalDays);
+            typeChargeToPay = proration.amount;
+            typeOriginalCharge = typeCharge;
+            typeIsProrated = proration.isProrated;
+            typePurchasedDays = proration.remainingDays;
+            summaryPurchasedDays = proration.remainingDays;
             chargedTypeIds.add(typeId);
         }
 
@@ -3334,19 +3379,28 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
         // chargedTypeIds so sibling services in this request don't double-count.
         if (isServicePurchased) continue;
 
-        const svcChargeToPay = svcCharge;
+        const svcProration = _calculateProration(vendor, catId, svcCharge, renewalDays);
+        const svcChargeToPay = svcProration.amount;
+        const svcOriginalCharge = svcCharge;
         const lineSubtotal = catChargeToPay + subChargeToPay + typeChargeToPay + svcChargeToPay;
+        const lineOriginalSubtotal = catOriginalCharge + subOriginalCharge + typeOriginalCharge + svcOriginalCharge;
         subtotal += lineSubtotal;
+        originalSubtotal += lineOriginalSubtotal;
+        summaryPurchasedDays = svcProration.remainingDays;
 
         // Flat line items — matching requested JSON format
-        if (catChargeToPay > 0) items.push({ purchaseType: 'category', id: cat._id.toString(), name: cat.name, serviceCharge: catChargeToPay });
-        if (subChargeToPay > 0) items.push({ purchaseType: 'subcategory', id: sub._id.toString(), name: sub.name, serviceCharge: subChargeToPay });
-        if (typeChargeToPay > 0) items.push({ purchaseType: 'type', id: type._id.toString(), name: type.name, serviceCharge: typeChargeToPay });
-        if (svcChargeToPay > 0) items.push({ purchaseType: 'service', id: service._id.toString(), name: service.title, serviceCharge: svcChargeToPay });
+        if (catOriginalCharge > 0) items.push({ purchaseType: 'category', id: cat._id.toString(), name: cat.name, serviceCharge: catChargeToPay, originalCharge: catOriginalCharge, isProrated: catIsProrated, purchasedDays: catPurchasedDays });
+        if (subOriginalCharge > 0) items.push({ purchaseType: 'subcategory', id: sub._id.toString(), name: sub.name, serviceCharge: subChargeToPay, originalCharge: subOriginalCharge, isProrated: subIsProrated, purchasedDays: subPurchasedDays });
+        if (typeOriginalCharge > 0) items.push({ purchaseType: 'type', id: type._id.toString(), name: type.name, serviceCharge: typeChargeToPay, originalCharge: typeOriginalCharge, isProrated: typeIsProrated, purchasedDays: typePurchasedDays });
+        if (svcOriginalCharge > 0) items.push({ purchaseType: 'service', id: service._id.toString(), name: service.title, serviceCharge: svcChargeToPay, originalCharge: svcOriginalCharge, isProrated: svcProration.isProrated, purchasedDays: svcProration.remainingDays });
     }
 
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
     const totalAmount = subtotal + gstAmount;
+
+    const originalGstAmount = Math.round(originalSubtotal * (gstPercent / 100));
+    const originalTotalAmount = originalSubtotal + originalGstAmount;
+    const discountAmount = originalTotalAmount - totalAmount;
 
     return {
         purchasedItems: items,
@@ -3354,7 +3408,12 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
             subTotal: subtotal,
             gstPercent,
             gstAmount,
-            totalAmount
+            totalAmount,
+            originalSubtotal,
+            originalGstAmount,
+            originalTotalAmount,
+            discountAmount,
+            purchasedDays: summaryPurchasedDays
         }
     };
 };
