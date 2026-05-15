@@ -15,6 +15,7 @@ const CreditPlan = require('../../models/CreditPlan.model');
 const CoinTransaction = require('../../models/CoinTransaction.model');
 const PaymentRecord = require('../../models/PaymentRecord.model');
 const ApiError = require('../../utils/ApiError');
+const { sendPush } = require('../../utils/pushNotification');
 const { DEFAULT_SETTINGS } = require('../../constants/settings');
 
 
@@ -324,7 +325,6 @@ const updateUserStatus = async (userId, status, adminId) => {
   user.status = status;
   await user.save();
 
-  const notificationService = require('../notification/notification.service');
   let type = 'general';
   let title = 'Account Update';
   let body = `Your account status has been updated to ${status}.`;
@@ -343,19 +343,7 @@ const updateUserStatus = async (userId, status, adminId) => {
     body = 'Your account has been reactivated. Welcome back!';
   }
 
-  try {
-    await notificationService.createNotification({
-      user: user._id,
-      userModel: 'User',
-      type,
-      title,
-      body,
-      sendPush: true,
-      fcmToken: user.fcmToken
-    });
-  } catch (err) {
-    console.error('Failed to send notification:', err);
-  }
+  sendPush(user._id, 'User', type, title, body, { status });
 
   return user;
 };

@@ -13,6 +13,7 @@ const config = require('../../config/env');
 const { emitToVendor } = require('../../socket');
 const { parseArrayInput } = require('../../utils/dataParser');
 const adminService = require('../admin/admin.service');
+const { sendPush } = require('../../utils/pushNotification');
 
 
 /**
@@ -1281,6 +1282,10 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
 
     await vendor.save();
 
+    // Notify Vendor
+    sendPush(vendor._id, 'Vendor', 'verification_update', 'Verification Update', message, { documentStatus: vendor.documentStatus, isVerified: vendor.isVerified });
+
+
     const payload = _getVerificationPayload(vendor);
     payload.message = message;
 
@@ -1342,6 +1347,10 @@ const verifyAllDocuments = async (vendorId) => {
 
     await vendor.save();
 
+    // Notify Vendor
+    sendPush(vendor._id, 'Vendor', 'verification_update', 'Account Verified', "Congratulations! Your account is now fully verified.", { documentStatus: 'approved', isVerified: true });
+
+
     const message = "Account is now fully verified via Admin 'Verify All' action!";
     const payload = _getVerificationPayload(vendor);
     payload.message = message;
@@ -1369,6 +1378,11 @@ const toggleVendorSuspension = async (vendorId, { isSuspended }) => {
 
     vendor.isSuspended = isSuspended;
     await vendor.save();
+
+    // Notify Vendor
+    const title = isSuspended ? 'Account Suspended' : 'Account Reactivated';
+    sendPush(vendor._id, 'Vendor', 'account_status', title, message, { isSuspended });
+
 
     const message = isSuspended ? 'Your account has been suspended.' : 'Your account has been reactivated.';
     const payload = _getVerificationPayload(vendor);
@@ -1412,6 +1426,10 @@ const rejectVendorAccount = async (vendorId, { reason }) => {
 
     vendor.markModified('documents');
     await vendor.save();
+
+    // Notify Vendor
+    sendPush(vendor._id, 'Vendor', 'verification_update', 'Account Rejected', message, { documentStatus: 'rejected', isVerified: false });
+
 
     const message = `Your account has been rejected. Reason: ${reason || 'No reason provided'}`;
     const payload = _getVerificationPayload(vendor);

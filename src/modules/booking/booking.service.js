@@ -13,32 +13,8 @@ const adminService = require('../admin/admin.service');
 
 const crypto = require('crypto');
 const mongoose = require('mongoose');
+const { sendPush } = require('../../utils/pushNotification');
 const { v4: uuidv4 } = require('uuid');
-
-/**
- * Internal helper to send push notifications
- */
-const _sendPush = async (userId, userModel, type, title, body, data = {}) => {
-    try {
-        const Model = userModel === 'Vendor' ? Vendor : User;
-        const recipient = await Model.findById(userId).select('fcmToken');
-        if (recipient?.fcmToken) {
-            const notificationService = require('../notification/notification.service');
-            await notificationService.createNotification({
-                user: userId,
-                userModel,
-                type,
-                title,
-                body,
-                data: { ...data, type },
-                sendPush: true,
-                fcmToken: recipient.fcmToken
-            });
-        }
-    } catch (err) {
-        console.error(`[PUSH ERROR] Failed to notify ${userModel} of ${type}:`, err.message);
-    }
-};
 
 // Radius expansion tiers are now dynamic and fetched from GlobalConfig (admin settings)
 
@@ -336,10 +312,10 @@ const acceptBooking = async (vendorId, bookingId) => {
     });
 
     // ── Send Push Notification to Vendor ──
-    _sendPush(vendorId, 'Vendor', 'booking_accepted', 'Booking Accepted', `You have accepted booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+    sendPush(vendorId, 'Vendor', 'booking_accepted', 'Booking Accepted', `You have accepted booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
     // ── Send Push Notification to User ──
-    _sendPush(booking.user, 'User', 'booking_accepted', 'Booking Accepted', `A vendor has accepted your booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+    sendPush(booking.user, 'User', 'booking_accepted', 'Booking Accepted', `A vendor has accepted your booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
     const io = getIo();
     console.log(`[SOCKET] Notifying other vendors about acceptance`);
@@ -397,6 +373,16 @@ const markOnTheWay = async (vendorId, bookingId) => {
     await booking.save();
     console.log(`[DEBUG] Status updated to On The Way: ${bookingId}, history length: ${booking.statusHistory.length}`);
 
+    // Notify User
+    sendPush(
+        booking.user,
+        'User',
+        'booking_update',
+        'Vendor on the Way',
+        `Vendor for your booking ${booking.bookingID} is on the way.`,
+        { bookingId: booking._id.toString(), bookingID: booking.bookingID, status: 'on_the_way' }
+    );
+
     // Fetch role-specific payloads for the socket emissions
     const userPayload = await getBookingDetails(bookingId, booking.user, ROLES.USER);
     const vendorPayload = await getBookingDetails(bookingId, vendorId, ROLES.VENDOR);
@@ -451,6 +437,16 @@ const markArrived = async (vendorId, bookingId) => {
     await booking.save();
     console.log(`[DEBUG] Status updated to Arrived: ${bookingId}, history length: ${booking.statusHistory.length}`);
 
+    // Notify User
+    sendPush(
+        booking.user,
+        'User',
+        'booking_update',
+        'Vendor Arrived',
+        `Vendor for your booking ${booking.bookingID} has arrived at your location.`,
+        { bookingId: booking._id.toString(), bookingID: booking.bookingID, status: 'arrived' }
+    );
+
     // Fetch role-specific payloads for the socket emissions
     const userPayload = await getBookingDetails(bookingId, booking.user, 'user');
     const vendorPayload = await getBookingDetails(bookingId, vendorId, 'vendor');
@@ -494,6 +490,16 @@ const startWork = async (vendorId, bookingId, enteredOTP) => {
     booking.workStartedAt = new Date();
     await booking.save();
     console.log(`[DEBUG] Status updated to Ongoing/Working: ${bookingId}, status field is now: ${booking.status}, history length: ${booking.statusHistory.length}`);
+
+    // Notify User
+    sendPush(
+        booking.user,
+        'User',
+        'booking_update',
+        'Work Started',
+        `Vendor has started working on your booking ${booking.bookingID}.`,
+        { bookingId: booking._id.toString(), bookingID: booking.bookingID, status: 'ongoing' }
+    );
 
     // Fetch role-specific payloads for the socket emissions
     const userPayload = await getBookingDetails(bookingId, booking.user, 'user');
@@ -602,7 +608,7 @@ const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
     });
 
     // ── Send Push Notification to User ──
-    _sendPush(booking.user, 'User', 'booking_completed', 'Booking Completed', `Your booking ${booking.bookingID} has been completed successfully.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+    sendPush(booking.user, 'User', 'booking_completed', 'Booking Completed', `Your booking ${booking.bookingID} has been completed successfully.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
 
     return { booking: vendorPayload, message: 'Booking completed successfully' };
@@ -939,7 +945,7 @@ const getBookingDetails = async (bookingId, userId, role) => {
             exists: true,
             id: dispute._id,
             // Re-map some fields for clarity if needed, though ...dispute covers most
-            submittedMessage: dispute.userComment || "", // The "submitted message" from user
+            submittedMessage: dispute.status === 'REOPENED' ? (dispute.resolutionNotes?.userNote || dispute.userComment || "") : (dispute.userComment || ""), // The "submitted message" for the user to see
         };
         
         // Refine actions based on dispute existence and status
@@ -1751,7 +1757,7 @@ const cancelBooking = async (userId, bookingId, reason) => {
         emitToVendor(booking.vendor, 'booking_cancellation', populatedBooking);
 
         // ── Send Push Notification to Vendor ──
-        _sendPush(booking.vendor, 'Vendor', 'booking_cancelled', 'Booking Cancelled', `The user has cancelled booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+        sendPush(booking.vendor, 'Vendor', 'booking_cancelled', 'Booking Cancelled', `The user has cancelled booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
     }
 
     return populatedBooking || booking;
@@ -1811,7 +1817,7 @@ const vendorCancelBooking = async (vendorId, bookingId, reason) => {
     });
 
     // ── Send Push Notification to User ──
-    _sendPush(booking.user, 'User', 'booking_cancelled', 'Booking Cancelled', `The vendor has cancelled your booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+    sendPush(booking.user, 'User', 'booking_cancelled', 'Booking Cancelled', `The vendor has cancelled your booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
     emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
 
     return populatedBooking || booking;
@@ -1967,7 +1973,7 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
             });
 
             // ── Send Push Notification to Vendor ──
-            _sendPush(
+            sendPush(
                 booking.vendor, 
                 'Vendor', 
                 'booking_rescheduled', 
@@ -2292,7 +2298,7 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
     // ── Send Push Notification to User ──
-    _sendPush(booking.user, 'User', 'price_proposed', 'New Price Proposal', `Vendor has proposed a new price for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+    sendPush(booking.user, 'User', 'price_proposed', 'New Price Proposal', `Vendor has proposed a new price for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
 
     // Specific notification event
@@ -2347,7 +2353,7 @@ const confirmBookingPrice = async (userId, bookingId) => {
     emitToUser(userId, 'booking_status_updated', userPayload);
 
     // ── Send Push Notification to Vendor ──
-    _sendPush(booking.vendor, 'Vendor', 'price_confirmed', 'Price Confirmed', `User has confirmed the proposed price for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+    sendPush(booking.vendor, 'Vendor', 'price_confirmed', 'Price Confirmed', `User has confirmed the proposed price for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
 
     // Specific notification event
@@ -2456,7 +2462,7 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
         emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
         
         // ── Send Push Notification to Vendor ──
-        _sendPush(booking.vendor, 'Vendor', 'price_rejected', 'Price Rejected', `User has rejected the proposed price for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+        sendPush(booking.vendor, 'Vendor', 'price_rejected', 'Price Rejected', `User has rejected the proposed price for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
         emitToVendor(booking.vendor, 'booking_price_rejected', {
             bookingId: booking._id,
@@ -2623,7 +2629,7 @@ const addServicesToBooking = async (vendorId, bookingId, newServices) => {
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
     // ── Send Push Notification to User ──
-    _sendPush(booking.user, 'User', 'services_proposed', 'New Services Proposed', `Vendor has proposed additional services for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+    sendPush(booking.user, 'User', 'services_proposed', 'New Services Proposed', `Vendor has proposed additional services for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
 
     // Legacy event for compatibility if needed, but booking_status_updated is primary
@@ -2686,7 +2692,7 @@ const confirmProposedServices = async (userId, bookingId) => {
     emitToUser(userId, 'booking_status_updated', userPayload);
 
     // ── Send Push Notification to Vendor ──
-    _sendPush(booking.vendor, 'Vendor', 'services_confirmed', 'Services Confirmed', `User has confirmed the proposed additional services for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+    sendPush(booking.vendor, 'Vendor', 'services_confirmed', 'Services Confirmed', `User has confirmed the proposed additional services for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
 
     // Specific event
@@ -2840,7 +2846,7 @@ async function requestExtraServices(userId, bookingId, newServices) {
     emitToUser(userId, 'booking_status_updated', userPayload);
 
     // ── Send Push Notification to Vendor ──
-    _sendPush(booking.vendor, 'Vendor', 'extra_services_requested', 'Extra Services Requested', `User has requested additional services for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+    sendPush(booking.vendor, 'Vendor', 'extra_services_requested', 'Extra Services Requested', `User has requested additional services for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
 
     // Specific event to vendor
@@ -2985,7 +2991,7 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
     // ── Send Push Notification to User ──
-    _sendPush(booking.user, 'User', 'extra_services_priced', 'Extra Services Priced', `Vendor has set prices for your extra service requests in booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+    sendPush(booking.user, 'User', 'extra_services_priced', 'Extra Services Priced', `Vendor has set prices for your extra service requests in booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
 
     // Generic event for legacy/general use

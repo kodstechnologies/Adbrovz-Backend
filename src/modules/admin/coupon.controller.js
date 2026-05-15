@@ -30,6 +30,22 @@ exports.createCoupon = async (req, res) => {
         });
 
         await coupon.save();
+
+        // Notify applicable users if not for all users
+        if (!isForAllUsers && applicableUsers && applicableUsers.length > 0) {
+            const { sendPush } = require('../../utils/pushNotification');
+            applicableUsers.forEach(userId => {
+                sendPush(
+                    userId,
+                    'User',
+                    'new_coupon',
+                    'Special Coupon for You!',
+                    `You've received a special coupon: ${code.toUpperCase()}. Use it now!`,
+                    { code: code.toUpperCase(), discountType, discountValue }
+                );
+            });
+        }
+
         res.status(201).json({ success: true, message: 'Coupon created successfully', data: coupon });
     } catch (error) {
         console.error('Error in createCoupon:', error);

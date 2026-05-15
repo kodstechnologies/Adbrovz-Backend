@@ -1,6 +1,7 @@
 const Dispute = require('../../models/Dispute.model');
 const Booking = require('../../models/Booking.model');
 const ApiError = require('../../utils/ApiError');
+const { sendPush } = require('../../utils/pushNotification');
 
 // Create a new dispute
 const createDispute = async (userId, disputeData) => {
@@ -91,6 +92,10 @@ const reuploadEvidence = async (userId, disputeId, { evidence, userComment }) =>
     dispute.status = 'OPEN';
     
     await dispute.save();
+
+    // Notify Admin (optional, but good for flow)
+    // sendPush(adminId, 'Admin', 'dispute_updated', 'Dispute Updated', `User has submitted evidence for dispute ${dispute._id}`);
+
     return dispute;
 };
 
@@ -151,6 +156,27 @@ const updateDisputeStatus = async (disputeId, updateData) => {
     }
 
     await dispute.save();
+
+    // Notify User
+    let userTitle = 'Dispute Update';
+    let userBody = `Your dispute status has been updated to ${status}.`;
+    if (status === 'REOPENED') {
+        userTitle = 'Dispute Reopened';
+        userBody = `Your dispute has been reopened by the admin: "${resolutionNotes?.userNote || 'Please provide more details.'}"`;
+    } else if (status === 'RESOLVED') {
+        userTitle = 'Dispute Resolved';
+        userBody = `Your dispute has been resolved by the admin.`;
+    }
+    
+    sendPush(dispute.raisedBy, 'User', 'dispute_update', userTitle, userBody, { disputeId: dispute._id.toString(), status });
+
+    // Notify Vendor if involved
+    if (dispute.vendor) {
+        let vendorTitle = 'Dispute Update';
+        let vendorBody = `The dispute for booking ${dispute.booking?.bookingID || ''} status is now ${status}.`;
+        
+        sendPush(dispute.vendor, 'Vendor', 'dispute_update', vendorTitle, vendorBody, { disputeId: dispute._id.toString(), status });
+    }
     
     // Return populated dispute so frontend reflects details correctly
     return await Dispute.findById(dispute._id)
