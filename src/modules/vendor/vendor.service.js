@@ -2864,7 +2864,38 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     const subcategories = await Subcategory.find({ _id: { $in: parsedSubcategoryIds } }).lean();
     const services = await Service.find({ _id: { $in: parsedServiceIds } }).lean();
 
-    const isCatOwned = (vendor.selectedCategories || []).map(id => id.toString()).includes(categoryId.toString());
+    // Build set of already purchased categories, subcategories, services
+    const purchasedServiceIds = new Set((vendor.selectedServices || []).map(id => id.toString()));
+    const selectedCategoryIds    = new Set((vendor.selectedCategories    || []).map(id => id.toString()));
+    const selectedSubcategoryIds = new Set((vendor.selectedSubcategories || []).map(id => id.toString()));
+
+    for (const catSub of (vendor.categorySubscriptions || [])) {
+        if (catSub.category) {
+            selectedCategoryIds.add(catSub.category.toString());
+        }
+        for (const subId of (catSub.subcategories || [])) {
+            selectedSubcategoryIds.add(subId.toString());
+        }
+        for (const svcId of (catSub.services || [])) {
+            purchasedServiceIds.add(svcId.toString());
+        }
+    }
+
+    // Derive which categories / subcategories are already paid from services
+    const allServices = await Service.find({}).lean();
+    const purchasedCategoryIds   = new Set();
+    const purchasedSubcategoryIds = new Set();
+    for (const s of allServices) {
+        if (purchasedServiceIds.has(s._id.toString())) {
+            if (s.category)    purchasedCategoryIds.add(s.category.toString());
+            if (s.subcategory) purchasedSubcategoryIds.add(s.subcategory.toString());
+        }
+    }
+
+    const finalPurchasedCategoryIds    = new Set([...selectedCategoryIds,    ...purchasedCategoryIds]);
+    const finalPurchasedSubcategoryIds = new Set([...selectedSubcategoryIds, ...purchasedSubcategoryIds]);
+
+    const isCatOwned = finalPurchasedCategoryIds.has(categoryId.toString());
     
     // Category Charge (0 if already owned)
     const categoryBaseCharge = _getMembershipCharge(category, 'category');
@@ -2901,11 +2932,12 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     }
 
     subcategories.forEach(sub => {
-        const baseCharge = _getMembershipCharge(sub, 'subcategory');
-        const proration = _calculateProration(vendor, categoryId, baseCharge, renewalDays);
+        const isSubOwned = finalPurchasedSubcategoryIds.has(sub._id.toString());
+        const baseCharge = isSubOwned ? 0 : _getMembershipCharge(sub, 'subcategory');
+        const proration = isSubOwned ? { amount: 0, remainingDays: 0 } : _calculateProration(vendor, categoryId, baseCharge, renewalDays);
         
         totalFee += proration.amount;
-        unproratedTotalFee += baseCharge;
+        unproratedTotalFee += isSubOwned ? 0 : baseCharge;
         additionalSelectionsTotal += proration.amount;
         
         if (proration.amount > 0) {
@@ -2928,11 +2960,12 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     });
 
     services.forEach(svc => {
-        const baseCharge = _getMembershipCharge(svc, 'service');
-        const proration = _calculateProration(vendor, categoryId, baseCharge, renewalDays);
+        const isSvcOwned = purchasedServiceIds.has(svc._id.toString());
+        const baseCharge = isSvcOwned ? 0 : _getMembershipCharge(svc, 'service');
+        const proration = isSvcOwned ? { amount: 0, remainingDays: 0 } : _calculateProration(vendor, categoryId, baseCharge, renewalDays);
         
         totalFee += proration.amount;
-        unproratedTotalFee += baseCharge;
+        unproratedTotalFee += isSvcOwned ? 0 : baseCharge;
         additionalSelectionsTotal += proration.amount;
         
         if (proration.amount > 0) {
@@ -3122,7 +3155,27 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
                 categoriesToUpdate.set(catId, { services: [], subcategories: [], fee: 0, subtotal: 0, gstAmount: 0 });
             }
             categoriesToUpdate.get(catId).services.push(svc._id);
+            if (svc.subcategory) {
+                const subStr = String(svc.subcategory);
+                if (!categoriesToUpdate.get(catId).subcategories.includes(subStr)) {
+                    categoriesToUpdate.get(catId).subcategories.push(subStr);
+                }
+            }
         });
+        
+        // Also add subcategories from finalSubcategories if they belong to derived categories
+        if (finalSubcategories && Array.isArray(finalSubcategories)) {
+            const subcategoriesData = await Subcategory.find({ _id: { $in: finalSubcategories } }).lean();
+            subcategoriesData.forEach(sub => {
+                const catId = String(sub.category);
+                if (categoriesToUpdate.has(catId)) {
+                    const subStr = String(sub._id);
+                    if (!categoriesToUpdate.get(catId).subcategories.includes(subStr)) {
+                        categoriesToUpdate.get(catId).subcategories.push(subStr);
+                    }
+                }
+            });
+        }
         
         // Also add total fees to the first category if not already set
         if (categoriesToUpdate.size > 0 && paymentRecord) {
