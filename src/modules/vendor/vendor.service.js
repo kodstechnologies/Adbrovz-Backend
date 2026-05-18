@@ -947,8 +947,6 @@ const getCategoryRegistrationData = async () => {
  * Calculation: (Amount / 30) * RemainingDays
  */
 const _calculateProration = (vendor, categoryId, amount, renewalDays = 30) => {
-    if (amount <= 0) return { amount: 0, remainingDays: 0, factor: 0 };
-    
     const now = new Date();
     let expiryDate = null;
 
@@ -962,17 +960,22 @@ const _calculateProration = (vendor, categoryId, amount, renewalDays = 30) => {
         if (catSub) expiryDate = catSub.expiryDate;
     }
 
-    // 2. Fallback to main membership expiry if category not found or expired
+    // 2. Fallback to main membership/service expiry if category not found or expired
     if (!expiryDate) {
-        if (vendor.membership?.expiryDate && vendor.membership.expiryDate > now) {
-            expiryDate = vendor.membership.expiryDate;
+        const renExp = vendor.serviceRenewal?.expiryDate ? new Date(vendor.serviceRenewal.expiryDate) : null;
+        const memExp = vendor.membership?.expiryDate ? new Date(vendor.membership.expiryDate) : null;
+        
+        if (renExp && renExp > now) {
+            expiryDate = renExp;
+        } else if (memExp && memExp > now) {
+            expiryDate = memExp;
         }
     }
 
     // 3. If no active period found, no proration possible (assume full renewalDays)
     if (!expiryDate) {
         return { 
-            amount, 
+            amount: amount <= 0 ? 0 : amount, 
             remainingDays: renewalDays, 
             factor: 1, 
             isProrated: false 
@@ -987,7 +990,7 @@ const _calculateProration = (vendor, categoryId, amount, renewalDays = 30) => {
     const factor = Math.max(0, Math.min(1, diffDays / renewalDays));
     
     return {
-        amount: Math.round(amount * factor),
+        amount: amount <= 0 ? 0 : Math.round(amount * factor),
         remainingDays: diffDays,
         factor,
         expiryDate,
@@ -1011,8 +1014,14 @@ const getAvailablePurchaseCategories = async (vendorId) => {
     const selectedSubcategoryIds = new Set((vendor.selectedSubcategories || []).map(id => id.toString()));
     const selectedServiceIds = new Set((vendor.selectedServices || []).map(id => id.toString()));
 
-    // Also include services purchased via the "add category" flow (categorySubscriptions)
+    // Also include categories, subcategories, and services purchased via the "add category" flow (categorySubscriptions)
     for (const catSub of (vendor.categorySubscriptions || [])) {
+        if (catSub.category) {
+            selectedCategoryIds.add(catSub.category.toString());
+        }
+        for (const subId of (catSub.subcategories || [])) {
+            selectedSubcategoryIds.add(subId.toString());
+        }
         for (const svcId of (catSub.services || [])) {
             selectedServiceIds.add(svcId.toString());
         }
@@ -2032,6 +2041,15 @@ const getSubscriptionStatus = async (vendorId) => {
     if (vendor.selectedServiceTypes) vendor.selectedServiceTypes.forEach(st => serviceTypeIds.add(String(st._id || st)));
     if (vendor.selectedServices) vendor.selectedServices.forEach(s => serviceIds.add(String(s._id || s)));
 
+    // Accumulate items from categorySubscriptions (additional purchases)
+    if (vendor.categorySubscriptions) {
+        vendor.categorySubscriptions.forEach(sub => {
+            if (sub.category) categoryIds.add(String(sub.category._id || sub.category));
+            if (sub.subcategories) sub.subcategories.forEach(s => subcategoryIds.add(String(s._id || s)));
+            if (sub.services) sub.services.forEach(s => serviceIds.add(String(s._id || s)));
+        });
+    }
+
     const query = { $or: [] };
     if (categoryIds.size > 0) query.$or.push({ category: { $in: Array.from(categoryIds) } });
     if (subcategoryIds.size > 0) query.$or.push({ subcategory: { $in: Array.from(subcategoryIds) } });
@@ -2045,11 +2063,32 @@ const getSubscriptionStatus = async (vendorId) => {
     }
 
     // Determine the list of services across all levels of hierarchy
-    let serviceList = finalServices.map(svc => ({
-        serviceId: svc.title,
-        isActive: isRenActive,
-        daysRemaining: daysRemaining
-    }));
+    let serviceList = finalServices.map(svc => {
+        const catIdStr = svc.category ? svc.category.toString() : '';
+        const catSub = vendor.categorySubscriptions?.find(sub => 
+            sub.category && (sub.category._id || sub.category).toString() === catIdStr
+        );
+        
+        let active = isRenActive;
+        let remaining = daysRemaining;
+        
+        if (catSub) {
+            const subExp = catSub.expiryDate ? new Date(catSub.expiryDate) : null;
+            const isSubActive = subExp ? subExp > now : false;
+            active = isSubActive && catSub.status === 'ACTIVE';
+            remaining = 0;
+            if (isSubActive) {
+                const diff = subExp - now;
+                remaining = Math.ceil(diff / (1000 * 60 * 60 * 24));
+            }
+        }
+        
+        return {
+            serviceId: svc.title,
+            isActive: active,
+            daysRemaining: remaining
+        };
+    });
 
     // Remove duplicates by serviceId name if any
     const uniqueMap = new Map();
@@ -2988,6 +3027,7 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
             orderId: razorpayOrder.id,
             purpose: 'CATEGORY_PURCHASE',
             amount: feeDetails.totalCharge,
+            gstAmount: feeDetails.gstAmount,
             totalAmount: totalToPay,
             status: 'PENDING',
             metadata: {
@@ -3050,8 +3090,8 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
 
     if (paymentRecord && paymentRecord.metadata) {
         finalCategoryId = finalCategoryId || paymentRecord.metadata.categoryId;
-        finalSubcategories = finalSubcategories || paymentRecord.metadata.selectedSubcategories;
-        finalServices = finalServices || paymentRecord.metadata.selectedServices;
+        finalSubcategories = finalSubcategories || paymentRecord.metadata.selectedSubcategories || paymentRecord.metadata.subcategoryIds;
+        finalServices = finalServices || paymentRecord.metadata.selectedServices || paymentRecord.metadata.serviceIds;
     }
 
     const vendor = await Vendor.findById(vendorId);
@@ -3196,6 +3236,20 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
 
     await vendor.save();
 
+    // Notify Vendor about successful purchase
+    const { sendPush } = require('../../utils/pushNotification');
+    sendPush(
+        vendorId,
+        'Vendor',
+        'purchase_success',
+        'Services Activated',
+        'Your newly purchased services are now active and you will start receiving bookings for them.',
+        { 
+            categoryId: finalCategoryId ? String(finalCategoryId) : undefined,
+            serviceCount: finalServices ? finalServices.length : 0 
+        }
+    );
+
     return {
         success: true,
         message: 'New category and services added successfully.',
@@ -3280,7 +3334,17 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
 
     // ── 1. Build the same purchased-service set as getAvailablePurchaseCategories ──
     const purchasedServiceIds = new Set((vendor.selectedServices || []).map(id => id.toString()));
+    const selectedCategoryIds    = new Set((vendor.selectedCategories    || []).map(id => id.toString()));
+    const selectedSubcategoryIds = new Set((vendor.selectedSubcategories || []).map(id => id.toString()));
+    const selectedTypeIds        = new Set((vendor.selectedServiceTypes || []).map(id => id.toString()));
+
     for (const catSub of (vendor.categorySubscriptions || [])) {
+        if (catSub.category) {
+            selectedCategoryIds.add(catSub.category.toString());
+        }
+        for (const subId of (catSub.subcategories || [])) {
+            selectedSubcategoryIds.add(subId.toString());
+        }
         for (const svcId of (catSub.services || [])) {
             purchasedServiceIds.add(svcId.toString());
         }
@@ -3299,10 +3363,6 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
         }
     }
 
-    // Also fold in selectedCategories / selectedSubcategories (registration flow)
-    const selectedCategoryIds    = new Set((vendor.selectedCategories    || []).map(id => id.toString()));
-    const selectedSubcategoryIds = new Set((vendor.selectedSubcategories || []).map(id => id.toString()));
-    const selectedTypeIds        = new Set((vendor.selectedServiceTypes || []).map(id => id.toString()));
     const finalPurchasedCategoryIds    = new Set([...selectedCategoryIds,    ...purchasedCategoryIds]);
     const finalPurchasedSubcategoryIds = new Set([...selectedSubcategoryIds, ...purchasedSubcategoryIds]);
     const finalPurchasedTypeIds        = new Set([...selectedTypeIds,        ...purchasedTypeIds]);
@@ -3329,7 +3389,7 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     let subtotal = 0;
     let originalSubtotal = 0;
     let summaryPurchasedDays = 30; // Track the lowest or general remaining days
-
+    let summaryExpiryDate = null;
 
     for (const service of targetServices) {
         const catId  = service.category?.toString();
@@ -3406,6 +3466,7 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
         subtotal += lineSubtotal;
         originalSubtotal += lineOriginalSubtotal;
         summaryPurchasedDays = svcProration.remainingDays;
+        if (svcProration.expiryDate) summaryExpiryDate = svcProration.expiryDate;
 
         // Flat line items — matching requested JSON format
         if (catOriginalCharge > 0) items.push({ purchaseType: 'category', id: cat._id.toString(), name: cat.name, serviceCharge: catChargeToPay, originalCharge: catOriginalCharge, isProrated: catIsProrated, purchasedDays: catPurchasedDays });
@@ -3432,7 +3493,8 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
             originalGstAmount,
             originalTotalAmount,
             discountAmount,
-            purchasedDays: summaryPurchasedDays
+            purchasedDays: summaryPurchasedDays,
+            expiryDate: summaryExpiryDate
         }
     };
 };
@@ -3473,7 +3535,8 @@ const createPurchaseOrder = async (vendorId, { serviceIds = [] } = {}) => {
             metadata: {
                 serviceIds: serviceIds,
                 breakdown: feeDetails.purchasedItems,
-                summary: feeDetails.summary
+                summary: feeDetails.summary,
+                alignedExpiryDate: feeDetails.summary.expiryDate
             }
         });
 

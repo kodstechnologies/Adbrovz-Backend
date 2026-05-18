@@ -31,6 +31,7 @@ const notificationSchema = new mongoose.Schema(
         'coupon_received',
         'membership_warning',
         'membership_expired',
+        'purchase_success',
       ],
       required: true,
     },
