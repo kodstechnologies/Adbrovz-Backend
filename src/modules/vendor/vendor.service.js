@@ -3025,7 +3025,7 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
         remainingDaysCharge: totalFee,
         gstForAmount: gstAmount,
         totalAmount: totalWithGst,
-        remainingDays: categoryProration.remainingDays || 0,
+        remainingDays: categoryProration.remainingDays || renewalDays,
         subtotal: totalFee,
         totalServiceFee: additionalSelectionsTotal,
         serviceSelectionsTotal: additionalSelectionsTotal,
@@ -3037,12 +3037,13 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
         originalGstAmount: unproratedGstAmount,
         originalTotalWithGst: unproratedTotalWithGst,
         discountAmount,
-        purchasedDays: categoryProration.remainingDays || 30,
+        purchasedDays: categoryProration.remainingDays || renewalDays,
+        renewalDays,
         itemBreakdown,
         razorpayKeyId: config.RAZORPAY_KEY_ID,
         breakdown,
         prorationContext: {
-            remainingDays: categoryProration.remainingDays || 0,
+            remainingDays: categoryProration.remainingDays || renewalDays,
             expiryDate: categoryProration.expiryDate
         }
     };
@@ -3091,7 +3092,7 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
                 selectedSubcategories: subcategoryIds,
                 selectedServices: serviceIds,
                 categoryId: categoryId,
-                isProrated: (feeDetails.prorationContext?.remainingDays || 30) < 30,
+                isProrated: (feeDetails.prorationContext?.remainingDays || feeDetails.renewalDays) < feeDetails.renewalDays,
                 alignedExpiryDate: feeDetails.prorationContext?.expiryDate
             }
         });
@@ -3464,7 +3465,7 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     const items = [];
     let subtotal = 0;
     let originalSubtotal = 0;
-    let summaryPurchasedDays = 30; // Track the lowest or general remaining days
+    let summaryPurchasedDays = renewalDays; // Track the lowest or general remaining days
     let summaryExpiryDate = null;
 
     for (const service of targetServices) {
@@ -3482,7 +3483,7 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
         let catChargeToPay = 0;
         let catOriginalCharge = 0;
         let catIsProrated = false;
-        let catPurchasedDays = 30;
+        let catPurchasedDays = renewalDays;
         if (cat && !finalPurchasedCategoryIds.has(catId) && !chargedCategoryIds.has(catId)) {
             const proration = _calculateProration(vendor, catId, catCharge, renewalDays);
             catChargeToPay = proration.amount;
@@ -3498,7 +3499,7 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
         let subChargeToPay = 0;
         let subOriginalCharge = 0;
         let subIsProrated = false;
-        let subPurchasedDays = 30;
+        let subPurchasedDays = renewalDays;
         if (sub && !finalPurchasedSubcategoryIds.has(subId) && !chargedSubcategoryIds.has(subId)) {
             const proration = _calculateProration(vendor, catId, subCharge, renewalDays);
             subChargeToPay = proration.amount;
@@ -3514,7 +3515,7 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
         let typeChargeToPay = 0;
         let typeOriginalCharge = 0;
         let typeIsProrated = false;
-        let typePurchasedDays = 30;
+        let typePurchasedDays = renewalDays;
         if (type && !finalPurchasedTypeIds.has(typeId) && !chargedTypeIds.has(typeId)) {
             const proration = _calculateProration(vendor, catId, typeCharge, renewalDays);
             typeChargeToPay = proration.amount;
