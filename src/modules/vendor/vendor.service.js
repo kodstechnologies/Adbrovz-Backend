@@ -974,17 +974,12 @@ const _calculateProration = (vendor, categoryId, amount, renewalDays = 30) => {
         });
     }
 
-    // 3. Check main service renewal and membership expiry
+    // 3. Check main service renewal
     const renExp = vendor.serviceRenewal?.expiryDate ? new Date(vendor.serviceRenewal.expiryDate) : null;
     const renStart = vendor.serviceRenewal?.startDate ? new Date(vendor.serviceRenewal.startDate) : null;
-    const memExp = vendor.membership?.expiryDate ? new Date(vendor.membership.expiryDate) : null;
-    const memStart = vendor.membership?.startDate ? new Date(vendor.membership.startDate) : null;
     
     if (renExp && renExp > now) {
         activeExpiries.push({ expiryDate: renExp, startDate: renStart });
-    }
-    if (memExp && memExp > now) {
-        activeExpiries.push({ expiryDate: memExp, startDate: memStart });
     }
 
     if (activeExpiries.length > 0) {
