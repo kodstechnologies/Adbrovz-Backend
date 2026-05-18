@@ -234,7 +234,12 @@ const acceptBooking = async (vendorId, bookingId) => {
         // ── Calculate travel charge based on distance ──
         let distance = 0;
         if (vendor?.liveLocation?.coordinates && source.location?.latitude) {
-            const [vLng, vLat] = vendor.liveLocation.coordinates;
+            let [vLng, vLat] = vendor.liveLocation.coordinates;
+            // In India, longitude is always > 60 and latitude is < 40.
+            // If the database has them swapped, we auto-detect and correct them.
+            if (vLng < vLat) {
+                [vLng, vLat] = [vLat, vLng];
+            }
             // Ignore [0,0] as it's usually a default/invalid location (off Africa coast)
             // Also ensure coordinates are within reasonable bounds for India
             if (vLat !== 0 && vLng !== 0 && vLat > 5 && vLat < 40 && vLng > 65 && vLng < 100) {
@@ -414,7 +419,12 @@ const markArrived = async (vendorId, bookingId) => {
     // ── Distance Guard: 1.5km arrival threshold ──
     const vendor = await Vendor.findById(vendorId).select('liveLocation');
     if (vendor?.liveLocation?.coordinates && booking.location?.latitude) {
-        const [vLng, vLat] = vendor.liveLocation.coordinates;
+        let [vLng, vLat] = vendor.liveLocation.coordinates;
+        // In India, longitude is always > 60 and latitude is < 40.
+        // If the database has them swapped, we auto-detect and correct them.
+        if (vLng < vLat) {
+            [vLng, vLat] = [vLat, vLng];
+        }
         const { latitude: bLat, longitude: bLng } = booking.location;
         
         // Safety check for [0,0]

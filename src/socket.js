@@ -344,10 +344,16 @@ const initSocket = (server) => {
         socket.on('update_location', async (data) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
-                const { lat, lng } = data || {};
+                let { lat, lng } = data || {};
 
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (lat === undefined || lng === undefined) throw new Error('Latitude and Longitude are required');
+
+                // In India, longitude is always > 60 and latitude is < 40.
+                // If they are sent swapped from the app, we auto-detect and correct them.
+                if (lng < lat) {
+                    [lng, lat] = [lat, lng];
+                }
 
                 const Vendor = require('./models/Vendor.model');
                 // Update location and check existence
