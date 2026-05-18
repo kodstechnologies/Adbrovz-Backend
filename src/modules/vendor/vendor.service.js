@@ -949,6 +949,7 @@ const getCategoryRegistrationData = async () => {
 const _calculateProration = (vendor, categoryId, amount, renewalDays = 30) => {
     const now = new Date();
     let expiryDate = null;
+    let startDate = null;
 
     const activeExpiries = [];
 
@@ -959,27 +960,43 @@ const _calculateProration = (vendor, categoryId, amount, renewalDays = 30) => {
             s.expiryDate > now && 
             s.status === 'ACTIVE'
         );
-        if (catSub) activeExpiries.push(new Date(catSub.expiryDate));
+        if (catSub) {
+            activeExpiries.push({ expiryDate: new Date(catSub.expiryDate), startDate: catSub.startDate ? new Date(catSub.startDate) : null });
+        }
     }
 
     // 2. Check other active category subscriptions
     if (vendor.categorySubscriptions) {
         vendor.categorySubscriptions.forEach(s => {
             if (s.expiryDate && new Date(s.expiryDate) > now && s.status === 'ACTIVE') {
-                activeExpiries.push(new Date(s.expiryDate));
+                activeExpiries.push({ expiryDate: new Date(s.expiryDate), startDate: s.startDate ? new Date(s.startDate) : null });
             }
         });
     }
 
     // 3. Check main service renewal and membership expiry
     const renExp = vendor.serviceRenewal?.expiryDate ? new Date(vendor.serviceRenewal.expiryDate) : null;
+    const renStart = vendor.serviceRenewal?.startDate ? new Date(vendor.serviceRenewal.startDate) : null;
     const memExp = vendor.membership?.expiryDate ? new Date(vendor.membership.expiryDate) : null;
-    if (renExp && renExp > now) activeExpiries.push(renExp);
-    if (memExp && memExp > now) activeExpiries.push(memExp);
+    const memStart = vendor.membership?.startDate ? new Date(vendor.membership.startDate) : null;
+    
+    if (renExp && renExp > now) {
+        activeExpiries.push({ expiryDate: renExp, startDate: renStart });
+    }
+    if (memExp && memExp > now) {
+        activeExpiries.push({ expiryDate: memExp, startDate: memStart });
+    }
 
     if (activeExpiries.length > 0) {
-        // Align to the maximum active expiry date of previously purchased service(s)
-        expiryDate = new Date(Math.max(...activeExpiries));
+        // We find the one with the maximum (latest) expiryDate to align to
+        let alignedRecord = activeExpiries[0];
+        for (let i = 1; i < activeExpiries.length; i++) {
+            if (activeExpiries[i].expiryDate > alignedRecord.expiryDate) {
+                alignedRecord = activeExpiries[i];
+            }
+        }
+        expiryDate = alignedRecord.expiryDate;
+        startDate = alignedRecord.startDate;
     }
 
     // 4. If no active period found, no proration possible (assume full renewalDays)
@@ -988,23 +1005,34 @@ const _calculateProration = (vendor, categoryId, amount, renewalDays = 30) => {
             amount: amount <= 0 ? 0 : amount, 
             remainingDays: renewalDays, 
             factor: 1, 
-            isProrated: false 
+            isProrated: false,
+            cycleDuration: renewalDays
         };
     }
 
     const diffTime = expiryDate - now;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
-    // Calculate factor based on the billing cycle (typically 30 days)
-    // We cap the factor at 1.0 (full price) even if they have > renewalDays remaining
-    const factor = Math.max(0, Math.min(1, diffDays / renewalDays));
+    // Calculate total cycle duration from the previously purchased service's dates
+    let cycleDuration = renewalDays;
+    if (startDate && expiryDate > startDate) {
+        const cycleTime = expiryDate - startDate;
+        cycleDuration = Math.ceil(cycleTime / (1000 * 60 * 60 * 24));
+    }
+    
+    // Fallback in case cycleDuration is calculated as 0
+    if (cycleDuration <= 0) cycleDuration = renewalDays;
+
+    // Calculate factor based on the actual cycle duration of the previously purchased service!
+    const factor = Math.max(0, Math.min(1, diffDays / cycleDuration));
     
     return {
         amount: amount <= 0 ? 0 : Math.round(amount * factor),
         remainingDays: diffDays,
         factor,
         expiryDate,
-        isProrated: factor < 1
+        isProrated: factor < 1,
+        cycleDuration
     };
 };
 
