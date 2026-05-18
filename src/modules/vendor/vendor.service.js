@@ -950,6 +950,8 @@ const _calculateProration = (vendor, categoryId, amount, renewalDays = 30) => {
     const now = new Date();
     let expiryDate = null;
 
+    const activeExpiries = [];
+
     // 1. Check if there's an existing active category subscription for this category
     if (categoryId && vendor.categorySubscriptions) {
         const catSub = vendor.categorySubscriptions.find(s => 
@@ -957,22 +959,30 @@ const _calculateProration = (vendor, categoryId, amount, renewalDays = 30) => {
             s.expiryDate > now && 
             s.status === 'ACTIVE'
         );
-        if (catSub) expiryDate = catSub.expiryDate;
+        if (catSub) activeExpiries.push(new Date(catSub.expiryDate));
     }
 
-    // 2. Fallback to main membership/service expiry if category not found or expired
-    if (!expiryDate) {
-        const renExp = vendor.serviceRenewal?.expiryDate ? new Date(vendor.serviceRenewal.expiryDate) : null;
-        const memExp = vendor.membership?.expiryDate ? new Date(vendor.membership.expiryDate) : null;
-        
-        if (renExp && renExp > now) {
-            expiryDate = renExp;
-        } else if (memExp && memExp > now) {
-            expiryDate = memExp;
-        }
+    // 2. Check other active category subscriptions
+    if (vendor.categorySubscriptions) {
+        vendor.categorySubscriptions.forEach(s => {
+            if (s.expiryDate && new Date(s.expiryDate) > now && s.status === 'ACTIVE') {
+                activeExpiries.push(new Date(s.expiryDate));
+            }
+        });
     }
 
-    // 3. If no active period found, no proration possible (assume full renewalDays)
+    // 3. Check main service renewal and membership expiry
+    const renExp = vendor.serviceRenewal?.expiryDate ? new Date(vendor.serviceRenewal.expiryDate) : null;
+    const memExp = vendor.membership?.expiryDate ? new Date(vendor.membership.expiryDate) : null;
+    if (renExp && renExp > now) activeExpiries.push(renExp);
+    if (memExp && memExp > now) activeExpiries.push(memExp);
+
+    if (activeExpiries.length > 0) {
+        // Align to the maximum active expiry date of previously purchased service(s)
+        expiryDate = new Date(Math.max(...activeExpiries));
+    }
+
+    // 4. If no active period found, no proration possible (assume full renewalDays)
     if (!expiryDate) {
         return { 
             amount: amount <= 0 ? 0 : amount, 
@@ -2631,6 +2641,15 @@ const verifyServiceRenewalPayment = async (vendorId, { razorpay_order_id, razorp
 
     vendor.serviceRenewal.expiryDate = newExpiryDate;
 
+    // Align all active category subscriptions in categorySubscriptions to the same newExpiryDate
+    if (vendor.categorySubscriptions && Array.isArray(vendor.categorySubscriptions)) {
+        vendor.categorySubscriptions.forEach(sub => {
+            if (sub.status === 'ACTIVE') {
+                sub.expiryDate = newExpiryDate;
+            }
+        });
+    }
+
     // Recalculate fee to keep it updated just in case
     try {
         const feeDetails = await getServiceRenewalFeeDetails(vendorId);
@@ -3003,6 +3022,9 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
         totalCharge: totalFee, // Subtotal of service charges
         gstAmount,
         totalWithGst,
+        remainingDaysCharge: totalFee,
+        gstForAmount: gstAmount,
+        totalAmount: totalWithGst,
         subtotal: totalFee,
         totalServiceFee: additionalSelectionsTotal,
         serviceSelectionsTotal: additionalSelectionsTotal,
@@ -3537,8 +3559,14 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
 
     return {
         purchasedItems: items,
+        remainingDaysCharge: subtotal,
+        gstForAmount: gstAmount,
+        totalAmount: totalAmount,
         summary: {
             subTotal: subtotal,
+            remainingDaysCharge: subtotal,
+            gstForAmount: gstAmount,
+            totalAmount: totalAmount,
             gstPercent,
             gstAmount,
             totalAmount,
