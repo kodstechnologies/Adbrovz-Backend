@@ -133,9 +133,9 @@ app.get('/health', (req, res) => {
 });
 
 /**
- * API routes — mounted only at the versioned path to prevent double-execution.
- * The bare /api GET redirect above (line 121) handles unversioned access.
+ * API routes
  */
+app.use('/api', routes);
 app.use(`/api/${config.API_VERSION}`, routes);
 
 /**
