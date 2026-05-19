@@ -831,7 +831,18 @@ const _formatBooking = (bookingDoc, role) => {
     if (bookingObj.userRequestedServices) {
         bookingObj.userRequestedServices = bookingObj.userRequestedServices.map(item => ({
             ...item,
-            adminPrice: item.adminPrice, vendorPrice: item.vendorPrice, finalPrice: item.finalPrice, isPriceConfirmed: item.isPriceConfirmed ?? false
+            adminPrice: item.adminPrice,
+            vendorPrice: item.vendorPrice,
+            finalPrice: item.finalPrice,
+            isPriceConfirmed: item.isPriceConfirmed ?? false,
+            isExtra: true
+        }));
+    }
+
+    if (bookingObj.services) {
+        bookingObj.services = bookingObj.services.map(item => ({
+            ...item,
+            isExtra: false
         }));
     }
 
