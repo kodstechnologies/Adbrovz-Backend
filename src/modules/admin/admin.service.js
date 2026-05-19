@@ -531,7 +531,7 @@ const getMembershipPricing = async () => {
         fee3Months: basic.price,
         fee6Months: pro.price,
         fee12Months: elite.price,
-        gstPercent: (gstPercent !== undefined && gstPercent !== null) ? Number(gstPercent) : 18,
+        gstPercent: (gstPercent !== undefined && gstPercent !== null) ? Number(gstPercent) : 0,
 
         // UI-friendly keys for Basic/Pro/Elite mapping
         basicPrice: basic.price,

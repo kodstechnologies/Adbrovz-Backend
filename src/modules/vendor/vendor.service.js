@@ -285,7 +285,7 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, membershi
     items.services.forEach(s => servicesSubtotal += _getMembershipCharge(s, 'service'));
 
     const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
-    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 0;
 
     // GST is applied once on the full registration subtotal.
     const combinedSubtotal = membershipTotal + servicesSubtotal;
@@ -856,7 +856,7 @@ const getMembershipPlans = async (serviceMembershipFee = 0, options = {}) => {
     }
 
     const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
-    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18; // Use 18 as consistent default
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 0; // Use 18 as consistent default
 
 
     const result = [];
@@ -1036,7 +1036,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
-    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 0;
 
     const allCategories = await Category.find({}).lean();
     const allSubcategories = await Subcategory.find({}).lean();
@@ -2320,7 +2320,7 @@ const getServiceRenewalFeeDetails = async (vendorId) => {
     }).filter(c => c.renewalAmount > 0 || (c.subcategories && c.subcategories.length > 0) || (c.services && c.services.length > 0));
 
     const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
-    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 0;
     const gstAmount = Math.round(serviceSubtotal * (gstPercent / 100));
     const totalFee = serviceSubtotal + gstAmount;
 
@@ -2413,7 +2413,7 @@ const getMembershipRenewalFeeDetails = async (vendorId, { planId, membershipId, 
 
     const subtotal = basePlanPrice + membershipHierarchicalSubtotal;
     const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
-    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 0;
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
     const totalFee = subtotal + gstAmount;
 
@@ -3031,7 +3031,7 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
 
     // Extra category purchases use dynamic GST consistent with registration
     const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
-    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 0;
     const gstAmount = Math.round(totalFee * (gstPercent / 100));
     const totalWithGst = totalFee + gstAmount;
 
@@ -3427,7 +3427,7 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     }
 
     const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
-    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
+    const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 0;
 
     const renewalDaysSetting = await adminService.getSetting('pricing.service_renewal_days');
     const adminRenewalDays = renewalDaysSetting ? Number(renewalDaysSetting) : 30;

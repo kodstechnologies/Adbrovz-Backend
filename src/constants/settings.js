@@ -52,7 +52,7 @@ const DEFAULT_SETTINGS = {
         description: 'Base membership fee for 12 months duration.',
     },
     'pricing.membership_gst_percent': {
-        value: 18,
+        value: 0,
         description: 'GST percentage for vendor membership fee.',
     },
     'pricing.travel_charge_per_km': {
@@ -120,7 +120,7 @@ const DEFAULT_SETTINGS = {
         description: 'Notification radius for row 3 (kilometers).',
     },
     'pricing.booking_gst_percent': {
-        value: 18,
+        value: 0,
         description: 'GST percentage applied to booking total price.',
     },
 };
