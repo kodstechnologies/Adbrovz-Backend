@@ -3430,7 +3430,20 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
 
     const renewalDaysSetting = await adminService.getSetting('pricing.service_renewal_days');
-    const renewalDays = renewalDaysSetting ? Number(renewalDaysSetting) : 30;
+    const adminRenewalDays = renewalDaysSetting ? Number(renewalDaysSetting) : 30;
+
+    // Derive renewalDays from the vendor's actual serviceRenewal cycle dates.
+    // This ensures proration aligns to the real service expiry, not just the admin setting.
+    const now = new Date();
+    const svcRenStart  = vendor.serviceRenewal?.startDate  ? new Date(vendor.serviceRenewal.startDate)  : null;
+    const svcRenExpiry = vendor.serviceRenewal?.expiryDate ? new Date(vendor.serviceRenewal.expiryDate) : null;
+    const svcRenActive = svcRenExpiry && svcRenExpiry > now;
+
+    let renewalDays = adminRenewalDays; // fallback
+    if (svcRenActive && svcRenStart && svcRenExpiry > svcRenStart) {
+        // Use actual cycle length from the vendor's serviceRenewal
+        renewalDays = Math.ceil((svcRenExpiry - svcRenStart) / (1000 * 60 * 60 * 24));
+    }
 
     // ── 1. Build the same purchased-service set as getAvailablePurchaseCategories ──
     const purchasedServiceIds = new Set((vendor.selectedServices || []).map(id => id.toString()));
@@ -3488,8 +3501,12 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     const items = [];
     let subtotal = 0;
     let originalSubtotal = 0;
-    let summaryPurchasedDays = renewalDays; // Track the lowest or general remaining days
-    let summaryExpiryDate = null;
+    // Initialise summary days/expiry from vendor's actual serviceRenewal — not the admin setting.
+    // This is the source-of-truth for what the vendor has already paid for.
+    let summaryPurchasedDays = svcRenActive
+        ? Math.ceil((svcRenExpiry - now) / (1000 * 60 * 60 * 24))
+        : renewalDays;
+    let summaryExpiryDate = svcRenActive ? svcRenExpiry : null;
 
     for (const service of targetServices) {
         const catId  = service.category?.toString();
@@ -3584,15 +3601,36 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
 
     return {
         purchasedItems: items,
+        paymentSummary: {
+            subTotal: subtotal,
+            remainingDaysCharge: subtotal,
+            gst: {
+                percentage: gstPercent,
+                amount: gstAmount
+            },
+            discountAmount,
+            totalAmount
+        },
+        subscriptionDetails: {
+            remainingDays: summaryPurchasedDays,
+            purchasedDays: summaryPurchasedDays,
+            expiryDate: summaryExpiryDate
+        },
+        originalAmounts: {
+            subTotal: originalSubtotal,
+            gstAmount: originalGstAmount,
+            totalAmount: originalTotalAmount
+        },
+        // Legacy flat fields for backward compatibility
         remainingDaysCharge: subtotal,
         gstForAmount: gstAmount,
-        totalAmount: totalAmount,
+        totalAmount,
         remainingDays: summaryPurchasedDays,
         summary: {
             subTotal: subtotal,
             remainingDaysCharge: subtotal,
             gstForAmount: gstAmount,
-            totalAmount: totalAmount,
+            totalAmount,
             remainingDays: summaryPurchasedDays,
             gstPercent,
             gstAmount,
