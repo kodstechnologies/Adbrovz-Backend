@@ -188,6 +188,9 @@ const bookingSchema = new mongoose.Schema(
       reason: { type: String },
       rejectedAt: { type: Date, default: Date.now }
     }],
+    searchId: {
+      type: String,
+    },
   },
   {
     timestamps: true,

@@ -1213,7 +1213,8 @@ const createBooking = async (userId, bookingData) => {
             travelCharge: calculatedTravelCharge 
         },
         status: 'pending_acceptance',
-        statusHistory: [{ status: 'pending_acceptance', timestamp: new Date(), actor: 'user' }]
+        statusHistory: [{ status: 'pending_acceptance', timestamp: new Date(), actor: 'user' }],
+        searchId: require('crypto').randomUUID()
     });
 
     // Apply GST calculation
@@ -1244,6 +1245,13 @@ const createBooking = async (userId, bookingData) => {
 };
 
 const searchVendors = async (booking, broadcast = false) => {
+    let currentSearchId = booking.searchId;
+    if (!currentSearchId) {
+        currentSearchId = require('crypto').randomUUID();
+        booking.searchId = currentSearchId;
+        await booking.save();
+    }
+
     if (!booking.location?.latitude || !booking.location?.longitude) {
         console.error(`[ERROR] searchVendors: Missing coordinates for ${booking._id}. Search aborted.`);
         if (broadcast) {
@@ -1417,14 +1425,12 @@ const searchVendors = async (booking, broadcast = false) => {
                 payload.user.longitude = payload.location.longitude;
             }
 
-            const notifiedIds = [];
             const { emitToVendor, isVendorOnline } = require('../../socket');
-
             const notificationService = require('../notification/notification.service');
-            
-            for (const v of vendors) {
+
+            const notificationPromises = vendors.map(async (v) => {
                 const vendorIdStr = v._id.toString();
-                                const online = isVendorOnline(vendorIdStr);
+                const online = isVendorOnline(vendorIdStr);
                 
                 console.log(`[DEBUG] searchVendors notifying Vendor ${vendorIdStr} - Online: ${online}, Has Token: ${!!v.fcmToken}`);
                 try {
@@ -1454,8 +1460,10 @@ const searchVendors = async (booking, broadcast = false) => {
                     fcmToken: v.fcmToken
                 }).catch(err => console.error(`[NOTIFICATION ERROR] Failed to send push to vendor ${vendorIdStr}:`, err.message));
 
-                notifiedIds.push(v._id);
-            }
+                return v._id;
+            });
+
+            const notifiedIds = await Promise.all(notificationPromises);
 
             // Persist notified vendors to DB
             if (notifiedIds.length > 0) {
@@ -1486,10 +1494,12 @@ const searchVendors = async (booking, broadcast = false) => {
 
                 setTimeout(async () => {
                     const current = await Booking.findById(booking._id);
-                    if (current && current.status === 'pending_acceptance') {
+                    if (current && current.status === 'pending_acceptance' && current.searchId === currentSearchId) {
                         current.retryCount = (current.retryCount || 0) + 1;
                         await current.save();
                         searchVendors(current, true).catch(console.error);
+                    } else {
+                        console.log(`[SEARCH] Wave ${retryCount + 1} cancelled/ignored for booking ${booking._id} because searchId changed or status is not pending_acceptance.`);
                     }
                 }, delayMins * 60 * 1000);
             } else if (retryCount === waves.length - 1) {
@@ -1499,7 +1509,7 @@ const searchVendors = async (booking, broadcast = false) => {
 
                 setTimeout(async () => {
                     const current = await Booking.findById(booking._id);
-                    if (current && current.status === 'pending_acceptance') {
+                    if (current && current.status === 'pending_acceptance' && current.searchId === currentSearchId) {
                         current.status = 'no_vendors_available';
                         await current.save();
                         
@@ -1509,6 +1519,8 @@ const searchVendors = async (booking, broadcast = false) => {
                             status: 'no_vendors_available',
                             message: `Could not find any vendors within ${waves[waves.length - 1].km}km after ${waves[waves.length - 1].mins} minutes of searching. Please try again manually.`
                         });
+                    } else {
+                        console.log(`[SEARCH] Hard-stop check ignored/cancelled for booking ${booking._id} because searchId changed or status is not pending_acceptance.`);
                     }
                 }, finalWaitMins * 60 * 1000);
             }
@@ -2078,6 +2090,7 @@ const retrySearchVendors = async (userId, bookingId) => {
     // Reset status and retryCount for tiered search reset
     booking.status = 'pending_acceptance';
     booking.retryCount = 0;
+    booking.searchId = require('crypto').randomUUID();
 
     // IMPORTANT: Clear previous interactions so vendors are notified again
     booking.laterVendors = [];
