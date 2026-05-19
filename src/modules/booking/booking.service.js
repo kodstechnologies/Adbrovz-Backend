@@ -2772,11 +2772,35 @@ async function requestExtraServices(userId, bookingId, newServices) {
             throw new ApiError(404, `Service ${item.serviceId} not found`);
         }
         const qty = item.quantity || 1;
-        const adminPrice = serviceDoc.serviceCharge || 0;
-        const vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
-        const finalPrice = adminPrice > 0
-            ? adminPrice * qty
-            : (vendorPrice > 0 ? vendorPrice * qty : 0);
+
+        // ── Check if this service was already price-confirmed in the main services list ──
+        // If so, reuse the previously approved price and skip vendor approval entirely.
+        const approvedEntry = booking.services.find(
+            s => s.service.toString() === requestedServiceId && s.isPriceConfirmed === true
+        );
+
+        let adminPrice, vendorPrice, finalPrice, isPriceConfirmed, status;
+
+        if (approvedEntry) {
+            // Reuse the per-unit price from the already-confirmed service entry
+            const approvedUnitPrice = approvedEntry.quantity > 0
+                ? approvedEntry.finalPrice / approvedEntry.quantity
+                : approvedEntry.finalPrice;
+
+            adminPrice   = approvedEntry.adminPrice   || 0;
+            vendorPrice  = approvedEntry.vendorPrice  || 0;
+            finalPrice   = approvedUnitPrice * qty;
+            isPriceConfirmed = true;   // No re-approval needed
+            status       = 'accepted'; // Skip vendor pricing step
+        } else {
+            adminPrice  = serviceDoc.serviceCharge || 0;
+            vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
+            finalPrice  = adminPrice > 0
+                ? adminPrice * qty
+                : (vendorPrice > 0 ? vendorPrice * qty : 0);
+            isPriceConfirmed = false;
+            status       = 'pending';
+        }
 
         booking.userRequestedServices.push({
             service: serviceDoc._id,
@@ -2784,9 +2808,18 @@ async function requestExtraServices(userId, bookingId, newServices) {
             adminPrice,
             vendorPrice,
             finalPrice,
-            isPriceConfirmed: false // Always false until user approves the total change
+            isPriceConfirmed,
+            status
         });
     }
+
+    // ── Recalculate price to include any auto-approved services ──
+    await recalculateBookingPrice(booking);
+
+    // Split newly added entries into auto-approved vs still-pending
+    const addedEntries = booking.userRequestedServices.slice(-newServices.length);
+    const autoApprovedCount = addedEntries.filter(s => s.isPriceConfirmed === true).length;
+    const pendingCount      = addedEntries.filter(s => s.status === 'pending').length;
 
     booking.statusHistory.push({
         status: 'extra_services_requested',
@@ -2795,6 +2828,7 @@ async function requestExtraServices(userId, bookingId, newServices) {
         timestamp: new Date()
     });
     booking.markModified('statusHistory');
+    booking.markModified('userRequestedServices');
 
     await booking.save();
 
@@ -2802,30 +2836,39 @@ async function requestExtraServices(userId, bookingId, newServices) {
     const populatedBooking = await Booking.findById(booking._id)
         .populate('userRequestedServices.service', 'title');
 
-    // Notify both
+    // Notify both sides for state sync
     const { emitToVendor, emitToUser } = require('../../socket');
     const vendorPayload = await getBookingDetails(booking._id, booking.vendor, 'vendor');
-    const userPayload = await getBookingDetails(booking._id, userId, 'user');
+    const userPayload   = await getBookingDetails(booking._id, userId, 'user');
 
     emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
     emitToUser(userId, 'booking_status_updated', userPayload);
 
-    // ── Send Push Notification to Vendor ──
-    sendPush(booking.vendor, 'Vendor', 'extra_services_requested', 'Extra Services Requested', `User has requested additional services for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
-
-
-    // Specific event to vendor
+    // Only notify vendor if there are services that still need their pricing/acceptance
     const newlyRequestedServices = populatedBooking.userRequestedServices.slice(-newServices.length);
-    emitToVendor(booking.vendor, 'extra_services_requested_by_user', {
-        bookingId: booking._id,
-        bookingID: booking.bookingID,
-        requestedServices: newlyRequestedServices,
-        message: 'User has requested additional services. Please confirm and set prices.'
-    });
+    const pendingForVendor = newlyRequestedServices.filter(s => s.status === 'pending');
+
+    if (pendingForVendor.length > 0) {
+        // ── Send Push Notification to Vendor ──
+        sendPush(booking.vendor, 'Vendor', 'extra_services_requested', 'Extra Services Requested', `User has requested additional services for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+
+        emitToVendor(booking.vendor, 'extra_services_requested_by_user', {
+            bookingId: booking._id,
+            bookingID: booking.bookingID,
+            requestedServices: pendingForVendor,
+            message: 'User has requested additional services. Please confirm and set prices.'
+        });
+    }
+
+    const message = autoApprovedCount > 0 && pendingCount === 0
+        ? 'Extra services added at previously approved price. No additional confirmation needed.'
+        : autoApprovedCount > 0
+            ? 'Some extra services were auto-approved at previously confirmed prices. Others are awaiting vendor confirmation.'
+            : 'Extra services requested. Awaiting vendor confirmation.';
 
     return {
         booking: populatedBooking,
-        message: 'Extra services requested. Awaiting vendor confirmation.'
+        message
     };
 }
 
