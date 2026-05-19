@@ -5,6 +5,8 @@ const config = require('./config/env');
 let io;
 const activeVendors = new Map(); // vendorId -> [socketId1, socketId2, ...]
 const activeUsers = new Map(); // userId -> [socketId1, socketId2, ...]
+const pendingVendorDisconnects = new Map(); // vendorId -> setTimeout ID
+
 
 const stringifyId = (id) => {
     if (!id) return null;
@@ -25,6 +27,14 @@ const registerVendorSocket = async (vendorId, socketId) => {
         console.error(`⚠️ Attempted to register vendor with invalid ID:`, vendorId);
         return;
     }
+
+    // Clear any pending disconnect timeout if the vendor reconnects/registers
+    if (pendingVendorDisconnects.has(vId)) {
+        console.log(`♻️ Vendor ${vId} reconnected before offline timeout. Clearing timeout.`);
+        clearTimeout(pendingVendorDisconnects.get(vId));
+        pendingVendorDisconnects.delete(vId);
+    }
+
 
     if (!activeVendors.has(vId)) activeVendors.set(vId, []);
     const sockets = activeVendors.get(vId);
@@ -698,17 +708,34 @@ const initSocket = (server) => {
                     sockets.splice(index, 1);
                     console.log(`❌ Socket ${socket.id} removed from Vendor ${vendorId}. Remaining: ${sockets.length}`);
                     if (sockets.length === 0) {
-                        activeVendors.delete(vendorId);
-                        console.log(`   Vendor ${vendorId} fully offline.`);
-
-                        // Persist offline status to DB
-                        try {
-                            const Vendor = require('./models/Vendor.model');
-                            await Vendor.findByIdAndUpdate(vendorId, { isOnline: false });
-                            console.log(`🔴 Vendor ${vendorId} marked offline in DB`);
-                        } catch (err) {
-                            console.error(`⚠️ Failed to update vendor ${vendorId} offline status:`, err.message);
+                        console.log(`   Vendor ${vendorId} has 0 active sockets. Scheduling offline status update in 15 seconds.`);
+                        
+                        // Clear any existing timeout for this vendor just in case
+                        if (pendingVendorDisconnects.has(vendorId)) {
+                            clearTimeout(pendingVendorDisconnects.get(vendorId));
                         }
+                        
+                        const timeoutId = setTimeout(async () => {
+                            pendingVendorDisconnects.delete(vendorId);
+                            
+                            // Double check if they are still at 0 sockets
+                            const currentSockets = activeVendors.get(vendorId) || [];
+                            if (currentSockets.length === 0) {
+                                activeVendors.delete(vendorId);
+                                console.log(`   Vendor ${vendorId} fully offline after grace period.`);
+                                try {
+                                    const Vendor = require('./models/Vendor.model');
+                                    await Vendor.findByIdAndUpdate(vendorId, { isOnline: false });
+                                    console.log(`🔴 Vendor ${vendorId} marked offline in DB`);
+                                } catch (err) {
+                                    console.error(`⚠️ Failed to update vendor ${vendorId} offline status:`, err.message);
+                                }
+                            } else {
+                                console.log(`   Vendor ${vendorId} reconnected during grace period. Keeping online.`);
+                            }
+                        }, 15000); // 15 seconds grace period
+                        
+                        pendingVendorDisconnects.set(vendorId, timeoutId);
                     }
                     break;
                 }
