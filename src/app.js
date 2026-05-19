@@ -95,11 +95,6 @@ app.get('/favicon.ico', (req, res) => {
 /**
  * Rate limiting
  */
-app.use((req, res, next) => {
-  const fs = require('fs');
-  fs.appendFileSync('request_debug.log', `[${new Date().toISOString()}] ${req.method} ${req.url}\n`);
-  next();
-});
 
 app.use('/api', (req, res, next) => {
   const hasAuth = !!req.headers.authorization;
@@ -138,9 +133,9 @@ app.get('/health', (req, res) => {
 });
 
 /**
- * API routes
+ * API routes — mounted only at the versioned path to prevent double-execution.
+ * The bare /api GET redirect above (line 121) handles unversioned access.
  */
-app.use('/api', routes);
 app.use(`/api/${config.API_VERSION}`, routes);
 
 /**
