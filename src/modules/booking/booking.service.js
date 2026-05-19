@@ -1260,9 +1260,9 @@ const searchVendors = async (booking, broadcast = false) => {
     ]);
 
     const waves = [
-        { km: r1_km || 2, mins: r1_min || 5 },
-        { km: r2_km || 5, mins: r2_min || 10 },
-        { km: r3_km || 10, mins: r3_min || 15 }
+        { km: Number(r1_km) || 2, mins: Number(r1_min) || 5 },
+        { km: Number(r2_km) || 5, mins: Number(r2_min) || 10 },
+        { km: Number(r3_km) || 10, mins: Number(r3_min) || 15 }
     ];
 
     const currentWave = waves[Math.min(retryCount, waves.length - 1)];
@@ -1361,41 +1361,6 @@ const searchVendors = async (booking, broadcast = false) => {
 
     let vendors = await Vendor.find(geoQuery).select('_id fcmToken');
     console.log(`[DEBUG] searchVendors - Geo query found ${vendors.length} vendors within ${radiusInKm}km radius`);
-
-    // ── Fallback: If no geo results, notify all verified vendors in the category ──
-    if (vendors.length === 0) {
-        console.warn(`[SEARCH] No vendors found within ${radiusInKm}km geo radius. Falling back to category/service-based search.`);
-                const fallbackQuery = {
-            isVerified: true,
-            isSuspended: false,
-            isBlocked: false,
-            // isOnline: true, // Removed strict online requirement
-            registrationStep: 'COMPLETED',
-            deletedAt: null,
-            $and: [
-                {
-                    $or: [
-                        { 'membership.expiryDate': { $exists: false } },
-                        { 'membership.expiryDate': { $gt: new Date() } }
-                    ]
-                },
-                {
-                    $or: [
-                        { 'serviceRenewal.expiryDate': { $exists: false } },
-                        { 'serviceRenewal.expiryDate': { $gt: new Date() } }
-                    ]
-                },
-                {
-                    $or: categoryOrServiceFilter
-                }
-            ]
-        };
-        if (nins.length > 0) {
-            fallbackQuery._id = { $nin: nins };
-        }
-        vendors = await Vendor.find(fallbackQuery).select('_id fcmToken');
-        console.log(`[DEBUG] searchVendors - Fallback query found ${vendors.length} vendors (Verified & Category/Service matching)`);
-    }
 
     if (broadcast) {
         try {
@@ -1503,13 +1468,8 @@ const searchVendors = async (booking, broadcast = false) => {
 
             // ── Schedule Search Expansion (Dynamic Waves) ──
             if (retryCount < waves.length - 1) {
-                // Calculate delay for next wave
-                // Row 1 mins is for wave 0 -> wave 1
-                // Row 2 mins is for wave 1 -> wave 2
-                // We use absolute timestamps from start, so delay = current_wave_mins - previous_wave_mins
-                const currentWaveMins = waves[retryCount].mins;
-                const nextWaveMins = waves[retryCount + 1].mins;
-                const delayMins = Math.max(1, nextWaveMins - currentWaveMins);
+                // Use the current wave's mins as the duration to wait before starting the next wave
+                const delayMins = waves[retryCount].mins > 0 ? waves[retryCount].mins : 5;
                 
                 console.log(`[SEARCH] Scheduling Wave ${retryCount + 1} (Radius: ${waves[retryCount+1].km}km) in ${delayMins} minutes`);
 
@@ -1524,12 +1484,7 @@ const searchVendors = async (booking, broadcast = false) => {
             } else if (retryCount === waves.length - 1) {
                 // Hard-Stop: After the final tier
                 // Wait for the final wave duration before stopping
-                // If r3_min is 15, and r2_min was 10, we already waited 5 mins to get here (retryCount=2).
-                // How long should we wait for the final radius? 
-                // Let's assume the user can try again after the Row 3 Mins are up.
-                // Actually, if retryCount is 2 (Row 3), we should wait a bit for acceptance before failing.
-                // Let's use a 2-minute buffer or just fail after some time.
-                const finalWaitMins = 2; 
+                const finalWaitMins = waves[retryCount].mins > 0 ? waves[retryCount].mins : 2; 
 
                 setTimeout(async () => {
                     const current = await Booking.findById(booking._id);
@@ -3352,6 +3307,77 @@ const broadcastVendorLocation = async (vendorId, lat, lng) => {
 };
 
 /**
+ * Automatically resend active booking requests to a newly registered vendor socket.
+ * Typically triggered when a vendor connects/reconnects.
+ */
+const resendActiveRequestsToVendor = async (vendorId) => {
+    try {
+        const vIdStr = vendorId.toString();
+        // Find all bookings that are in 'pending_acceptance' status,
+        // where this vendor is in the 'notifiedVendors' array,
+        // and NOT in 'rejectedVendors' or 'laterVendors' arrays
+        const activeBookings = await Booking.find({
+            status: 'pending_acceptance',
+            notifiedVendors: vIdStr,
+            rejectedVendors: { $ne: vIdStr },
+            laterVendors: { $ne: vIdStr }
+        })
+        .populate('services.service', 'title serviceCharge photo approxCompletionTime')
+        .populate('category', 'title name')
+        .populate('user', 'name phoneNumber photo');
+
+        if (!activeBookings.length) return;
+
+        const { emitToVendor } = require('../../socket');
+
+        // Fetch settings for dynamic radius wave display
+        const [r1_km, r2_km, r3_km] = await Promise.all([
+            adminService.getSetting('notifications.radius_row1_km'),
+            adminService.getSetting('notifications.radius_row2_km'),
+            adminService.getSetting('notifications.radius_row3_km')
+        ]);
+        const radii = [r1_km || 2, r2_km || 5, r3_km || 10];
+
+        for (const booking of activeBookings) {
+            let totalDurationMins = 0;
+            if (booking.services && booking.services.length > 0) {
+                booking.services.forEach(item => {
+                    totalDurationMins += (item.service?.approxCompletionTime || 0) * (item.quantity || 1);
+                });
+            }
+
+            const retryCount = booking.retryCount || 0;
+            const radiusInKm = radii[Math.min(retryCount, radii.length - 1)];
+
+            const payload = {
+                ...(booking.toObject()),
+                bookingID: booking.bookingID,
+                totalDurationMins,
+                radius: radiusInKm
+            };
+
+            // ── Sensitive Data Redaction for unaccepted requests ──
+            if (payload.user) {
+                payload.user.phoneNumber = '••••••••••';
+                if (payload.user.email) payload.user.email = '••••••••••';
+            }
+            if (payload.location) {
+                payload.location.address = 'Location visible after acceptance';
+            }
+            if (payload.user && payload.location) {
+                payload.user.latitude = payload.location.latitude;
+                payload.user.longitude = payload.location.longitude;
+            }
+
+            console.log(`[SOCKET] Resending active request for booking ${booking.bookingID} to Vendor ${vIdStr}`);
+            emitToVendor(vIdStr, 'new_booking_request', payload);
+        }
+    } catch (error) {
+        console.error(`[SOCKET ERROR] Failed to resend active requests to vendor ${vendorId}:`, error.message);
+    }
+};
+
+/**
  * Trigger a broadcast for a specific booking to all matched vendors via socket.
  * Can be called via API to manually re-trigger order notifications.
  */
@@ -3425,5 +3451,6 @@ module.exports = {
     getVendorSelectableServicesForBooking,
     shouldTrackVendor,
     broadcastVendorLocation,
-    triggerBroadcast
+    triggerBroadcast,
+    resendActiveRequestsToVendor
 };
