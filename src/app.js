@@ -93,6 +93,13 @@ app.get('/favicon.ico', (req, res) => {
 });
 
 /**
+ * Socket diagnostics client page
+ */
+app.get('/socket-test', (req, res) => {
+  res.sendFile(path.join(__dirname, 'socket-test.html'));
+});
+
+/**
  * Rate limiting
  */
 

@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Adbrovz Socket.IO Diagnostics</title>
+    <!-- Import Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Import Socket.IO Client Library -->
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+
+    <style>
+        :root {
+            --bg-dark: #0b0f19;
+            --panel-bg: #151d30;
+            --border-color: #24324f;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --primary: #3b82f6;
+            --primary-glow: rgba(59, 130, 246, 0.4);
+            --success: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.3);
+            --warning: #f59e0b;
+            --warning-glow: rgba(245, 158, 11, 0.3);
+            --danger: #ef4444;
+            --danger-glow: rgba(239, 68, 68, 0.3);
+            --info: #06b6d4;
+            --purple: #8b5cf6;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            background-color: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 10;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-title h1 {
+            font-size: 20px;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .badge {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            padding: 4px 8px;
+            border-radius: 6px;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-status {
+            background-color: var(--danger-glow);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            transition: all 0.3s ease;
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.1);
+        }
+
+        .badge-status.connected {
+            background-color: var(--success-glow);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+        }
+
+        .badge-status.connecting {
+            background-color: var(--warning-glow);
+            color: var(--warning);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 380px;
+            background-color: var(--panel-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding: 24px;
+            overflow-y: auto;
+        }
+
+        .content-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-dark);
+            overflow: hidden;
+        }
+
+        .card {
+            background-color: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .card h2 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 6px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .input-group label {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        input, select {
+            background-color: rgba(11, 15, 25, 0.6);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 12px;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 14px;
+            outline: none;
+            width: 100%;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px var(--primary-glow);
+        }
+
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        button:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button.btn-success {
+            background-color: var(--success);
+        }
+
+        button.btn-danger {
+            background-color: var(--danger);
+        }
+
+        button.btn-secondary {
+            background-color: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+        }
+
+        button.btn-secondary:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .log-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: rgba(21, 29, 48, 0.4);
+        }
+
+        .log-filters {
+            display: flex;
+            gap: 8px;
+        }
+
+        .filter-btn {
+            background-color: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+
+        .filter-btn.active {
+            background-color: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .log-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+        }
+
+        .log-entry {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            background-color: rgba(255, 255, 255, 0.02);
+            border-left: 3px solid var(--border-color);
+            animation: fadeIn 0.15s ease-out;
+        }
+
+        .log-entry.info { border-left-color: var(--info); }
+        .log-entry.success { border-left-color: var(--success); }
+        .log-entry.warning { border-left-color: var(--warning); }
+        .log-entry.danger { border-left-color: var(--danger); }
+        .log-entry.purple { border-left-color: var(--purple); }
+
+        .log-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .log-msg {
+            color: var(--text-main);
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
+
+        .log-details {
+            margin-top: 4px;
+            font-size: 12px;
+            background-color: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            padding: 8px;
+            color: #38bdf8;
+            overflow-x: auto;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            font-size: 13px;
+        }
+
+        .status-item {
+            background-color: rgba(11, 15, 25, 0.4);
+            border: 1px solid var(--border-color);
+            padding: 8px 12px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .status-item span:first-child {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .status-item span:last-child {
+            font-weight: 600;
+        }
+
+        .stat-online { color: var(--success); }
+        .stat-offline { color: var(--danger); }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-title">
+            <h1>Adbrovz Web Client Diagnostics</h1>
+            <div id="connectionBadge" class="badge badge-status">Disconnected</div>
+        </div>
+        <div style="display: flex; gap: 16px; align-items: center;">
+            <div id="activeDuration" style="font-size: 14px; font-family: monospace; color: var(--text-muted);">Uptime: 00:00:00</div>
+            <button id="connectBtn" class="btn-success" onclick="toggleConnection()">Connect</button>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <!-- Control Sidebar -->
+        <div class="sidebar">
+            <!-- Connection Details -->
+            <div class="card">
+                <h2>Server Info</h2>
+                <div class="input-group">
+                    <label for="serverUrl">Socket Server URL</label>
+                    <input type="text" id="serverUrl" placeholder="Defaults to current window host">
+                </div>
+                <div class="input-group">
+                    <label for="socketPath">Socket.IO Path</label>
+                    <input type="text" id="socketPath" value="/socket.io/">
+                </div>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <span>Transport</span>
+                        <span id="statTransport">-</span>
+                    </div>
+                    <div class="status-item">
+                        <span>Attempts</span>
+                        <span id="statAttempts">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Client Identity -->
+            <div class="card">
+                <h2>Registration</h2>
+                <div class="input-group">
+                    <label for="clientRole">Register As</label>
+                    <select id="clientRole" onchange="updateRolePlaceholder()">
+                        <option value="user">User</option>
+                        <option value="vendor">Vendor</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label for="clientId">ID to Register</label>
+                    <input type="text" id="clientId" value="6a0a9ac23acfd6f22281d799" placeholder="User ID">
+                </div>
+                <button onclick="registerClient()">Send Registration Event</button>
+            </div>
+
+            <!-- Actions Panel -->
+            <div class="card">
+                <h2>Actions</h2>
+                <!-- Location Updates -->
+                <div class="input-group">
+                    <label>Live Location Simulator</label>
+                    <div class="input-row">
+                        <input type="number" id="locLat" placeholder="Lat" step="0.000001" value="12.913678">
+                        <input type="number" id="locLng" placeholder="Lng" step="0.000001" value="77.527799">
+                    </div>
+                </div>
+                <button class="btn-secondary" onclick="sendLocationUpdate()">Emit Location Update</button>
+
+                <!-- Check Vendor Status -->
+                <div style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 8px;">
+                    <div class="input-group">
+                        <label for="checkVendorId">Check Vendor tracking status</label>
+                        <input type="text" id="checkVendorId" placeholder="Vendor ID" value="6a0a9c3267ba064f7fde442c">
+                    </div>
+                </div>
+                <button class="btn-secondary" onclick="checkTrackingStatus()">Check Tracking Status</button>
+            </div>
+
+            <button class="btn-danger" style="margin-top: auto;" onclick="clearLogs()">Clear Console Logs</button>
+        </div>
+
+        <!-- Real-time Console Log -->
+        <div class="content-area">
+            <div class="log-header">
+                <span style="font-weight: 600; font-size: 14px;">Event Log (Filtered)</span>
+                <div class="log-filters">
+                    <button class="filter-btn active" onclick="setFilter('all')">All</button>
+                    <button class="filter-btn" onclick="setFilter('conn')">Connection</button>
+                    <button class="filter-btn" onclick="setFilter('events')">Custom Events</button>
+                    <button class="filter-btn" onclick="setFilter('heartbeat')">Ping/Pong</button>
+                    <button class="filter-btn" onclick="setFilter('error')">Errors</button>
+                </div>
+            </div>
+            <div id="logContainer" class="log-container">
+                <!-- Log entries will be added here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let socket = null;
+        let connectBadge = document.getElementById('connectionBadge');
+        let connectBtn = document.getElementById('connectBtn');
+        let logContainer = document.getElementById('logContainer');
+        let activeFilter = 'all';
+        
+        let attemptsCount = 0;
+        let uptimeInterval = null;
+        let uptimeStart = null;
+
+        // Auto-configure server URL to use current origin if empty
+        document.getElementById('serverUrl').value = window.location.origin;
+
+        function updateRolePlaceholder() {
+            const role = document.getElementById('clientRole').value;
+            const idInput = document.getElementById('clientId');
+            if (role === 'user') {
+                idInput.placeholder = 'User ID';
+                idInput.value = '6a0a9ac23acfd6f22281d799';
+            } else {
+                idInput.placeholder = 'Vendor ID';
+                idInput.value = '6a0a9c3267ba064f7fde442c';
+            }
+        }
+
+        function log(message, type = 'info', rawObject = null) {
+            const timestamp = new Date().toISOString().split('T')[1].slice(0, -1);
+            
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.dataset.category = getCategoryFromType(type);
+
+            const meta = document.createElement('div');
+            meta.className = 'log-meta';
+            meta.innerHTML = `<span>[${type.toUpperCase()}]</span><span>${timestamp}</span>`;
+            entry.appendChild(meta);
+
+            const msg = document.createElement('div');
+            msg.className = 'log-msg';
+            msg.innerText = message;
+            entry.appendChild(msg);
+
+            if (rawObject) {
+                const details = document.createElement('pre');
+                details.className = 'log-details';
+                details.innerText = JSON.stringify(rawObject, null, 2);
+                entry.appendChild(details);
+            }
+
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+
+            applyFilter();
+        }
+
+        function getCategoryFromType(type) {
+            if (type === 'success' || type === 'danger' || type === 'warning') return 'conn';
+            if (type === 'purple') return 'events';
+            if (type === 'info') return 'heartbeat';
+            return 'all';
+        }
+
+        function setFilter(filter) {
+            activeFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            applyFilter();
+        }
+
+        function applyFilter() {
+            const entries = document.querySelectorAll('.log-entry');
+            entries.forEach(entry => {
+                if (activeFilter === 'all') {
+                    entry.style.display = 'flex';
+                } else if (activeFilter === 'conn' && entry.dataset.category === 'conn') {
+                    entry.style.display = 'flex';
+                } else if (activeFilter === 'events' && entry.dataset.category === 'events') {
+                    entry.style.display = 'flex';
+                } else if (activeFilter === 'heartbeat' && entry.dataset.category === 'heartbeat') {
+                    entry.style.display = 'flex';
+                } else if (activeFilter === 'error' && entry.className.includes('danger')) {
+                    entry.style.display = 'flex';
+                } else {
+                    entry.style.display = 'none';
+                }
+            });
+        }
+
+        function clearLogs() {
+            logContainer.innerHTML = '';
+            log('Console cleared.', 'info');
+        }
+
+        function toggleConnection() {
+            if (socket && socket.connected) {
+                disconnectSocket();
+            } else {
+                connectSocket();
+            }
+        }
+
+        function connectSocket() {
+            disconnectSocket();
+
+            const serverUrl = document.getElementById('serverUrl').value || window.location.origin;
+            const socketPath = document.getElementById('socketPath').value || '/socket.io/';
+
+            log(`Initiating connection to ${serverUrl} (Path: ${socketPath})...`, 'warning');
+            
+            connectBadge.innerText = 'Connecting...';
+            connectBadge.className = 'badge badge-status connecting';
+            
+            socket = io(serverUrl, {
+                path: socketPath,
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionAttempts: 10,
+                reconnectionDelay: 2000,
+                timeout: 20000
+            });
+
+            attemptsCount = 0;
+            document.getElementById('statAttempts').innerText = attemptsCount;
+
+            // Connection lifecycle events
+            socket.on('connect', () => {
+                log(`Connected successfully! Socket ID: ${socket.id}`, 'success');
+                connectBadge.innerText = 'Connected';
+                connectBadge.className = 'badge badge-status connected';
+                connectBtn.innerText = 'Disconnect';
+                connectBtn.className = 'btn-danger';
+                
+                document.getElementById('statTransport').innerText = socket.io.engine.transport.name.toUpperCase();
+                
+                // Track uptime
+                uptimeStart = Date.now();
+                if (uptimeInterval) clearInterval(uptimeInterval);
+                uptimeInterval = setInterval(updateUptime, 1000);
+
+                // Listen to upgrade
+                socket.io.engine.on('upgrade', () => {
+                    const newTransport = socket.io.engine.transport.name.toUpperCase();
+                    log(`Transport upgraded to: ${newTransport}`, 'success');
+                    document.getElementById('statTransport').innerText = newTransport;
+                });
+            });
+
+            socket.on('disconnect', (reason) => {
+                log(`Disconnected from server. Reason: ${reason}`, 'danger');
+                handleDisconnectState();
+            });
+
+            socket.on('connect_error', (error) => {
+                attemptsCount++;
+                document.getElementById('statAttempts').innerText = attemptsCount;
+                log(`Connection error: ${error.message}`, 'danger', error);
+                
+                connectBadge.innerText = 'Error';
+                connectBadge.className = 'badge badge-status';
+            });
+
+            // Listen to heartbeat events
+            socket.io.engine.on('ping', () => {
+                log('Ping sent to server', 'info');
+            });
+
+            socket.io.engine.on('pong', () => {
+                log('Pong received from server (heartbeat OK)', 'info');
+            });
+
+            // Set up all custom app event listeners
+            registerAppEvents();
+        }
+
+        function disconnectSocket() {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+            }
+            handleDisconnectState();
+        }
+
+        function handleDisconnectState() {
+            connectBadge.innerText = 'Disconnected';
+            connectBadge.className = 'badge badge-status';
+            connectBtn.innerText = 'Connect';
+            connectBtn.className = 'btn-success';
+            document.getElementById('statTransport').innerText = '-';
+            
+            if (uptimeInterval) {
+                clearInterval(uptimeInterval);
+                uptimeInterval = null;
+            }
+            document.getElementById('activeDuration').innerText = 'Uptime: 00:00:00';
+        }
+
+        function updateUptime() {
+            if (!uptimeStart) return;
+            const diff = Date.now() - uptimeStart;
+            const hrs = Math.floor(diff / 3600000).toString().padStart(2, '0');
+            const mins = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
+            const secs = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
+            document.getElementById('activeDuration').innerText = `Uptime: ${hrs}:${mins}:${secs}`;
+        }
+
+        function registerClient() {
+            if (!socket || !socket.connected) {
+                log('Cannot register: Socket is not connected.', 'danger');
+                return;
+            }
+
+            const role = document.getElementById('clientRole').value;
+            const id = document.getElementById('clientId').value;
+
+            if (!id) {
+                log('Please enter an ID to register.', 'danger');
+                return;
+            }
+
+            if (role === 'user') {
+                log(`Emitting manual event 'register_user' for ID: ${id}...`, 'warning');
+                socket.emit('register_user', id);
+            } else {
+                log(`Emitting manual event 'register_vendor' for ID: ${id}...`, 'warning');
+                socket.emit('register_vendor', id);
+            }
+        }
+
+        function sendLocationUpdate() {
+            if (!socket || !socket.connected) {
+                log('Cannot send location: Socket is not connected.', 'danger');
+                return;
+            }
+
+            const role = document.getElementById('clientRole').value;
+            const vendorId = document.getElementById('clientId').value;
+            const lat = parseFloat(document.getElementById('locLat').value);
+            const lng = parseFloat(document.getElementById('locLng').value);
+
+            if (role !== 'vendor') {
+                log('Warning: Emitting location update. Usually only Vendors emit location updates.', 'warning');
+            }
+
+            const payload = {
+                vendorId: vendorId,
+                lat: lat,
+                lng: lng
+            };
+
+            log(`Emitting 'update_location' with payload...`, 'warning', payload);
+            socket.emit('update_location', payload);
+        }
+
+        function checkTrackingStatus() {
+            if (!socket || !socket.connected) {
+                log('Cannot check tracking: Socket is not connected.', 'danger');
+                return;
+            }
+
+            const vendorId = document.getElementById('checkVendorId').value;
+            if (!vendorId) {
+                log('Vendor ID is required to check status.', 'danger');
+                return;
+            }
+
+            log(`Emitting 'check_vendor_tracking_status' for vendor: ${vendorId}...`, 'warning');
+            socket.emit('check_vendor_tracking_status', { vendorId });
+        }
+
+        // Register custom event listeners from backend
+        function registerAppEvents() {
+            const events = [
+                'booking_status_updated',
+                'booking_created_success',
+                'booking_accepted_success',
+                'new_booking_request',
+                'location_updated_success',
+                'location_error',
+                'booking_error',
+                'vendor_location_update',
+                'vendor_tracking_status',
+                'verification_status_response',
+                'verification_error',
+                'auth_error'
+            ];
+
+            events.forEach(eventName => {
+                socket.on(eventName, (data) => {
+                    log(`Received Event [${eventName}]`, 'purple', data);
+                });
+            });
+        }
+    </script>
+</body>
+</html>
