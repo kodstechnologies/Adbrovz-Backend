@@ -174,6 +174,96 @@ const initSocket = (server) => {
             }
         });
 
+        // Register to join the global diagnostics channel
+        socket.on('join_diagnostics', () => {
+            socket.join('diagnostics');
+            console.log(`[SOCKET] Socket ${socket.id} successfully joined diagnostics room`);
+        });
+
+        // Simulator for testing: User triggers a mock booking that automatically notifies active vendors
+        socket.on('trigger_mock_booking', (data) => {
+            try {
+                const bookingId = stringifyId(data?.bookingId) || ("BK-" + Math.floor(1000 + Math.random() * 9000));
+                const userId = stringifyId(data?.userId || socket.userId || "6a0a9ac23acfd6f22281d799");
+                const vendorId = stringifyId(data?.vendorId);
+
+                console.log(`[SOCKET SIMULATOR] trigger_mock_booking - bookingId: ${bookingId}, userId: ${userId}, vendorId: ${vendorId}`);
+
+                const payload = {
+                    _id: bookingId,
+                    bookingID: bookingId,
+                    status: 'pending_acceptance',
+                    user: {
+                        _id: userId,
+                        name: 'Mock Customer',
+                        phoneNumber: '9876543210',
+                        photo: null
+                    },
+                    category: { 
+                        _id: '6a0a9c3267ba064f7fde1111',
+                        title: data?.category || 'AC Repair & Service',
+                        name: data?.category || 'AC Repair & Service'
+                    },
+                    services: [
+                        {
+                            service: { 
+                                _id: '6a0a9c3267ba064f7fde2222',
+                                title: data?.serviceTitle || 'AC Cleaning & Deep Wash',
+                                serviceCharge: 499,
+                                approxCompletionTime: 45
+                            },
+                            quantity: 1,
+                            finalPrice: 499
+                        }
+                    ],
+                    pricing: { 
+                        basePrice: 499,
+                        travelCharge: 50,
+                        totalPrice: 549 
+                    },
+                    location: { 
+                        address: '123 Premium Glassmorphism Blvd, Indiranagar', 
+                        latitude: 12.9715987, 
+                        longitude: 77.5945627 
+                    },
+                    totalDurationMins: 45,
+                    radius: 5,
+                    createdAt: new Date()
+                };
+
+                // Emit new_booking_request to target vendor if provided, or to all active vendors
+                if (vendorId) {
+                    const sockets = activeVendors.get(vendorId) || [];
+                    sockets.forEach(sId => {
+                        io.to(sId).emit('new_booking_request', payload);
+                    });
+                    console.log(`📡 [SOCKET SIMULATOR] Sent new_booking_request to specific Vendor ${vendorId}`);
+                } else {
+                    const vendorIds = Array.from(activeVendors.keys());
+                    if (vendorIds.length > 0) {
+                        vendorIds.forEach(vId => {
+                            const sockets = activeVendors.get(vId) || [];
+                            sockets.forEach(sId => {
+                                io.to(sId).emit('new_booking_request', payload);
+                            });
+                        });
+                        console.log(`📡 [SOCKET SIMULATOR] Broadcasted new_booking_request to all online vendors: ${vendorIds.join(', ')}`);
+                    } else {
+                        console.log(`⚠️ [SOCKET SIMULATOR] No vendors online in activeVendors map.`);
+                    }
+                }
+
+                // Confirm back to the user client
+                socket.emit('booking_created_success', {
+                    booking: payload,
+                    message: 'Mock booking triggered successfully! Broadcasted to active vendors.'
+                });
+            } catch (error) {
+                console.error(`[SOCKET SIMULATOR] Error in trigger_mock_booking:`, error);
+                socket.emit('booking_error', { action: 'trigger_mock_booking', message: error.message });
+            }
+        });
+
         // Vendor actions on bookings
         socket.on('accept_booking', async (data) => {
             try {
@@ -184,6 +274,25 @@ const initSocket = (server) => {
 
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                // If this is a mock booking (not a 24-hex-character ObjectId), handle it in-memory
+                if (!/^[0-9a-fA-F]{24}$/.test(bookingId)) {
+                    console.log(`📡 [SOCKET SIMULATOR] Intercepted mock booking acceptance in memory for ID: ${bookingId}`);
+                    socket.emit('booking_accepted_success', {
+                        success: true,
+                        bookingId: bookingId,
+                        status: 'accepted',
+                        message: 'Mock booking accepted successfully!'
+                    });
+                    if (io) {
+                        io.emit('booking_status_updated', {
+                            bookingId: bookingId,
+                            status: 'accepted',
+                            vendorId: vendorId
+                        });
+                    }
+                    return;
+                }
 
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.acceptBooking(vendorId, bookingId);
@@ -201,6 +310,25 @@ const initSocket = (server) => {
 
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                // If this is a mock booking (not a 24-hex-character ObjectId), handle it in-memory
+                if (!/^[0-9a-fA-F]{24}$/.test(bookingId)) {
+                    console.log(`📡 [SOCKET SIMULATOR] Intercepted mock booking rejection in memory for ID: ${bookingId}`);
+                    socket.emit('booking_rejected_success', {
+                        success: true,
+                        bookingId: bookingId,
+                        status: 'rejected',
+                        message: 'Mock booking rejected successfully!'
+                    });
+                    if (io) {
+                        io.emit('booking_status_updated', {
+                            bookingId: bookingId,
+                            status: 'rejected',
+                            vendorId: vendorId
+                        });
+                    }
+                    return;
+                }
 
                 const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.rejectBooking(vendorId, bookingId);
@@ -789,6 +917,12 @@ const emitToVendor = (vendorId, event, data) => {
 
     console.log(`[SOCKET DEBUG] emitToVendor called: event='${event}', vendorId='${vIdStr}', matchedSockets=${sockets.length}, allRegisteredVendors=[${[...activeVendors.keys()].join(', ')}]`);
 
+    // Copy to diagnostics room so the Socket Simulator page captures all system booking actions in real time
+    if (['new_booking_request', 'booking_status_updated', 'booking_accepted_success', 'booking_rejected_success', 'booking_created_success'].includes(event)) {
+        io.to('diagnostics').emit(event, data);
+        console.log(`📡 [DIAGNOSTICS] Forwarded copy of '${event}' to diagnostics room`);
+    }
+
     if (sockets.length === 0) {
         console.warn(`[SOCKET] No active sockets for Vendor ${vIdStr}. FAILED to emit '${event}'.`);
         return;
@@ -811,6 +945,12 @@ const emitToUser = (userId, event, data) => {
     }
     const userIdStr = userId.toString();
     const sockets = activeUsers.get(userIdStr) || [];
+
+    // Copy to diagnostics room so the Socket Simulator page captures all system booking actions in real time
+    if (['new_booking_request', 'booking_status_updated', 'booking_accepted_success', 'booking_rejected_success', 'booking_created_success'].includes(event)) {
+        io.to('diagnostics').emit(event, data);
+        console.log(`📡 [DIAGNOSTICS] Forwarded copy of '${event}' to diagnostics room`);
+    }
     
     if (sockets.length === 0) {
         console.log(`[SOCKET] No active sockets found for User ${userIdStr}. FAILED to emit '${event}'.`);

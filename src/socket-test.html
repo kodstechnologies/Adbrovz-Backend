@@ -3,32 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Adbrovz Socket.IO Diagnostics</title>
+    <title>Adbrovz WebSockets Connection Diagnostics</title>
     <!-- Import Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     
     <!-- Import Socket.IO Client Library -->
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
 
     <style>
         :root {
-            --bg-dark: #0b0f19;
-            --panel-bg: #151d30;
-            --border-color: #24324f;
-            --text-main: #f3f4f6;
-            --text-muted: #9ca3af;
+            --bg-dark: #070913;
+            --panel-bg: #0f1322;
+            --border-color: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #64748b;
+            
             --primary: #3b82f6;
-            --primary-glow: rgba(59, 130, 246, 0.4);
+            --primary-glow: rgba(59, 130, 246, 0.15);
             --success: #10b981;
-            --success-glow: rgba(16, 185, 129, 0.3);
+            --success-glow: rgba(16, 185, 129, 0.15);
             --warning: #f59e0b;
-            --warning-glow: rgba(245, 158, 11, 0.3);
+            --warning-glow: rgba(245, 158, 11, 0.15);
             --danger: #ef4444;
-            --danger-glow: rgba(239, 68, 68, 0.3);
-            --info: #06b6d4;
-            --purple: #8b5cf6;
+            --danger-glow: rgba(239, 68, 68, 0.15);
+            --purple: #a855f7;
+            --purple-glow: rgba(168, 85, 247, 0.15);
+            --cyan: #06b6d4;
+            --cyan-glow: rgba(6, 182, 212, 0.15);
         }
 
         * {
@@ -45,29 +48,35 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.08) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(168, 85, 247, 0.08) 0px, transparent 50%);
         }
 
+        /* Top Header */
         header {
-            background-color: var(--panel-bg);
+            background-color: rgba(15, 19, 34, 0.6);
+            backdrop-filter: blur(12px);
             border-bottom: 1px solid var(--border-color);
-            padding: 16px 24px;
+            padding: 16px 32px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             z-index: 10;
+            flex-shrink: 0;
         }
 
         .header-title {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 16px;
         }
 
         .header-title h1 {
             font-size: 20px;
-            font-weight: 600;
+            font-weight: 700;
             letter-spacing: -0.5px;
-            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            background: linear-gradient(135deg, #38bdf8, #a78bfa);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -76,62 +85,67 @@
             font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
-            padding: 4px 8px;
-            border-radius: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
             letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s ease;
         }
 
         .badge-status {
             background-color: var(--danger-glow);
             color: var(--danger);
             border: 1px solid rgba(239, 68, 68, 0.2);
-            transition: all 0.3s ease;
-            box-shadow: 0 0 10px rgba(239, 68, 68, 0.1);
         }
 
         .badge-status.connected {
             background-color: var(--success-glow);
             color: var(--success);
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
         }
 
         .badge-status.connecting {
             background-color: var(--warning-glow);
             color: var(--warning);
-            border: 1px solid rgba(245, 158, 11, 0.2);
-            box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+            border: 1px solid rgba(245, 158, 11, 0.25);
         }
 
-        .main-container {
-            display: flex;
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: currentColor;
+            display: inline-block;
+        }
+
+        /* Dashboard Grid Layout */
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: 360px 1fr;
             flex: 1;
             overflow: hidden;
+            background-color: transparent;
         }
 
+        /* Sidebar Pane (Controls & Status Cards) */
         .sidebar {
-            width: 380px;
-            background-color: var(--panel-bg);
+            background-color: rgba(15, 19, 34, 0.4);
             border-right: 1px solid var(--border-color);
+            padding: 24px;
             display: flex;
             flex-direction: column;
             gap: 20px;
-            padding: 24px;
             overflow-y: auto;
-        }
-
-        .content-area {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background-color: var(--bg-dark);
-            overflow: hidden;
+            flex-shrink: 0;
         }
 
         .card {
-            background-color: rgba(255, 255, 255, 0.02);
+            background: linear-gradient(180deg, rgba(30, 41, 59, 0.3) 0%, rgba(15, 23, 42, 0.5) 100%);
             border: 1px solid var(--border-color);
-            border-radius: 12px;
+            border-radius: 16px;
             padding: 16px;
             display: flex;
             flex-direction: column;
@@ -139,13 +153,13 @@
         }
 
         .card h2 {
-            font-size: 14px;
-            font-weight: 600;
+            font-size: 13px;
+            font-weight: 700;
             color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 8px;
         }
 
         .input-group {
@@ -155,18 +169,14 @@
         }
 
         .input-group label {
-            font-size: 12px;
+            font-size: 11px;
+            font-weight: 600;
             color: var(--text-muted);
-            font-weight: 500;
-        }
-
-        .input-row {
-            display: flex;
-            gap: 8px;
+            text-transform: uppercase;
         }
 
         input, select {
-            background-color: rgba(11, 15, 25, 0.6);
+            background-color: rgba(7, 10, 19, 0.6);
             border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 10px 12px;
@@ -175,69 +185,120 @@
             font-size: 14px;
             outline: none;
             width: 100%;
-            transition: border-color 0.2s;
+            transition: all 0.2s;
         }
 
-        input:focus {
+        input:focus, select:focus {
             border-color: var(--primary);
             box-shadow: 0 0 0 2px var(--primary-glow);
         }
 
         button {
-            background-color: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 10px 16px;
+            font-family: inherit;
             font-size: 14px;
             font-weight: 600;
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: none;
             cursor: pointer;
             transition: all 0.2s;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
             gap: 8px;
+            width: 100%;
         }
 
-        button:hover {
-            opacity: 0.9;
+        button.btn-primary {
+            background: linear-gradient(135deg, #0284c7, #7c3aed);
+            color: white;
+        }
+
+        button.btn-primary:hover {
             transform: translateY(-1px);
-        }
-
-        button:active {
-            transform: translateY(0);
+            box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
         }
 
         button.btn-success {
             background-color: var(--success);
+            color: white;
         }
 
         button.btn-danger {
             background-color: var(--danger);
+            color: white;
         }
 
-        button.btn-secondary {
-            background-color: transparent;
-            border: 1px solid var(--border-color);
-            color: var(--text-main);
+        /* Metric Grid inside Card */
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
         }
 
-        button.btn-secondary:hover {
-            background-color: rgba(255, 255, 255, 0.05);
+        .metric-item {
+            background-color: rgba(7, 10, 19, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 8px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
         }
 
-        .log-header {
-            padding: 16px 24px;
+        .metric-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .metric-val {
+            font-size: 14px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .pulse-dot-green {
+            width: 6px;
+            height: 6px;
+            background-color: var(--success);
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 8px var(--success);
+        }
+
+        /* Terminal Logging Panel (Right Pane) */
+        .terminal-panel {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background-color: rgba(5, 7, 12, 0.95);
+        }
+
+        .terminal-header {
+            background-color: #0b0f19;
             border-bottom: 1px solid var(--border-color);
+            padding: 12px 24px;
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            background-color: rgba(21, 29, 48, 0.4);
+            justify-content: space-between;
+            flex-shrink: 0;
         }
 
-        .log-filters {
+        .terminal-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
             display: flex;
+            align-items: center;
             gap: 8px;
+        }
+
+        .terminal-filters {
+            display: flex;
+            gap: 6px;
         }
 
         .filter-btn {
@@ -248,99 +309,123 @@
             font-size: 12px;
             border-radius: 6px;
             font-weight: 500;
+            width: auto;
+            cursor: pointer;
         }
 
         .filter-btn.active {
-            background-color: var(--primary);
-            color: white;
-            border-color: var(--primary);
+            background-color: rgba(59, 130, 246, 0.1);
+            color: #38bdf8;
+            border-color: #0284c7;
         }
 
-        .log-container {
+        .terminal-logs {
             flex: 1;
             overflow-y: auto;
             padding: 24px;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 6px;
             font-family: 'JetBrains Mono', monospace;
             font-size: 13px;
         }
 
+        /* Log Line Layout */
         .log-entry {
             display: flex;
-            flex-direction: column;
-            gap: 4px;
-            padding: 10px 14px;
-            border-radius: 8px;
-            background-color: rgba(255, 255, 255, 0.02);
-            border-left: 3px solid var(--border-color);
-            animation: fadeIn 0.15s ease-out;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            background-color: rgba(255, 255, 255, 0.01);
+            border-left: 3px solid #334155;
+            animation: fadeIn 0.1s ease-out;
+            line-height: 1.5;
         }
 
-        .log-entry.info { border-left-color: var(--info); }
-        .log-entry.success { border-left-color: var(--success); }
-        .log-entry.warning { border-left-color: var(--warning); }
-        .log-entry.danger { border-left-color: var(--danger); }
-        .log-entry.purple { border-left-color: var(--purple); }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(2px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
 
-        .log-meta {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            font-size: 11px;
+        .log-entry.connect { border-left-color: var(--success); background-color: rgba(16, 185, 129, 0.02); }
+        .log-entry.disconnect { border-left-color: var(--danger); background-color: rgba(239, 68, 68, 0.02); }
+        .log-entry.error { border-left-color: var(--warning); background-color: rgba(245, 158, 11, 0.02); }
+        .log-entry.ping { border-left-color: var(--cyan); }
+        .log-entry.pong { border-left-color: var(--success); }
+        .log-entry.upgrade { border-left-color: var(--purple); }
+        .log-entry.emit { border-left-color: var(--purple); }
+        .log-entry.recv { border-left-color: var(--primary); }
+
+        .log-time {
             color: var(--text-muted);
+            font-size: 12px;
+            min-width: 80px;
+            flex-shrink: 0;
+            margin-top: 1px;
         }
+
+        .log-badge {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 2px 6px;
+            border-radius: 4px;
+            min-width: 80px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .log-badge.connect { background-color: var(--success-glow); color: var(--success); }
+        .log-badge.disconnect { background-color: var(--danger-glow); color: var(--danger); }
+        .log-badge.error { background-color: var(--warning-glow); color: var(--warning); }
+        .log-badge.ping { background-color: var(--cyan-glow); color: var(--cyan); }
+        .log-badge.pong { background-color: var(--success-glow); color: var(--success); }
+        .log-badge.upgrade { background-color: var(--purple-glow); color: var(--purple); }
+        .log-badge.emit { background-color: var(--purple-glow); color: var(--purple); }
+        .log-badge.recv { background-color: var(--primary-glow); color: var(--primary); }
+        .log-badge.info { background-color: rgba(255, 255, 255, 0.05); color: var(--text-muted); }
 
         .log-msg {
-            color: var(--text-main);
+            color: #f1f5f9;
             word-break: break-all;
             white-space: pre-wrap;
+            flex: 1;
         }
 
         .log-details {
-            margin-top: 4px;
+            margin-top: 6px;
             font-size: 12px;
-            background-color: rgba(0, 0, 0, 0.3);
+            background-color: rgba(0, 0, 0, 0.4);
             border-radius: 6px;
-            padding: 8px;
+            padding: 8px 12px;
             color: #38bdf8;
             overflow-x: auto;
+            border: 1px solid rgba(255, 255, 255, 0.02);
         }
 
-        .status-grid {
+        /* Help Alert Bar */
+        .help-panel {
+            background-color: rgba(245, 158, 11, 0.03);
+            border: 1px solid rgba(245, 158, 11, 0.15);
+            border-radius: 12px;
+            padding: 12px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #fcd34d;
+        }
+
+        .help-panel strong {
+            display: block;
+            margin-bottom: 4px;
+            color: var(--warning);
+        }
+
+        /* Custom Emitter Panel */
+        .emit-row {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-            font-size: 13px;
-        }
-
-        .status-item {
-            background-color: rgba(11, 15, 25, 0.4);
-            border: 1px solid var(--border-color);
-            padding: 8px 12px;
-            border-radius: 8px;
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-
-        .status-item span:first-child {
-            font-size: 11px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-        }
-
-        .status-item span:last-child {
-            font-weight: 600;
-        }
-
-        .stat-online { color: var(--success); }
-        .stat-offline { color: var(--danger); }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(4px); }
-            to { opacity: 1; transform: translateY(0); }
+            grid-template-columns: 1fr auto;
+            gap: 8px;
         }
     </style>
 </head>
@@ -348,211 +433,201 @@
 
     <header>
         <div class="header-title">
-            <h1>Adbrovz Web Client Diagnostics</h1>
-            <div id="connectionBadge" class="badge badge-status">Disconnected</div>
+            <h1>Adbrovz WebSockets Connection Diagnostics</h1>
+            <div id="connectionBadge" class="badge badge-status">
+                <span class="status-dot"></span>
+                <span id="badgeText">Disconnected</span>
+            </div>
         </div>
-        <div style="display: flex; gap: 16px; align-items: center;">
-            <div id="activeDuration" style="font-size: 14px; font-family: monospace; color: var(--text-muted);">Uptime: 00:00:00</div>
-            <button id="connectBtn" class="btn-success" onclick="toggleConnection()">Connect</button>
+        <div style="font-size: 14px; font-family: monospace; color: var(--text-muted);">
+            Uptime: <span id="activeDuration" style="color: var(--text-main);">00:00:00</span>
         </div>
     </header>
 
-    <div class="main-container">
-        <!-- Control Sidebar -->
+    <div class="dashboard-container">
+        <!-- Configuration & Diagnostics Pane -->
         <div class="sidebar">
-            <!-- Connection Details -->
+            
+            <!-- Connection Control Card -->
             <div class="card">
-                <h2>Server Info</h2>
+                <h2>Connection Parameters</h2>
                 <div class="input-group">
-                    <label for="serverUrl">Socket Server URL</label>
-                    <input type="text" id="serverUrl" placeholder="Defaults to current window host">
+                    <label for="serverUrl">Server URL</label>
+                    <input type="text" id="serverUrl" placeholder="ws://localhost:3000">
+                </div>
                 <div class="input-group">
                     <label for="socketPath">Socket.IO Path</label>
                     <input type="text" id="socketPath" value="/socket.io/">
                 </div>
                 <div class="input-group">
                     <label for="authToken">Auth Token (JWT) [Optional]</label>
-                    <input type="text" id="authToken" placeholder="Bearer eyJhbGciOi...">
+                    <input type="text" id="authToken" placeholder="Paste Token here for auto-auth">
                 </div>
-                <div class="status-grid">
-                    <div class="status-item">
-                        <span>Transport</span>
-                        <span id="statTransport">-</span>
-                    </div>
-                    <div class="status-item">
-                        <span>Attempts</span>
-                        <span id="statAttempts">0</span>
-                    </div>
-                </div>
+                
+                <button id="connectBtn" class="btn-success" onclick="toggleConnection()" style="margin-top: 8px;">
+                    🔌 Connect Socket
+                </button>
             </div>
 
-            <!-- Client Identity -->
+            <!-- Stats Panel -->
             <div class="card">
-                <h2>Registration</h2>
-                <div class="input-group">
-                    <label for="clientRole">Register As</label>
-                    <select id="clientRole" onchange="updateRolePlaceholder()">
-                        <option value="user">User</option>
-                        <option value="vendor">Vendor</option>
-                    </select>
+                <h2>Diagnostic Metrics</h2>
+                <div class="metric-grid">
+                    <div class="metric-item">
+                        <span class="metric-label">Active Transport</span>
+                        <span class="metric-val" id="statTransport">-</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">Heartbeat Latency</span>
+                        <span class="metric-val" id="statLatency" style="color: var(--success);">-</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">Disconnects</span>
+                        <span class="metric-val" id="statDisconnects" style="color: var(--danger);">0</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">Reconnects</span>
+                        <span class="metric-val" id="statReconnects" style="color: var(--warning);">0</span>
+                    </div>
                 </div>
-                <div class="input-group">
-                    <label for="clientId">ID to Register</label>
-                    <input type="text" id="clientId" value="6a0a9ac23acfd6f22281d799" placeholder="User ID">
+                <div class="input-group" style="margin-top: 4px;">
+                    <label>Connected Socket ID</label>
+                    <div class="emit-row">
+                        <input type="text" id="statSocketId" readonly value="Not Connected" style="font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); text-align: center;">
+                        <button onclick="copySocketId()" class="btn-secondary" style="width: auto; padding: 0 12px; font-size: 12px;">Copy</button>
+                    </div>
                 </div>
-                <button onclick="registerClient()">Send Registration Event</button>
             </div>
 
-            <!-- Actions Panel -->
+            <!-- Custom Packet Emitter -->
             <div class="card">
-                <h2>Actions</h2>
-                <!-- Location Updates -->
+                <h2>Test Emitter (Postman fallback)</h2>
                 <div class="input-group">
-                    <label>Live Location Simulator</label>
-                    <div class="input-row">
-                        <input type="number" id="locLat" placeholder="Lat" step="0.000001" value="12.913678">
-                        <input type="number" id="locLng" placeholder="Lng" step="0.000001" value="77.527799">
-                    </div>
+                    <label for="emitEvent">Event Name</label>
+                    <input type="text" id="emitEvent" placeholder="register_user">
                 </div>
-                <button class="btn-secondary" onclick="sendLocationUpdate()">Emit Location Update</button>
-
-                <!-- Check Vendor Status -->
-                <div style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 8px;">
-                    <div class="input-group">
-                        <label for="checkVendorId">Check Vendor tracking status</label>
-                        <input type="text" id="checkVendorId" placeholder="Vendor ID" value="6a0a9c3267ba064f7fde442c">
-                    </div>
+                <div class="input-group">
+                    <label for="emitPayload">Payload (JSON / String)</label>
+                    <input type="text" id="emitPayload" placeholder="&quot;6a0a9ac23acfd6f22281d799&quot;">
                 </div>
-                <button class="btn-secondary" onclick="checkTrackingStatus()">Check Tracking Status</button>
+                <button onclick="emitCustomTest()" class="btn-primary" style="margin-top: 4px;">
+                    🚀 Emit Test Packet
+                </button>
             </div>
 
-                <!-- Booking Controls -->
-            <div class="input-group">
-                <label>Booking ID (User side)</label>
-                <input type="text" id="bookingId" placeholder="Booking ID" value="">
+            <!-- Mobile App Timeout Debugging Helper -->
+            <div class="help-panel">
+                <strong>💡 Debugging Mobile App Issues</strong>
+                If your mobile app encounters a <code>ping timeout</code> or <code>transport close</code>:
+                <ul style="padding-left: 16px; margin-top: 6px; display: flex; flex-direction: column; gap: 4px;">
+                    <li><strong>Ping Timeout:</strong> Client failed to send a ping or receive a pong in the configured time. Often caused by background thread throttling on iOS/Android or proxy buffer timeout (NGINX/Cloudflare).</li>
+                    <li><strong>Transport Close:</strong> The WebSocket tcp socket was closed abruptly by either client network drop, backend server reboot, or reverse-proxy timeout.</li>
+                </ul>
             </div>
-            <button class="btn-primary" onclick="triggerBooking()">Trigger Booking (User)</button>
-            <hr style="margin:12px 0; border-color: var(--border-color);"/>
-            <div class="input-group">
-                <label>Vendor ID (Vendor side)</label>
-                <input type="text" id="vendorBookingId" placeholder="Booking ID for accept/reject" value="">
-            </div>
-            <div class="input-row">
-                <button class="btn-success" onclick="acceptBooking()">Accept Booking</button>
-                <button class="btn-danger" onclick="rejectBooking()">Reject Booking</button>
-            </div>
-            <button class="btn-danger" style="margin-top: auto;" onclick="clearLogs()">Clear Console Logs</button>
+
         </div>
 
-        <!-- Real-time Console Log -->
-        <div class="content-area">
-            <div class="log-header">
-                <span style="font-weight: 600; font-size: 14px;">Event Log (Filtered)</span>
-                <div class="log-filters">
-                    <button class="filter-btn active" onclick="setFilter('all', this)">All</button>
-                    <button class="filter-btn" onclick="setFilter('conn', this)">Connection</button>
-                    <button class="filter-btn" onclick="setFilter('events', this)">Custom Events</button>
-                    <button class="filter-btn" onclick="setFilter('heartbeat', this)">Ping/Pong</button>
-                    <button class="filter-btn" onclick="setFilter('error', this)">Errors</button>
+        <!-- Terminal Terminal Logs -->
+        <div class="terminal-panel">
+            <div class="terminal-header">
+                <div class="terminal-title">
+                    <span class="pulse-dot-green" id="terminalLiveDot"></span>
+                    <span>REAL-TIME TRANSACTION STREAM</span>
+                </div>
+                <div class="terminal-filters">
+                    <button class="filter-btn active" onclick="setFilter('all')">All logs</button>
+                    <button class="filter-btn" onclick="setFilter('heartbeat')">Heartbeats</button>
+                    <button class="filter-btn" onclick="setFilter('lifecycle')">Lifecycle</button>
+                    <button class="filter-btn" onclick="setFilter('packets')">Emitters/Receivers</button>
+                    <button class="filter-btn" onclick="setFilter('errors')">Errors</button>
+                    <button class="filter-btn" onclick="clearLogs()" style="border-color: rgba(239, 68, 68, 0.3); color: var(--danger);">Clear</button>
                 </div>
             </div>
-            <div id="logContainer" class="log-container">
-                <!-- Log entries will be added here -->
+
+            <div class="terminal-logs" id="terminalLogs">
+                <!-- Log entries dynamically populated here -->
             </div>
         </div>
     </div>
 
     <script>
         let socket = null;
-        let connectBadge = document.getElementById('connectionBadge');
-        let connectBtn = document.getElementById('connectBtn');
-        let logContainer = document.getElementById('logContainer');
-        let activeFilter = 'all';
-        
-        let attemptsCount = 0;
-        let uptimeInterval = null;
+        let lastPingTime = null;
         let uptimeStart = null;
+        let uptimeInterval = null;
+        let currentFilter = 'all';
+        let disconnectCount = 0;
+        let reconnectCount = 0;
 
-        // Auto-configure server URL to use current origin if empty
+        // Auto-configure default server URL to match current page origin
         document.getElementById('serverUrl').value = window.location.origin;
 
-        function updateRolePlaceholder() {
-            const role = document.getElementById('clientRole').value;
-            const idInput = document.getElementById('clientId');
-            if (role === 'user') {
-                idInput.placeholder = 'User ID';
-                idInput.value = '6a0a9ac23acfd6f22281d799';
-            } else {
-                idInput.placeholder = 'Vendor ID';
-                idInput.value = '6a0a9c3267ba064f7fde442c';
-            }
-        }
-
-        function log(message, type = 'info', rawObject = null) {
-            const timestamp = new Date().toISOString().split('T')[1].slice(0, -1);
+        // Visual Log Writer
+        function log(message, badgeType = 'info', rawObject = null) {
+            const container = document.getElementById('terminalLogs');
+            const time = new Date().toISOString().split('T')[1].slice(0, -1);
             
             const entry = document.createElement('div');
-            entry.className = `log-entry ${type}`;
-            entry.dataset.category = getCategoryFromType(type);
-
-            const meta = document.createElement('div');
-            meta.className = 'log-meta';
-            meta.innerHTML = `<span>[${type.toUpperCase()}]</span><span>${timestamp}</span>`;
-            entry.appendChild(meta);
-
-            const msg = document.createElement('div');
-            msg.className = 'log-msg';
-            msg.innerText = message;
-            entry.appendChild(msg);
-
+            entry.className = `log-entry ${badgeType}`;
+            entry.dataset.category = getCategoryFromType(badgeType);
+            
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'log-time';
+            timeSpan.innerText = `[${time}]`;
+            entry.appendChild(timeSpan);
+            
+            const badgeSpan = document.createElement('span');
+            badgeSpan.className = `log-badge ${badgeType}`;
+            badgeSpan.innerText = badgeType;
+            entry.appendChild(badgeSpan);
+            
+            const msgSpan = document.createElement('span');
+            msgSpan.className = 'log-msg';
+            msgSpan.innerText = message;
+            entry.appendChild(msgSpan);
+            
             if (rawObject) {
-                const details = document.createElement('pre');
-                details.className = 'log-details';
-                details.innerText = JSON.stringify(rawObject, null, 2);
-                entry.appendChild(details);
+                const pre = document.createElement('pre');
+                pre.className = 'log-details';
+                pre.innerText = JSON.stringify(rawObject, null, 2);
+                entry.appendChild(pre);
             }
-
-            logContainer.appendChild(entry);
-            logContainer.scrollTop = logContainer.scrollHeight;
-
+            
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+            
             applyFilter();
         }
 
         function getCategoryFromType(type) {
-            if (type === 'success' || type === 'danger' || type === 'warning') return 'conn';
-            if (type === 'purple') return 'events';
-            if (type === 'info') return 'heartbeat';
+            if (type === 'ping' || type === 'pong') return 'heartbeat';
+            if (type === 'connect' || type === 'disconnect' || type === 'upgrade') return 'lifecycle';
+            if (type === 'emit' || type === 'recv') return 'packets';
+            if (type === 'error') return 'errors';
             return 'all';
         }
 
-        function setFilter(filter, element) {
-    // Fallback: if element not provided, try to use the global event target (for older browsers)
-    if (!element && typeof window !== 'undefined' && window.event && window.event.target) {
-        element = window.event.target;
-    }
-
-    // Log filter change for debugging
-    log(`Filter changed to ${filter}`, 'info');
-    activeFilter = filter;
-    document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-    if (element) {
-        element.classList.add('active');
-    }
-    applyFilter();
+        function setFilter(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                if (btn.innerText.toLowerCase().includes(filter) || (filter === 'all' && btn.innerText.toLowerCase() === 'all logs')) {
+                    btn.classList.add('active');
+                } else if (!btn.innerText.toLowerCase().includes('clear')) {
+                    btn.classList.remove('active');
+                }
+            });
+            applyFilter();
         }
 
         function applyFilter() {
             const entries = document.querySelectorAll('.log-entry');
             entries.forEach(entry => {
-                if (activeFilter === 'all') {
+                const category = entry.dataset.category;
+                if (currentFilter === 'all') {
                     entry.style.display = 'flex';
-                } else if (activeFilter === 'conn' && entry.dataset.category === 'conn') {
+                } else if (currentFilter === 'errors' && (category === 'errors' || entry.className.includes('disconnect'))) {
                     entry.style.display = 'flex';
-                } else if (activeFilter === 'events' && entry.dataset.category === 'events') {
-                    entry.style.display = 'flex';
-                } else if (activeFilter === 'heartbeat' && entry.dataset.category === 'heartbeat') {
-                    entry.style.display = 'flex';
-                } else if (activeFilter === 'error' && entry.className.includes('danger')) {
+                } else if (category === currentFilter) {
                     entry.style.display = 'flex';
                 } else {
                     entry.style.display = 'none';
@@ -561,10 +636,19 @@
         }
 
         function clearLogs() {
-            logContainer.innerHTML = '';
-            log('Console cleared.', 'info');
+            document.getElementById('terminalLogs').innerHTML = '';
+            log('Diagnostics console logs cleared.', 'info');
         }
 
+        function copySocketId() {
+            const input = document.getElementById('statSocketId');
+            if (input.value && input.value !== 'Not Connected') {
+                navigator.clipboard.writeText(input.value);
+                alert('Socket ID copied: ' + input.value);
+            }
+        }
+
+        // Connection Handling
         function toggleConnection() {
             if (socket && socket.connected) {
                 disconnectSocket();
@@ -576,83 +660,119 @@
         function connectSocket() {
             disconnectSocket();
 
-            const serverUrl = document.getElementById('serverUrl').value || window.location.origin;
-            const socketPath = document.getElementById('socketPath').value || '/socket.io/';
-            const authToken = document.getElementById('authToken').value.trim();
+            const url = document.getElementById('serverUrl').value.trim() || window.location.origin;
+            const path = document.getElementById('socketPath').value.trim() || '/socket.io/';
+            const token = document.getElementById('authToken').value.trim();
 
-            log(`Initiating connection to ${serverUrl} (Path: ${socketPath})...`, 'warning');
+            const badge = document.getElementById('connectionBadge');
+            const badgeText = document.getElementById('badgeText');
+            const connectBtn = document.getElementById('connectBtn');
+            const terminalDot = document.getElementById('terminalLiveDot');
+
+            log(`Initiating Socket.IO handshake with ${url} (Path: ${path})...`, 'lifecycle');
             
-            connectBadge.innerText = 'Connecting...';
-            connectBadge.className = 'badge badge-status connecting';
-            
+            badge.className = 'badge badge-status connecting';
+            badgeText.innerText = 'Connecting...';
+            terminalDot.style.backgroundColor = 'var(--warning)';
+            terminalDot.style.boxShadow = '0 0 8px var(--warning)';
+
             const options = {
-                path: socketPath,
+                path: path,
                 transports: ['websocket', 'polling'],
                 reconnection: true,
-                reconnectionAttempts: 10,
                 reconnectionDelay: 2000,
+                reconnectionDelayMax: 5000,
                 timeout: 20000
             };
 
-            if (authToken) {
-                const token = authToken.startsWith('Bearer ') ? authToken.slice(7) : authToken;
+            if (token) {
                 options.auth = { token: token };
-                log(`Passing handshake token: ${token.substring(0, 15)}...`, 'warning');
+                log(`Configured handshake auth token: ${token.substring(0, 15)}...`, 'info');
             }
 
-            socket = io(serverUrl, options);
+            socket = io(url, options);
 
-            attemptsCount = 0;
-            document.getElementById('statAttempts').innerText = attemptsCount;
-
-            // Connection lifecycle events
+            // ─── Socket.IO Lifecycle Listeners ───
             socket.on('connect', () => {
-                log(`Connected successfully! Socket ID: ${socket.id}`, 'success');
-                connectBadge.innerText = 'Connected';
-                connectBadge.className = 'badge badge-status connected';
-                connectBtn.innerText = 'Disconnect';
+                log(`Socket connected successfully! Session ID: ${socket.id}`, 'connect');
+                
+                badge.className = 'badge badge-status connected';
+                badgeText.innerText = 'Connected';
+                terminalDot.style.backgroundColor = 'var(--success)';
+                terminalDot.style.boxShadow = '0 0 8px var(--success)';
+                
+                connectBtn.innerText = 'Disconnect Socket';
                 connectBtn.className = 'btn-danger';
-                
+
+                document.getElementById('statSocketId').value = socket.id;
                 document.getElementById('statTransport').innerText = socket.io.engine.transport.name.toUpperCase();
-                
-                // Track uptime
+
+                // Start Uptime
                 uptimeStart = Date.now();
                 if (uptimeInterval) clearInterval(uptimeInterval);
                 uptimeInterval = setInterval(updateUptime, 1000);
 
-                // Listen to upgrade
+                // Transport upgrade detection
                 socket.io.engine.on('upgrade', () => {
-                    const newTransport = socket.io.engine.transport.name.toUpperCase();
-                    log(`Transport upgraded to: ${newTransport}`, 'success');
-                    document.getElementById('statTransport').innerText = newTransport;
+                    const upgradedTransport = socket.io.engine.transport.name.toUpperCase();
+                    log(`Engine.IO transport upgraded to: ${upgradedTransport}`, 'upgrade');
+                    document.getElementById('statTransport').innerText = upgradedTransport;
                 });
+
+                // Heartbeat listeners directly hooked to the Engine.IO layer
+                socket.io.engine.on('ping', () => {
+                    lastPingTime = Date.now();
+                    log('PING packet transmitted to server', 'ping');
+                });
+
+                socket.io.engine.on('pong', () => {
+                    if (lastPingTime) {
+                        const latency = Date.now() - lastPingTime;
+                        document.getElementById('statLatency').innerText = `${latency} ms`;
+                        log(`PONG packet received from server. Round-trip Latency: ${latency}ms`, 'pong');
+                    } else {
+                        log('PONG packet received from server (latency untracked)', 'pong');
+                    }
+                });
+
+                // Auto register listeners for common adbrovz events
+                registerSystemEvents();
             });
 
             socket.on('disconnect', (reason) => {
-                log(`Disconnected from server. Reason: ${reason}`, 'danger');
-                handleDisconnectState();
+                disconnectCount++;
+                document.getElementById('statDisconnects').innerText = disconnectCount;
+
+                // Human readable explanations of Socket.IO disconnect reasons
+                let description = 'Unknown closure';
+                if (reason === 'io server disconnect') description = 'The server forcefully closed the socket connection (e.g. invalid auth, kick).';
+                if (reason === 'io client disconnect') description = 'The client application initiated socket.disconnect().';
+                if (reason === 'ping timeout') description = 'Server heartbeat missed! Client did not receive a pong response in the timeout window (highly critical for mobile timeouts!).';
+                if (reason === 'transport close') description = 'The underlying active TCP connection was closed abruptly (e.g., lost cell service, proxy closed socket, server crash).';
+                if (reason === 'transport error') description = 'The underlying transport encountered a connection error.';
+
+                log(`Connection disconnected. Reason: ${reason}. (${description})`, 'disconnect');
+                handleDisconnectedUI();
             });
 
             socket.on('connect_error', (error) => {
-                attemptsCount++;
-                document.getElementById('statAttempts').innerText = attemptsCount;
-                log(`Connection error: ${error.message}`, 'danger', error);
+                log(`Connection error callback triggered: ${error.message}`, 'error', error);
                 
-                connectBadge.innerText = 'Error';
-                connectBadge.className = 'badge badge-status';
+                badge.className = 'badge badge-status';
+                badgeText.innerText = 'Error';
+                terminalDot.style.backgroundColor = 'var(--danger)';
+                terminalDot.style.boxShadow = '0 0 8px var(--danger)';
             });
 
-            // Listen to heartbeat events
-            socket.io.engine.on('ping', () => {
-                log('Ping sent to server', 'info');
+            socket.on('reconnect_attempt', (attemptNumber) => {
+                reconnectCount++;
+                document.getElementById('statReconnects').innerText = reconnectCount;
+                log(`Attempting reconnection to server (Attempt: ${attemptNumber})...`, 'lifecycle');
             });
 
-            socket.io.engine.on('pong', () => {
-                log('Pong received from server (heartbeat OK)', 'info');
+            socket.on('reconnect', (attemptNumber) => {
+                log(`Successfully reconnected to server on attempt: ${attemptNumber}`, 'connect');
             });
-
-            // Set up all custom app event listeners
-            registerAppEvents();
         }
 
         function disconnectSocket() {
@@ -660,21 +780,32 @@
                 socket.disconnect();
                 socket = null;
             }
-            handleDisconnectState();
+            handleDisconnectedUI();
         }
 
-        function handleDisconnectState() {
-            connectBadge.innerText = 'Disconnected';
-            connectBadge.className = 'badge badge-status';
-            connectBtn.innerText = 'Connect';
+        function handleDisconnectedUI() {
+            const badge = document.getElementById('connectionBadge');
+            const badgeText = document.getElementById('badgeText');
+            const connectBtn = document.getElementById('connectBtn');
+            const terminalDot = document.getElementById('terminalLiveDot');
+
+            badge.className = 'badge badge-status';
+            badgeText.innerText = 'Disconnected';
+            terminalDot.style.backgroundColor = 'var(--danger)';
+            terminalDot.style.boxShadow = '0 0 8px var(--danger)';
+
+            connectBtn.innerText = 'Connect Socket';
             connectBtn.className = 'btn-success';
+
+            document.getElementById('statSocketId').value = 'Not Connected';
             document.getElementById('statTransport').innerText = '-';
-            
+            document.getElementById('statLatency').innerText = '-';
+
             if (uptimeInterval) {
                 clearInterval(uptimeInterval);
                 uptimeInterval = null;
             }
-            document.getElementById('activeDuration').innerText = 'Uptime: 00:00:00';
+            document.getElementById('activeDuration').innerText = '00:00:00';
         }
 
         function updateUptime() {
@@ -683,143 +814,61 @@
             const hrs = Math.floor(diff / 3600000).toString().padStart(2, '0');
             const mins = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
             const secs = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
-            document.getElementById('activeDuration').innerText = `Uptime: ${hrs}:${mins}:${secs}`;
+            document.getElementById('activeDuration').innerText = `${hrs}:${mins}:${secs}`;
         }
 
-        function registerClient() {
+        // Custom Packet Emitter (Postman replacement)
+        function emitCustomTest() {
             if (!socket || !socket.connected) {
-                log('Cannot register: Socket is not connected.', 'danger');
+                alert('Please connect to the Socket server first.');
                 return;
             }
 
-            const role = document.getElementById('clientRole').value;
-            const id = document.getElementById('clientId').value;
+            const eventName = document.getElementById('emitEvent').value.trim();
+            const rawPayload = document.getElementById('emitPayload').value.trim();
 
-            if (!id) {
-                log('Please enter an ID to register.', 'danger');
+            if (!eventName) {
+                alert('Please provide a valid Event Name');
                 return;
             }
 
-            if (role === 'user') {
-                log(`Emitting manual event 'register_user' for ID: ${id}...`, 'warning');
-                socket.emit('register_user', id);
-            } else {
-                log(`Emitting manual event 'register_vendor' for ID: ${id}...`, 'warning');
-                socket.emit('register_vendor', id);
+            let parsedPayload = rawPayload;
+            if (rawPayload) {
+                try {
+                    parsedPayload = JSON.parse(rawPayload);
+                } catch (e) {
+                    // Treat as basic string if JSON parse fails
+                    parsedPayload = rawPayload;
+                }
             }
+
+            log(`Emitting manual packet: '${eventName}'`, 'emit', parsedPayload);
+            socket.emit(eventName, parsedPayload);
         }
 
-        function sendLocationUpdate() {
-            if (!socket || !socket.connected) {
-                log('Cannot send location: Socket is not connected.', 'danger');
-                return;
-            }
-
-            const role = document.getElementById('clientRole').value;
-            const vendorId = document.getElementById('clientId').value;
-            const lat = parseFloat(document.getElementById('locLat').value);
-            const lng = parseFloat(document.getElementById('locLng').value);
-
-            if (role !== 'vendor') {
-                log('Warning: Emitting location update. Usually only Vendors emit location updates.', 'warning');
-            }
-
-            const payload = {
-                vendorId: vendorId,
-                lat: lat,
-                lng: lng
-            };
-
-            log(`Emitting 'update_location' with payload...`, 'warning', payload);
-            socket.emit('update_location', payload);
-        }
-
-        function checkTrackingStatus() {
-            if (!socket || !socket.connected) {
-                log('Cannot check tracking: Socket is not connected.', 'danger');
-                return;
-            }
-
-            const vendorId = document.getElementById('checkVendorId').value;
-            if (!vendorId) {
-                log('Vendor ID is required to check status.', 'danger');
-                return;
-            }
-
-            log(`Emitting 'check_vendor_tracking_status' for vendor: ${vendorId}...`, 'warning');
-            socket.emit('check_vendor_tracking_status', { vendorId });
-        }
-
-        // Register custom event listeners from backend
-
-        // --- Booking Interaction Functions ---
-        function triggerBooking() {
-            if (!socket || !socket.connected) {
-                log('Cannot trigger booking: Socket not connected.', 'danger');
-                return;
-            }
-            const bookingId = document.getElementById('bookingId').value.trim();
-            if (!bookingId) {
-                log('Please enter a Booking ID to trigger.', 'danger');
-                return;
-            }
-            const payload = { bookingId };
-            log(`Emitting 'new_booking_request' with payload`, 'warning', payload);
-            socket.emit('new_booking_request', payload);
-        }
-
-        function acceptBooking() {
-            if (!socket || !socket.connected) {
-                log('Cannot accept booking: Socket not connected.', 'danger');
-                return;
-            }
-            const bookingId = document.getElementById('vendorBookingId').value.trim();
-            if (!bookingId) {
-                log('Please provide Booking ID to accept.', 'danger');
-                return;
-            }
-            const payload = { bookingId };
-            log(`Emitting 'accept_booking' for Booking ID ${bookingId}`, 'success', payload);
-            socket.emit('accept_booking', payload);
-        }
-
-        function rejectBooking() {
-            if (!socket || !socket.connected) {
-                log('Cannot reject booking: Socket not connected.', 'danger');
-                return;
-            }
-            const bookingId = document.getElementById('vendorBookingId').value.trim();
-            if (!bookingId) {
-                log('Please provide Booking ID to reject.', 'danger');
-                return;
-            }
-            const payload = { bookingId };
-            log(`Emitting 'reject_booking' for Booking ID ${bookingId}`, 'danger', payload);
-            socket.emit('reject_booking', payload);
-        }
-        
-        function registerAppEvents() {
+        // Dynamic System Event Listeners Registration
+        function registerSystemEvents() {
             const events = [
+                'new_booking_request',
                 'booking_status_updated',
                 'booking_created_success',
                 'booking_accepted_success',
-                'new_booking_request',
-                'location_updated_success',
-                'location_error',
+                'booking_rejected_success',
                 'booking_error',
-                'vendor_location_update',
-                'vendor_tracking_status',
-                'verification_status_response',
-                'verification_error',
                 'auth_error'
             ];
 
             events.forEach(eventName => {
                 socket.on(eventName, (data) => {
-                    log(`Received Event [${eventName}]`, 'purple', data);
+                    log(`Received incoming event: [${eventName}]`, 'recv', data);
                 });
             });
         }
+
+        // Connect automatically on page load
+        window.addEventListener('load', () => {
+            connectSocket();
+        });
     </script>
 </body>
 </html>
