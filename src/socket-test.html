@@ -511,6 +511,11 @@
         }
 
         function setFilter(filter, element) {
+    // Fallback: if element not provided, try to use the global event target (for older browsers)
+    if (!element && typeof window !== 'undefined' && window.event && window.event.target) {
+        element = window.event.target;
+    }
+
     // Log filter change for debugging
     log(`Filter changed to ${filter}`, 'info');
     activeFilter = filter;
