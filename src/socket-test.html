@@ -426,6 +426,21 @@
                 <button class="btn-secondary" onclick="checkTrackingStatus()">Check Tracking Status</button>
             </div>
 
+                <!-- Booking Controls -->
+            <div class="input-group">
+                <label>Booking ID (User side)</label>
+                <input type="text" id="bookingId" placeholder="Booking ID" value="">
+            </div>
+            <button class="btn-primary" onclick="triggerBooking()">Trigger Booking (User)</button>
+            <hr style="margin:12px 0; border-color: var(--border-color);"/>
+            <div class="input-group">
+                <label>Vendor ID (Vendor side)</label>
+                <input type="text" id="vendorBookingId" placeholder="Booking ID for accept/reject" value="">
+            </div>
+            <div class="input-row">
+                <button class="btn-success" onclick="acceptBooking()">Accept Booking</button>
+                <button class="btn-danger" onclick="rejectBooking()">Reject Booking</button>
+            </div>
             <button class="btn-danger" style="margin-top: auto;" onclick="clearLogs()">Clear Console Logs</button>
         </div>
 
@@ -736,6 +751,53 @@
         }
 
         // Register custom event listeners from backend
+
+        // --- Booking Interaction Functions ---
+        function triggerBooking() {
+            if (!socket || !socket.connected) {
+                log('Cannot trigger booking: Socket not connected.', 'danger');
+                return;
+            }
+            const bookingId = document.getElementById('bookingId').value.trim();
+            if (!bookingId) {
+                log('Please enter a Booking ID to trigger.', 'danger');
+                return;
+            }
+            const payload = { bookingId };
+            log(`Emitting 'new_booking_request' with payload`, 'warning', payload);
+            socket.emit('new_booking_request', payload);
+        }
+
+        function acceptBooking() {
+            if (!socket || !socket.connected) {
+                log('Cannot accept booking: Socket not connected.', 'danger');
+                return;
+            }
+            const bookingId = document.getElementById('vendorBookingId').value.trim();
+            if (!bookingId) {
+                log('Please provide Booking ID to accept.', 'danger');
+                return;
+            }
+            const payload = { bookingId };
+            log(`Emitting 'accept_booking' for Booking ID ${bookingId}`, 'success', payload);
+            socket.emit('accept_booking', payload);
+        }
+
+        function rejectBooking() {
+            if (!socket || !socket.connected) {
+                log('Cannot reject booking: Socket not connected.', 'danger');
+                return;
+            }
+            const bookingId = document.getElementById('vendorBookingId').value.trim();
+            if (!bookingId) {
+                log('Please provide Booking ID to reject.', 'danger');
+                return;
+            }
+            const payload = { bookingId };
+            log(`Emitting 'reject_booking' for Booking ID ${bookingId}`, 'danger', payload);
+            socket.emit('reject_booking', payload);
+        }
+        
         function registerAppEvents() {
             const events = [
                 'booking_status_updated',
