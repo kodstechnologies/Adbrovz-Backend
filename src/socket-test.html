@@ -366,10 +366,13 @@
                 <div class="input-group">
                     <label for="serverUrl">Socket Server URL</label>
                     <input type="text" id="serverUrl" placeholder="Defaults to current window host">
-                </div>
                 <div class="input-group">
                     <label for="socketPath">Socket.IO Path</label>
                     <input type="text" id="socketPath" value="/socket.io/">
+                </div>
+                <div class="input-group">
+                    <label for="authToken">Auth Token (JWT) [Optional]</label>
+                    <input type="text" id="authToken" placeholder="Bearer eyJhbGciOi...">
                 </div>
                 <div class="status-grid">
                     <div class="status-item">
@@ -431,11 +434,11 @@
             <div class="log-header">
                 <span style="font-weight: 600; font-size: 14px;">Event Log (Filtered)</span>
                 <div class="log-filters">
-                    <button class="filter-btn active" onclick="setFilter('all')">All</button>
-                    <button class="filter-btn" onclick="setFilter('conn')">Connection</button>
-                    <button class="filter-btn" onclick="setFilter('events')">Custom Events</button>
-                    <button class="filter-btn" onclick="setFilter('heartbeat')">Ping/Pong</button>
-                    <button class="filter-btn" onclick="setFilter('error')">Errors</button>
+                    <button class="filter-btn active" onclick="setFilter('all', this)">All</button>
+                    <button class="filter-btn" onclick="setFilter('conn', this)">Connection</button>
+                    <button class="filter-btn" onclick="setFilter('events', this)">Custom Events</button>
+                    <button class="filter-btn" onclick="setFilter('heartbeat', this)">Ping/Pong</button>
+                    <button class="filter-btn" onclick="setFilter('error', this)">Errors</button>
                 </div>
             </div>
             <div id="logContainer" class="log-container">
@@ -507,11 +510,15 @@
             return 'all';
         }
 
-        function setFilter(filter) {
-            activeFilter = filter;
-            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
-            applyFilter();
+        function setFilter(filter, element) {
+    // Log filter change for debugging
+    log(`Filter changed to ${filter}`, 'info');
+    activeFilter = filter;
+    document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+    if (element) {
+        element.classList.add('active');
+    }
+    applyFilter();
         }
 
         function applyFilter() {
@@ -551,20 +558,29 @@
 
             const serverUrl = document.getElementById('serverUrl').value || window.location.origin;
             const socketPath = document.getElementById('socketPath').value || '/socket.io/';
+            const authToken = document.getElementById('authToken').value.trim();
 
             log(`Initiating connection to ${serverUrl} (Path: ${socketPath})...`, 'warning');
             
             connectBadge.innerText = 'Connecting...';
             connectBadge.className = 'badge badge-status connecting';
             
-            socket = io(serverUrl, {
+            const options = {
                 path: socketPath,
                 transports: ['websocket', 'polling'],
                 reconnection: true,
                 reconnectionAttempts: 10,
                 reconnectionDelay: 2000,
                 timeout: 20000
-            });
+            };
+
+            if (authToken) {
+                const token = authToken.startsWith('Bearer ') ? authToken.slice(7) : authToken;
+                options.auth = { token: token };
+                log(`Passing handshake token: ${token.substring(0, 15)}...`, 'warning');
+            }
+
+            socket = io(serverUrl, options);
 
             attemptsCount = 0;
             document.getElementById('statAttempts').innerText = attemptsCount;
