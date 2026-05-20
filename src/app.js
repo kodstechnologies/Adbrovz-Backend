@@ -15,6 +15,13 @@ const { errorHandler, notFoundHandler } = require('./middlewares/error.middlewar
 const app = express();
 
 /**
+ * Socket diagnostics client page (served before helmet to avoid CSP blocking inline scripts)
+ */
+app.get('/socket-test', (req, res) => {
+  res.sendFile(path.join(__dirname, 'socket-test.html'));
+});
+
+/**
  * Static files
  */
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
@@ -92,12 +99,7 @@ app.get('/favicon.ico', (req, res) => {
   res.status(204).end();
 });
 
-/**
- * Socket diagnostics client page
- */
-app.get('/socket-test', (req, res) => {
-  res.sendFile(path.join(__dirname, 'socket-test.html'));
-});
+/* Socket diagnostics route moved above helmet middleware */
 
 /**
  * Rate limiting
