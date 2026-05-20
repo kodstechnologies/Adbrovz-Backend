@@ -117,6 +117,15 @@ const initSocket = (server) => {
             console.log(`🚀 Socket ${socket.id} upgraded to ${upgradedTransport}`);
         });
 
+        // Log underlying Engine.IO connection close and error events
+        socket.conn.on("close", (reason) => {
+            console.log(`🔴 [ENGINE CLOSE] Socket ${socket.id} closed. Reason: ${reason}`);
+        });
+
+        socket.conn.on("error", (err) => {
+            console.error(`🚨 [ENGINE ERROR] Socket ${socket.id} error:`, err);
+        });
+
         // ─── AUTO-REGISTRATION FROM JWT ────────────────────────────────────
         // App passes token via socket.handshake.auth.token or query.token
         const token = socket.handshake.auth?.token || socket.handshake.query?.token;
@@ -700,7 +709,7 @@ const initSocket = (server) => {
         });
 
         socket.on('disconnect', async (reason) => {
-            console.log(`WebSocket Disconnected: ${socket.id}, reason: ${reason}`);
+            console.log(`WebSocket Disconnected: ${socket.id}, reason: ${reason}, transport: ${socket.conn?.transport?.name || 'unknown'}`);
             // Remove socket from active list
             for (const [vendorId, sockets] of activeVendors.entries()) {
                 const index = sockets.indexOf(socket.id);
