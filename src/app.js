@@ -42,23 +42,37 @@ app.use(mongoSanitize());
 /**
  * CORS
  */
-const allowedOrigins = config.CORS_ORIGIN?.split(',') || ['http://localhost:3000'];
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    exposedHeaders: ['Authorization'],
-  })
-);
+// --- CORS configuration -------------------------------------------------
+// Determine allowed origins from environment. Use explicit origins when credentials are needed.
+// If CORS_ORIGIN is set to '*', we fallback to allowing any origin **without** credentials,
+// because browsers reject `Access-Control-Allow-Origin: *` when `credentials: true`.
+// Admin UI runs on https://admin.adbrovz.tech, so we include that as the default.
+const allowedOrigins = (config.CORS_ORIGIN?.split(',') || ['https://admin.adbrovz.tech']).map(o => o.trim());
 
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no Origin (like curl, Postman) or from allowed list
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes('*')) {
+      // Wildcard: do not send credentials
+      return callback(null, true);
+    }
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
+  // Only send credentials when a specific origin is configured (no wildcard)
+  credentials: !allowedOrigins.includes('*'),
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Authorization'],
+};
+
+app.use(cors(corsOptions));
+// Ensure pre‑flight OPTIONS requests are handled for all routes
+app.options('*', cors(corsOptions));
+// -------------------------------------------------------------------------
 /**
  * Body parsers
  */
