@@ -36,7 +36,7 @@ const notificationSchema = new mongoose.Schema(
         'purchase_success',
       ],
       required: true,
-    },,
+    },
     title: {
       type: String,
       required: true,
