@@ -153,10 +153,15 @@ const createBookingRequest = async (
 
     // ── Emit Success Response via Socket ──
     try {
-        const { emitToUser } = require('../../socket');
+        const { emitToUser, emitToDiagnostics } = require('../../socket');
         emitToUser(userId, 'booking_created_success', {
             booking,
             message: 'Lead request created successfully. Searching for vendors...'
+        });
+        // Always broadcast to diagnostics regardless of whether user socket is connected
+        emitToDiagnostics('booking_created_success', {
+            booking,
+            message: `[LIVE] New booking request: ${booking.bookingID || booking._id}`
         });
     } catch (socketErr) {
         console.error('[SOCKET ERROR] Failed to emit booking_created_success in requestLead:', socketErr.message);
