@@ -7,6 +7,13 @@ const activeVendors = new Map(); // vendorId -> [socketId1, socketId2, ...]
 const activeUsers = new Map(); // userId -> [socketId1, socketId2, ...]
 const pendingVendorDisconnects = new Map(); // vendorId -> setTimeout ID
 
+const emitToDiagnostics = (event, data) => {
+    if (io) {
+        io.to('diagnostics').emit(event, data);
+        console.log(`📡 [DIAGNOSTICS] Direct broadcast: '${event}'`);
+    }
+};
+
 
 const stringifyId = (id) => {
     if (!id) return null;
@@ -40,6 +47,12 @@ const registerVendorSocket = async (vendorId, socketId) => {
     const sockets = activeVendors.get(vId);
     if (!sockets.includes(socketId)) sockets.push(socketId);
     console.log(`✅ Vendor ${vId} auto-registered on socket ${socketId}. Total sockets for this vendor: ${sockets.length}. All active vendors: ${[...activeVendors.keys()].join(', ')}`);
+    emitToDiagnostics('socket_registration_event', {
+        socketId,
+        role: 'vendor',
+        id: vId,
+        timestamp: new Date()
+    });
 
     // Persist online status to DB (only if membership is valid)
     try {
@@ -83,6 +96,12 @@ const registerUserSocket = (userId, socketId) => {
     const sockets = activeUsers.get(uId);
     if (!sockets.includes(socketId)) sockets.push(socketId);
     console.log(`✅ User ${uId} auto-registered on socket ${socketId}. Total: ${sockets.length}`);
+    emitToDiagnostics('socket_registration_event', {
+        socketId,
+        role: 'user',
+        id: uId,
+        timestamp: new Date()
+    });
 };
 
 const initSocket = (server) => {
