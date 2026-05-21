@@ -25,6 +25,7 @@ app.get('/socket-test', (req, res) => {
  * Static files
  */
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/cdn/images', express.static(path.join(__dirname, '../uploads/images')));
 
 /**
  * Trust proxy (important for rate limiting & real IPs)
