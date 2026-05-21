@@ -92,7 +92,9 @@ const updateFcmToken = asyncHandler(async (req, res) => {
   }
 
   const User = require('../../models/User.model');
-  const user = await User.findByIdAndUpdate(userId, { fcmToken }, { new: true });
+  // Support both Mongo _id and custom userID field for backward compatibility
+  const filter = { $or: [{ _id: userId }, { userID: userId }] };
+  const user = await User.findOneAndUpdate(filter, { fcmToken }, { new: true });
   
   if (!user) {
     console.log(`❌ [FCM UPDATE] User ${userId} not found in User collection`);
