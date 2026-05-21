@@ -22,6 +22,8 @@ const notificationSchema = new mongoose.Schema(
         'booking_completed',
         'booking_rescheduled',
         'price_confirmation',
+        // New enum value – used when a vendor proposes a price for a booking
+        'price_proposed',
         'reminder',
         'general',
         'account_suspended',
@@ -34,7 +36,7 @@ const notificationSchema = new mongoose.Schema(
         'purchase_success',
       ],
       required: true,
-    },
+    },,
     title: {
       type: String,
       required: true,
