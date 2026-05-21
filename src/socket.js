@@ -130,6 +130,15 @@ const initSocket = (server) => {
         const transport = socket.conn.transport.name;
         console.log(`🔌 New Connection: ${socket.id} [Transport: ${transport}] [IP: ${socket.handshake.address}]`);
 
+        // Broadcast new connection to diagnostics room
+        emitToDiagnostics('socket_connection_event', {
+            type: 'connect',
+            socketId: socket.id,
+            transport,
+            ip: socket.handshake.address,
+            timestamp: new Date()
+        });
+
         // Log upgrade events
         socket.conn.on('upgrade', () => {
             const upgradedTransport = socket.conn.transport.name;
@@ -857,6 +866,17 @@ const initSocket = (server) => {
 
         socket.on('disconnect', async (reason) => {
             console.log(`WebSocket Disconnected: ${socket.id}, reason: ${reason}, transport: ${socket.conn?.transport?.name || 'unknown'}`);
+
+            // Broadcast disconnection to diagnostics room
+            emitToDiagnostics('socket_connection_event', {
+                type: 'disconnect',
+                socketId: socket.id,
+                reason,
+                transport: socket.conn?.transport?.name || 'unknown',
+                registeredAs: socket.vendorId ? `vendor:${socket.vendorId}` : (socket.userId ? `user:${socket.userId}` : 'anonymous'),
+                timestamp: new Date()
+            });
+
             // Remove socket from active list
             for (const [vendorId, sockets] of activeVendors.entries()) {
                 const index = sockets.indexOf(socket.id);
@@ -1009,6 +1029,7 @@ module.exports = {
     isVendorOnline,
     getVendorSockets,
     emitToVendor,
+    emitToDiagnostics,
     activeVendors,
     isUserOnline,
     getUserSockets,
