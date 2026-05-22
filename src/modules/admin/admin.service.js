@@ -509,11 +509,17 @@ const updateGlobalSettings = async (settings, adminId) => {
 const getSetting = async (key) => {
   const { DEFAULT_SETTINGS } = require('../../constants/settings');
   const setting = await GlobalConfig.findOne({ key });
-  let value;
-  if (setting) {
-    value = setting.value;
-  } else {
-    value = DEFAULT_SETTINGS[key]?.value;
+  let value = setting ? setting.value : DEFAULT_SETTINGS[key]?.value;
+
+  if (key === 'pricing.booking_gst_percent' && (value === undefined || value === null)) {
+    // Fallback to membership GST percent if booking GST not set
+    const membershipSetting = await GlobalConfig.findOne({ key: 'pricing.membership_gst_percent' });
+    if (membershipSetting && membershipSetting.value !== undefined && membershipSetting.value !== null) {
+      value = membershipSetting.value;
+    } else {
+      // Use default if DB does not have it
+      value = DEFAULT_SETTINGS['pricing.membership_gst_percent']?.value;
+    }
   }
   // Auto-convert to Number if the default type is a number, to prevent string type issues
   if (DEFAULT_SETTINGS[key] && typeof DEFAULT_SETTINGS[key].value === 'number' && value !== undefined && value !== null) {
