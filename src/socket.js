@@ -519,7 +519,7 @@ const initSocket = (server) => {
         socket.on('update_location', async (data) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
-                let { lat, lng } = data || {};
+                let { lat, lng, accuracy } = data || {};
 
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (lat === undefined || lng === undefined) throw new Error('Latitude and Longitude are required');
@@ -528,6 +528,19 @@ const initSocket = (server) => {
                 // If they are sent swapped from the app, we auto-detect and correct them.
                 if (lng < lat) {
                     [lng, lat] = [lat, lng];
+                }
+
+                // Filter by location accuracy (only update if accuracy is <= 50 meters)
+                if (accuracy !== undefined && accuracy > 50) {
+                    console.log(`[SOCKET] Location update skipped for vendor ${vendorId} due to poor accuracy: ${accuracy}m`);
+                    socket.emit('location_updated_success', {
+                        lat,
+                        lng,
+                        ignored: true,
+                        reason: 'low_accuracy',
+                        timestamp: new Date()
+                    });
+                    return;
                 }
 
                 const Vendor = require('./models/Vendor.model');
