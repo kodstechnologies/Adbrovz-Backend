@@ -139,9 +139,16 @@ const createBookingRequest = async (
         scheduledDate: scheduledDate || new Date(),
         scheduledTime: scheduledTime || '00:00',
         category: leadCategory,
-        location: { address, latitude, longitude, pincode }
+        location: { address, latitude, longitude, pincode },
+        // Set GST percent from global settings (fallback to 0)
+        pricing: {
+            gstPercent: (await adminService.getSetting('pricing.booking_gst_percent')) || 0
+        }
     });
 
+    // Recalculate full pricing (including GST) after setting GST percent
+    await recalculateBookingPrice(booking);
+    await booking.save();
 
     const searchTimeoutMins = (await adminService.getSetting('bookings.search_timeout_mins')) || 2;
 
