@@ -45,6 +45,12 @@ const bookingSchema = new mongoose.Schema(
       enum: [
         'pending_acceptance',
         'pending',
+        'price_proposed',
+        'price_confirmed',
+        'extra_services_requested',
+        'extra_services_priced',
+        'extra_services_accepted',
+        'extra_services_rejected',
         'on_the_way',
         'arrived',
         'ongoing',
