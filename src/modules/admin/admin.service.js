@@ -509,8 +509,18 @@ const updateGlobalSettings = async (settings, adminId) => {
 const getSetting = async (key) => {
   const { DEFAULT_SETTINGS } = require('../../constants/settings');
   const setting = await GlobalConfig.findOne({ key });
-  if (setting) return setting.value;
-  return DEFAULT_SETTINGS[key]?.value;
+  let value;
+  if (setting) {
+    value = setting.value;
+  } else {
+    value = DEFAULT_SETTINGS[key]?.value;
+  }
+  // Auto-convert to Number if the default type is a number, to prevent string type issues
+  if (DEFAULT_SETTINGS[key] && typeof DEFAULT_SETTINGS[key].value === 'number' && value !== undefined && value !== null) {
+    value = Number(value);
+    if (isNaN(value)) value = DEFAULT_SETTINGS[key].value;
+  }
+  return value;
 };
 
 const getMembershipPricing = async () => {
@@ -524,6 +534,7 @@ const getMembershipPricing = async () => {
     const elite = tiers.find(t => t.name === 'Elite') || { price: 4000, validityDays: 88 };
     
     const gstPercent = await getSetting('pricing.membership_gst_percent');
+    const bookingGstPercent = await getSetting('pricing.booking_gst_percent');
 
     return {
         // Original keys for backward compatibility (duration-mapped)
@@ -532,6 +543,7 @@ const getMembershipPricing = async () => {
         fee6Months: pro.price,
         fee12Months: elite.price,
         gstPercent: (gstPercent !== undefined && gstPercent !== null) ? Number(gstPercent) : 0,
+        bookingGstPercent: (bookingGstPercent !== undefined && bookingGstPercent !== null) ? Number(bookingGstPercent) : 0,
 
         // UI-friendly keys for Basic/Pro/Elite mapping
         basicPrice: basic.price,
@@ -558,7 +570,7 @@ const updateMembershipPricing = async (data, adminId) => {
     const { 
         basicPrice, proPrice, elitePrice,
         basicValidity, proValidity, eliteValidity,
-        gstPercent 
+        gstPercent, bookingGstPercent 
     } = data;
     
     const updates = [];
@@ -604,6 +616,10 @@ const updateMembershipPricing = async (data, adminId) => {
 
     if (gstPercent !== undefined) {
         await updateGlobalSettings({ 'pricing.membership_gst_percent': Number(gstPercent) }, adminId);
+    }
+
+    if (bookingGstPercent !== undefined) {
+        await updateGlobalSettings({ 'pricing.booking_gst_percent': Number(bookingGstPercent) }, adminId);
     }
 
     if (updates.length > 0) {

@@ -2173,7 +2173,8 @@ const recalculateBookingPrice = async (booking) => {
             .reduce((sum, s) => sum + (s.finalPrice || 0), 0);
     }
 
-    const gstPercent = (await adminService.getSetting('pricing.booking_gst_percent')) || 0;
+    const rawGstPercent = await adminService.getSetting('pricing.booking_gst_percent');
+    const gstPercent = (rawGstPercent !== undefined && rawGstPercent !== null) ? Number(rawGstPercent) : 0;
     const travelCharge = booking.pricing?.travelCharge || 0;
     const additionalCharges = booking.pricing?.additionalCharges || 0;
     
@@ -2181,8 +2182,12 @@ const recalculateBookingPrice = async (booking) => {
     const gstAmount = Math.round((taxableAmount * (gstPercent / 100)) * 100) / 100;
     const totalPrice = Math.round((taxableAmount + gstAmount) * 100) / 100;
 
+    console.log(`[GST DEBUG] Booking ${booking._id} | rawGstPercent: ${rawGstPercent} (type: ${typeof rawGstPercent}) | gstPercent: ${gstPercent} | taxableAmount: ${taxableAmount} | gstAmount: ${gstAmount} | totalPrice: ${totalPrice}`);
+
+    // Properly spread Mongoose subdocument to preserve existing fields
+    const existingPricing = booking.pricing?.toObject ? booking.pricing.toObject() : (booking.pricing || {});
     booking.pricing = {
-        ...booking.pricing,
+        ...existingPricing,
         basePrice,
         travelCharge,
         additionalCharges,
@@ -3006,7 +3011,7 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
         throw new ApiError(400, 'None of the provided services matched the user requests');
     }
 
-    recalculateBookingPrice(booking);
+    await recalculateBookingPrice(booking);
     booking.statusHistory.push({
         status: 'extra_services_priced',
         reason: 'Vendor priced the requested extra services',
@@ -3083,7 +3088,7 @@ async function vendorAcceptExtraServices(vendorId, bookingId) {
     booking.markModified('userRequestedServices');
     
     // Recalculate total price to include newly accepted services
-    recalculateBookingPrice(booking);
+    await recalculateBookingPrice(booking);
 
     booking.statusHistory.push({
         status: 'extra_services_accepted',
@@ -3234,7 +3239,7 @@ async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
         throw new ApiError(400, 'No priced extra services matched the provided IDs');
     }
 
-    recalculateBookingPrice(booking);
+    await recalculateBookingPrice(booking);
     booking.statusHistory.push({
         status: 'extra_services_accepted',
         actor: 'user',
