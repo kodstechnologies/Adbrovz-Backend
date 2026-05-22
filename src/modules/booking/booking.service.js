@@ -2251,7 +2251,9 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
         if (item) {
             // Check if it was unpriced in Service model or if adminPrice is 0/null
             const serviceDoc = await Service.findById(item.service);
-            const isUnpriced = serviceDoc && (!serviceDoc.isAdminPriced || !serviceDoc.serviceCharge || serviceDoc.serviceCharge === 0);
+            const hasAdminPrice = (serviceDoc.bookingPrice !== undefined && serviceDoc.bookingPrice !== null && serviceDoc.bookingPrice > 0) || 
+                                  (serviceDoc.serviceCharge !== undefined && serviceDoc.serviceCharge !== null && serviceDoc.serviceCharge > 0);
+            const isUnpriced = serviceDoc && (!serviceDoc.isAdminPriced || !hasAdminPrice);
             
             if (isUnpriced || isExtraService) {
                 console.log(`[SOCKET] Updating price for service: ${item.service}`);
@@ -2603,7 +2605,9 @@ const addServicesToBooking = async (vendorId, bookingId, newServices) => {
         }
 
         const qty = item.quantity || 1;
-        const adminPrice = serviceDoc.serviceCharge || null;
+        const adminPrice = (serviceDoc.bookingPrice !== undefined && serviceDoc.bookingPrice !== null && serviceDoc.bookingPrice > 0)
+            ? serviceDoc.bookingPrice
+            : (serviceDoc.serviceCharge || null);
         const vendorPrice = adminPrice ? null : (item.price || null);
         const finalPrice = adminPrice
             ? adminPrice * qty
@@ -2834,7 +2838,9 @@ async function requestExtraServices(userId, bookingId, newServices) {
             isPriceConfirmed = true;   // No re-approval needed
             status       = 'accepted'; // Skip vendor pricing step
         } else {
-            adminPrice  = serviceDoc.serviceCharge || 0;
+            adminPrice  = (serviceDoc.bookingPrice !== undefined && serviceDoc.bookingPrice !== null && serviceDoc.bookingPrice > 0)
+                ? serviceDoc.bookingPrice
+                : (serviceDoc.serviceCharge || 0);
             vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
             finalPrice  = adminPrice > 0
                 ? adminPrice * qty
@@ -2999,7 +3005,9 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
             if (!serviceDoc) continue;
 
             const qty = requestItem.quantity || 1;
-            const adminPrice = serviceDoc.serviceCharge || 0;
+            const adminPrice = (serviceDoc.bookingPrice !== undefined && serviceDoc.bookingPrice !== null && serviceDoc.bookingPrice > 0)
+                ? serviceDoc.bookingPrice
+                : (serviceDoc.serviceCharge || 0);
             const vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
 
             requestItem.adminPrice = adminPrice;
