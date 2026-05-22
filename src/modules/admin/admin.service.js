@@ -616,6 +616,10 @@ const updateMembershipPricing = async (data, adminId) => {
 
     if (gstPercent !== undefined) {
         await updateGlobalSettings({ 'pricing.membership_gst_percent': Number(gstPercent) }, adminId);
+        // If booking GST percent is not explicitly provided, mirror the membership GST percent
+        if (bookingGstPercent === undefined) {
+            await updateGlobalSettings({ 'pricing.booking_gst_percent': Number(gstPercent) }, adminId);
+        }
     }
 
     if (bookingGstPercent !== undefined) {
