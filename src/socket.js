@@ -815,6 +815,10 @@ const initSocket = (server) => {
             }
         });
 
+        socket.on("booking_received_ack", (data) => {
+            console.log("✅ Vendor ACK RECEIVED:", data);
+        });
+
         // Admin/Verification socket actions
         socket.on('verify_vendor_document', async (data) => {
             try {
