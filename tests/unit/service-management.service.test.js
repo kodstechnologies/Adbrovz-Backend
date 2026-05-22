@@ -4,16 +4,19 @@ jest.mock('../../src/models/Category.model', () => ({
 
 jest.mock('../../src/models/Subcategory.model', () => ({
     find: jest.fn(),
-    findById: jest.fn()
+    findById: jest.fn(),
+    countDocuments: jest.fn().mockResolvedValue(0)
 }));
 
 jest.mock('../../src/models/ServiceType.model', () => ({
     find: jest.fn(),
-    findById: jest.fn()
+    findById: jest.fn(),
+    countDocuments: jest.fn().mockResolvedValue(0)
 }));
 
 jest.mock('../../src/models/Service.model', () => ({
-    find: jest.fn()
+    find: jest.fn(),
+    countDocuments: jest.fn().mockResolvedValue(0)
 }));
 
 const Category = require('../../src/models/Category.model');
@@ -23,10 +26,15 @@ const Service = require('../../src/models/Service.model');
 const ApiError = require('../../src/utils/ApiError');
 const serviceService = require('../../src/modules/service/service.service');
 
-const createQueryMock = (result) => ({
-    sort: jest.fn().mockReturnThis(),
-    select: jest.fn().mockResolvedValue(result)
-});
+const createQueryMock = (result) => {
+    const mock = {
+        sort: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve) => resolve(result))
+    };
+    return mock;
+};
 
 describe('getServiceManagementRows', () => {
     beforeEach(() => {
@@ -34,7 +42,7 @@ describe('getServiceManagementRows', () => {
     });
 
     it('returns all four rows with empty dependent sections when nothing is selected', async () => {
-        const categories = [{ id: 'cat-1', name: 'Cleaning' }];
+        const categories = [{ _id: 'cat-1', name: 'Cleaning' }];
 
         Category.find.mockReturnValue(createQueryMock(categories));
 
@@ -56,10 +64,10 @@ describe('getServiceManagementRows', () => {
         const subcategoryId = '507f1f77bcf86cd799439012';
         const serviceTypeId = '507f1f77bcf86cd799439013';
 
-        const categories = [{ id: categoryId, name: 'Cleaning' }];
-        const subcategories = [{ id: subcategoryId, name: 'Home Cleaning' }];
-        const serviceTypes = [{ id: serviceTypeId, name: 'Deep Cleaning' }];
-        const services = [{ id: '507f1f77bcf86cd799439014', title: 'Kitchen Deep Clean' }];
+        const categories = [{ _id: categoryId, name: 'Cleaning' }];
+        const subcategories = [{ _id: subcategoryId, name: 'Home Cleaning' }];
+        const serviceTypes = [{ _id: serviceTypeId, name: 'Deep Cleaning' }];
+        const services = [{ _id: '507f1f77bcf86cd799439014', title: 'Kitchen Deep Clean' }];
 
         ServiceType.findById.mockReturnValue({
             select: jest.fn().mockResolvedValue({
