@@ -57,6 +57,7 @@ router.patch('/membership-pricing', adminController.updateMembershipPricing);
 router.get('/bookings/export', adminController.exportBookings);
 router.get('/bookings', adminController.getAllBookings);
 router.get('/bookings/:id', adminController.getBookingDetails);
+router.post('/bookings/recalculate-gst', adminController.bulkRecalculateGST);
 
 // Sub-Admin management
 router.post('/sub-admins', adminController.createSubAdmin);

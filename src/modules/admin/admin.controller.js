@@ -267,6 +267,24 @@ const deleteSubAdmin = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, null, 'Sub-admin deleted successfully'));
 });
 
+const bulkRecalculateGST = async (req, res, next) => {
+  try {
+    const Booking = require('../../models/Booking.model');
+    const cursor = Booking.find().cursor();
+    let count = 0;
+    for (let doc = await cursor.next(); doc != null; doc = await cursor.next()) {
+      await recalculateBookingPrice(doc);
+      await doc.save();
+      count++;
+    }
+    res.json({ message: `Recalculated GST for ${count} bookings` });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const { recalculateBookingPrice } = require('../booking/booking.service');
+
 module.exports = {
   getDashboard,
   getUsers,
@@ -297,4 +315,6 @@ module.exports = {
   createSubAdmin,
   updateSubAdmin,
   deleteSubAdmin,
+  bulkRecalculateGST
 };
+
