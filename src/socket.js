@@ -57,22 +57,23 @@ const registerVendorSocket = async (vendorId, socketId) => {
     // Persist online status to DB (only if membership is valid)
     try {
         const Vendor = require('./models/Vendor.model');
-        const vendor = await Vendor.findById(vId).select('membership.expiryDate');
+        const vendor = await Vendor.findById(vId).select('membership.expiryDate serviceRenewal.expiryDate');
         
         if (!vendor) {
             console.error(`⚠️ Vendor ${vId} not found during socket registration`);
             return;
         }
 
-        const isExpired = vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) < new Date();
+        const isMembershipExpired = vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) < new Date();
+        const isServiceExpired = vendor.serviceRenewal?.expiryDate && new Date(vendor.serviceRenewal.expiryDate) < new Date();
         
-        if (isExpired) {
-            console.log(`🚫 Vendor ${vId} membership expired (${vendor.membership.expiryDate}). Keeping offline.`);
+        if (isMembershipExpired || isServiceExpired) {
+            console.log(`🚫 Vendor ${vId} membership or service expired. Keeping offline.`);
             await Vendor.findByIdAndUpdate(vId, { isOnline: false });
             if (io) {
                 io.to(socketId).emit('membership_expired_error', { 
-                    message: 'Your membership has expired. Please renew to go online.',
-                    expiryDate: vendor.membership.expiryDate
+                    message: 'Your membership or service has expired. Please renew to go online.',
+                    expiryDate: vendor.membership?.expiryDate || vendor.serviceRenewal?.expiryDate
                 });
             }
             return;

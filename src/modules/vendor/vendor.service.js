@@ -1543,6 +1543,15 @@ const toggleOnlineStatus = async (vendorId, isOnline) => {
     // Fix boolean parsing for string inputs safely
     const targetStatus = isOnline === true || isOnline === 'true';
 
+    if (targetStatus) {
+        const isMembershipExpired = vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) < new Date();
+        const isServiceExpired = vendor.serviceRenewal?.expiryDate && new Date(vendor.serviceRenewal.expiryDate) < new Date();
+        
+        if (isMembershipExpired || isServiceExpired) {
+            throw new ApiError(403, 'Your membership or service has expired. Please renew to go online.');
+        }
+    }
+
     // Use findByIdAndUpdate for reliable atomic DB write
     const updated = await Vendor.findByIdAndUpdate(
         vendorId,
