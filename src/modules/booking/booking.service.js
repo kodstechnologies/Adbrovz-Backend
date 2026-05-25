@@ -1830,7 +1830,7 @@ const cancelBooking = async (userId, bookingId, reason) => {
     }
 
     const lockMins = (await adminService.getSetting('bookings.cancellation_lock_mins')) || 60;
-    
+
     // Combine scheduledDate and scheduledTime into a proper Date object in IST
     const scheduledDateTime = _getScheduledDateTimeIST(booking.scheduledDate, booking.scheduledTime);
 
@@ -1838,7 +1838,13 @@ const cancelBooking = async (userId, bookingId, reason) => {
     const diffMs = scheduledDateTime - now;
     const diffMins = Math.floor(diffMs / (1000 * 60));
 
-    if (diffMins < lockMins && diffMins > 0) {
+    // Allow users to cancel while the booking is still searching for vendors
+    // (status: 'pending_acceptance'). For other statuses enforce the lock window.
+    const skipLockForPending = booking.status === 'pending_acceptance';
+
+    console.log(`[CANCEL DEBUG] Booking ${booking._id} | status: ${booking.status} | scheduled: ${scheduledDateTime} | now: ${now} | diffMins: ${diffMins} | lockMins: ${lockMins} | skipLockForPending: ${skipLockForPending}`);
+
+    if (!skipLockForPending && diffMins < lockMins && diffMins > 0) {
         throw new ApiError(400, `Booking cannot be cancelled within ${lockMins} minutes of the scheduled time`);
     }
 
