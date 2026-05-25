@@ -77,6 +77,7 @@ router.get('/membership-details', authenticate, authorize(ROLES.VENDOR), vendorC
 router.get('/:vendorId/membership-detail', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getVendorMembership);
 router.get('/services/approval-status', authenticate, authorize(ROLES.VENDOR), vendorController.getServiceApprovalStatus);
 router.get('/register/select-services', authenticate, authorize(ROLES.VENDOR), vendorController.getSelectedServices);
+router.get('/register/:vendorId/select-services', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getSelectedServices);
 router.post('/register/select-services', authenticate, authorize(ROLES.VENDOR), vendorController.selectServices);
 router.post('/register/purchase-membership', authenticate, authorize(ROLES.VENDOR), vendorController.purchaseMembership);
 router.post('/register/purchase-plan', authenticate, authorize(ROLES.VENDOR), vendorController.purchaseCreditPlan);
