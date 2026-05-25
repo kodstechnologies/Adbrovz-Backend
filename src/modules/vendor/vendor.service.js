@@ -534,7 +534,7 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
  */
 const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     const vendor = await Vendor.findById(vendorId)
-        .select('selectedCategories selectedSubcategories selectedServiceTypes selectedServices membership.durationMonths membership.membershipId categorySubscriptions')
+        .select('selectedCategories selectedSubcategories selectedServiceTypes selectedServices membership.durationMonths membership.membershipId categorySubscriptions registrationStep serviceApprovalStatus')
         .populate({ path: 'categorySubscriptions.category', select: 'name' })
         .populate({ path: 'categorySubscriptions.subcategories', select: 'name' })
         .populate({ path: 'categorySubscriptions.services', select: 'title' });
@@ -574,6 +574,12 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         .populate('planId', 'name price validityDays')
         .lean();
 
+    const approvedServices = selectedServices.map((service) => ({
+        id: service.id,
+        name: service.title,
+        serviceCharge: service.serviceCharge
+    }));
+
     return {
         vendorId,
         subtotal: calc.combinedSubtotal,
@@ -599,7 +605,12 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         selectedServiceIds: parseArrayInput(normalizedServiceIds),
         categorySubscriptions: vendor.categorySubscriptions || [],
         paymentHistory: paymentHistory || [],
-        membershipId: vendor.membership?.membershipId || null
+        membershipId: vendor.membership?.membershipId || null,
+        approvedServices,
+        notApprovedServices: [],
+        amount: calc.grandTotal,
+        registrationStep: vendor.registrationStep || (vendor.serviceApprovalStatus === 'approved' ? 'SERVICES_APPROVED' : 'PENDING'),
+        isServiceVerified: vendor.serviceApprovalStatus === 'approved'
     };
 };
 
@@ -901,10 +912,29 @@ const getServiceApprovalStatus = async (vendorId) => {
         status: vendor.serviceApprovalStatus || 'pending'
     }));
 
+    const approvedServices = vendor.serviceApprovalStatus === 'approved'
+        ? vendor.selectedServices.map((svc) => ({
+            id: svc._id,
+            name: svc.name,
+            serviceCharge: svc.serviceCharge || 0
+        }))
+        : [];
+
+    const notApprovedServices = vendor.serviceApprovalStatus === 'approved'
+        ? []
+        : vendor.selectedServices.map((svc) => ({
+            id: svc._id,
+            name: svc.name,
+            serviceCharge: svc.serviceCharge || 0
+        }));
+
     return {
         services,
+        approvedServices,
+        notApprovedServices,
         amount: calc.grandTotal,
-        registrationStep: vendor.registrationStep
+        registrationStep: vendor.registrationStep,
+        isServiceVerified: vendor.serviceApprovalStatus === 'approved'
     };
 };
 
