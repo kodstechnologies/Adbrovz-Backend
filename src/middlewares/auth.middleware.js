@@ -20,6 +20,10 @@ const authenticate = asyncHandler(async (req, res, next) => {
   // Attach user info to request
   req.user = decoded;
   req.user.id = decoded.userId || decoded.id || decoded._id;
+  if (req.user?.role) {
+    const normalizedRole = String(req.user.role).toLowerCase().trim();
+    req.user.role = normalizedRole === 'vendors' ? ROLES.VENDOR : normalizedRole;
+  }
   
   console.log('DEBUG: Authenticated User:', {
     role: req.user.role,
