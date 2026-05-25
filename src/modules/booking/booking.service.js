@@ -16,6 +16,42 @@ const mongoose = require('mongoose');
 const { sendPush } = require('../../utils/pushNotification');
 const { v4: uuidv4 } = require('uuid');
 
+const getSearchWaveConfig = async () => {
+    const [r1_km, r1_min, r2_km, r2_min, r3_km, r3_min] = await Promise.all([
+        adminService.getSetting('notifications.radius_row1_km'),
+        adminService.getSetting('notifications.radius_row1_mins'),
+        adminService.getSetting('notifications.radius_row2_km'),
+        adminService.getSetting('notifications.radius_row2_mins'),
+        adminService.getSetting('notifications.radius_row3_km'),
+        adminService.getSetting('notifications.radius_row3_mins')
+    ]);
+
+    const waves = [
+        { km: Number(r1_km) || 2, mins: Number(r1_min) || 5 },
+        { km: Number(r2_km) || 5, mins: Number(r2_min) || 10 },
+        { km: Number(r3_km) || 10, mins: Number(r3_min) || 15 }
+    ];
+
+    const totalSearchTimeMins = waves.reduce((sum, wave) => sum + wave.mins, 0);
+
+    return { waves, totalSearchTimeMins };
+};
+
+const buildSearchTimingPayload = ({ searchId, retryCount, waves, totalSearchTimeMins }) => {
+    const currentRetry = Math.min(retryCount || 0, waves.length - 1);
+    const currentWave = waves[currentRetry];
+    const remainingSearchTimeMins = waves.slice(currentRetry).reduce((sum, wave) => sum + wave.mins, 0);
+
+    return {
+        searchId,
+        retryCount: currentRetry,
+        currentWave: currentRetry + 1,
+        currentWaveTimeMins: currentWave?.mins || 0,
+        remainingSearchTimeMins,
+        totalSearchTimeMins
+    };
+};
+
 // Radius expansion tiers are now dynamic and fetched from GlobalConfig (admin settings)
 
 /**
@@ -293,11 +329,20 @@ const acceptBooking = async (vendorId, bookingId) => {
     // ── Emit acceptance update IMMEDIATELY after locking ──
     try {
         const { emitToUser } = require('../../socket');
+        const { waves, totalSearchTimeMins } = await getSearchWaveConfig();
         emitToUser(booking.user, 'booking_search_update', {
             bookingId: booking._id,
             bookingID: booking.bookingID,
             status: 'accepted',
-            message: 'A vendor has accepted your booking request!'
+            message: 'A vendor has accepted your booking request!',
+            searchCompleted: true,
+            ...buildSearchTimingPayload({
+                searchId: booking.searchId,
+                retryCount: booking.retryCount || 0,
+                waves,
+                totalSearchTimeMins
+            }),
+            remainingSearchTimeMins: 0
         });
         console.log(`[SOCKET] Emitted 'accepted' status update for user: ${booking.user}`);
     } catch (socketErr) {
@@ -1323,6 +1368,7 @@ const searchVendors = async (booking, broadcast = false) => {
         { km: Number(r3_km) || 10, mins: Number(r3_min) || 15 }
     ];
 
+    const totalSearchTimeMins = waves.reduce((sum, wave) => sum + wave.mins, 0);
     const currentWave = waves[Math.min(retryCount, waves.length - 1)];
     const radiusInKm = currentWave.km;
     
@@ -1547,6 +1593,12 @@ const searchVendors = async (booking, broadcast = false) => {
                 status: 'searching',
                 radius: radiusInKm,
                 vendorCount: broadcastCount,
+                ...buildSearchTimingPayload({
+                    searchId: currentSearchId,
+                    retryCount,
+                    waves,
+                    totalSearchTimeMins
+                }),
                 message: broadcastCount > 0 
                   ? `Searching in ${radiusInKm}km radius... notified ${broadcastCount} vendors.`
                   : `Searching in ${radiusInKm}km radius... no vendors online nearby right now.`
@@ -1584,7 +1636,15 @@ const searchVendors = async (booking, broadcast = false) => {
                             bookingId: booking._id,
                             bookingID: booking.bookingID,
                             status: 'no_vendors_available',
-                            message: `Could not find any vendors within ${waves[waves.length - 1].km}km after ${waves[waves.length - 1].mins} minutes of searching. Please try again manually.`
+                            message: `Could not find any vendors within ${waves[waves.length - 1].km}km after ${waves[waves.length - 1].mins} minutes of searching. Please try again manually.`,
+                            searchCompleted: true,
+                            ...buildSearchTimingPayload({
+                                searchId: booking.searchId,
+                                retryCount,
+                                waves,
+                                totalSearchTimeMins
+                            }),
+                            remainingSearchTimeMins: 0
                         });
                     } else {
                         console.log(`[SEARCH] Hard-stop check ignored/cancelled for booking ${booking._id} because searchId changed or status is not pending_acceptance.`);
@@ -1803,6 +1863,7 @@ const cancelBooking = async (userId, bookingId, reason) => {
         .populate('services.service', 'title serviceCharge photo')
         .populate('proposedServices.service', 'title serviceCharge photo')
         .populate('userRequestedServices.service', 'title serviceCharge photo')
+        .populate('category')
         .populate('vendor', 'name phoneNumber photo')
         .populate('user', 'name phoneNumber photo');
 
@@ -1892,6 +1953,7 @@ const vendorCancelBooking = async (vendorId, bookingId, reason) => {
         .populate('services.service', 'title serviceCharge photo')
         .populate('proposedServices.service', 'title serviceCharge photo')
         .populate('userRequestedServices.service', 'title serviceCharge photo')
+        .populate('category')
         .populate('vendor', 'name phoneNumber photo')
         .populate('user', 'name phoneNumber photo');
 
