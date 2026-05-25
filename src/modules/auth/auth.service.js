@@ -298,6 +298,7 @@ const completeVendorSignup = async ({ signupId, pin, confirmPin, acceptedTerms, 
     refreshToken,
     isVerified: vendor.isVerified || false,
     isMembership: !!(vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) > new Date()),
+    serviceApproval: vendor.serviceApprovalStatus === 'approved',
     documentStatus: vendor.documentStatus,
     message: 'Vendor registration completed successfully. Please wait for document approval.',
   };
@@ -830,6 +831,7 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
 
     responsePayload.documentStatus = user.documentStatus || 'pending';
     responsePayload.isMembership = !!(user.membership?.expiryDate && new Date(user.membership.expiryDate) > new Date());
+    responsePayload.serviceApproval = user.serviceApprovalStatus === 'approved';
 
     responsePayload.verificationStatus = {
       isVerified: user.isVerified || false,
