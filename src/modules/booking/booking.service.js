@@ -892,6 +892,15 @@ const _formatBooking = (bookingDoc, role) => {
     if (bookingObj.statusHistory) {
         bookingObj.statusHistory = [...bookingObj.statusHistory]
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .filter(h => {
+                // 1. Never show 'pending_acceptance' status in the history
+                if (h.status === 'pending_acceptance') return false;
+
+                // 2. Only show 'cancelled' status in the history if it was cancelled after acceptance (i.e., there is an assigned vendor)
+                if (h.status === 'cancelled' && !bookingObj.vendor) return false;
+
+                return true;
+            })
             .map(h => {
                 const istTime = formatToLocalISOString(h.timestamp);
                 return {
