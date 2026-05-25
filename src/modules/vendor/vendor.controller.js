@@ -73,6 +73,36 @@ const selectServices = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Get current service selection and calculated fee
+ */
+const getSelectedServices = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.userId || req.user._id;
+    const overrides = {};
+
+    if (req.query.serviceIds) {
+        overrides.serviceIds = Array.isArray(req.query.serviceIds)
+            ? req.query.serviceIds
+            : req.query.serviceIds.split(',');
+    }
+    if (req.query.subcategoryIds) {
+        overrides.subcategoryIds = Array.isArray(req.query.subcategoryIds)
+            ? req.query.subcategoryIds
+            : req.query.subcategoryIds.split(',');
+    }
+    if (req.query.categoryId) {
+        overrides.categoryId = req.query.categoryId;
+    }
+    if (req.query.durationMonths) {
+        overrides.durationMonths = Number(req.query.durationMonths);
+    }
+
+    const result = await vendorService.getVendorMembershipDetails(vendorId, overrides);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Vendor selected services retrieved successfully')
+    );
+});
+
+/**
  * Get Service Approval Status
  */
 const getServiceApprovalStatus = asyncHandler(async (req, res) => {
@@ -537,6 +567,7 @@ module.exports = {
     createMembership,
     verifyMembership,
     selectServices,
+    getSelectedServices,
     getServiceApprovalStatus,
     purchaseMembership,
     purchaseCreditPlan,
