@@ -851,7 +851,8 @@ const approveVendorServices = async (vendorId, serviceData) => {
         approvedServices,
         notApprovedServices,
         amount: calc.grandTotal,
-        registrationStep: 'SERVICES_APPROVED'
+        registrationStep: 'SERVICES_APPROVED',
+        isServiceVerified: vendor.serviceApprovalStatus === 'approved'
     };
 
     // Emit Socket event to vendor
@@ -875,7 +876,8 @@ const approveVendorServices = async (vendorId, serviceData) => {
         vendor,
         approvedServices,
         notApprovedServices,
-        amount: calc.grandTotal
+        amount: calc.grandTotal,
+        isServiceVerified: vendor.serviceApprovalStatus === 'approved'
     };
 };
 
