@@ -351,6 +351,22 @@ const acceptBooking = async (vendorId, bookingId) => {
         }
     });
 
+    // Send silent FCM push notification to other notified vendors to clear their active background notifications
+    if (booking.notifiedVendors && booking.notifiedVendors.length > 0) {
+        booking.notifiedVendors.forEach(otherVendorId => {
+            if (otherVendorId.toString() !== vendorIdStr) {
+                sendPush(
+                    otherVendorId,
+                    'Vendor',
+                    'booking_already_accepted',
+                    'Booking Accepted By Another Vendor',
+                    'You missed your order! This booking has already been accepted by another vendor.',
+                    { bookingId: booking._id.toString(), bookingID: booking.bookingID }
+                );
+            }
+        });
+    }
+
     console.log(`[SOCKET] acceptBooking completed successfully for booking: ${bookingId}`);
     return {
         bookingId: booking._id,
@@ -1392,8 +1408,36 @@ const searchVendors = async (booking, broadcast = false) => {
 
     console.log(`[SEARCH] Searching for vendors for booking ${booking._id} in categoryIds:`, categoryIds);
 
-    let vendors = await Vendor.find(geoQuery).select('_id fcmToken');
-    console.log(`[DEBUG] searchVendors - Geo query found ${vendors.length} vendors within ${radiusInKm}km radius`);
+    let vendors = await Vendor.find(geoQuery).select('_id fcmToken categorySubscriptions membership');
+    
+    // Filter out vendors whose matched category is expired
+    vendors = vendors.filter(vendor => {
+        const primaryCatId = vendor.membership?.category?.toString();
+        
+        const hasActiveCategory = categoryIds.some(catId => {
+            const catIdStr = catId.toString();
+            
+            // Primary category check
+            if (primaryCatId === catIdStr) {
+                return true; 
+            }
+            
+            // Additional category check
+            const catSub = vendor.categorySubscriptions?.find(sub => 
+                sub.category && sub.category.toString() === catIdStr
+            );
+            if (catSub) {
+                const subExp = catSub.expiryDate ? new Date(catSub.expiryDate) : null;
+                const isSubActive = subExp ? subExp > new Date() : false;
+                return isSubActive && sub.status === 'ACTIVE';
+            }
+            return false;
+        });
+        
+        return hasActiveCategory;
+    });
+
+    console.log(`[DEBUG] searchVendors - Geo query and category expiry filtering found ${vendors.length} vendors within ${radiusInKm}km radius`);
 
     if (broadcast) {
         try {
@@ -1760,6 +1804,37 @@ const cancelBooking = async (userId, bookingId, reason) => {
 
         // ── Send Push Notification to Vendor ──
         sendPush(booking.vendor, 'Vendor', 'booking_cancelled', 'Booking Cancelled', `The user has cancelled booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
+    } else {
+        // If the booking had no vendor (still searching), notify online vendors that it's no longer available
+        try {
+            const { activeVendors, getIo } = require('../../socket');
+            const io = getIo();
+            activeVendors.forEach((socketIds, otherVendorId) => {
+                socketIds.forEach(socketId => {
+                    io.to(socketId).emit('booking_already_accepted', {
+                        bookingId: booking._id,
+                        bookingID: booking.bookingID,
+                        message: 'This booking request is no longer available.'
+                    });
+                });
+            });
+
+            // Send silent FCM cancel push notification to all notified vendors so they can clear running background notifications
+            if (booking.notifiedVendors && booking.notifiedVendors.length > 0) {
+                booking.notifiedVendors.forEach(vendorId => {
+                    sendPush(
+                        vendorId, 
+                        'Vendor', 
+                        'booking_already_accepted', 
+                        'Booking Request Cancelled', 
+                        'This booking request is no longer available.', 
+                        { bookingId: booking._id.toString(), bookingID: booking.bookingID }
+                    );
+                });
+            }
+        } catch (err) {
+            console.error('[SOCKET ERROR] Failed to broadcast search cancellation to vendors:', err.message);
+        }
     }
 
     return populatedBooking || booking;
@@ -2803,6 +2878,11 @@ async function requestExtraServices(userId, bookingId, newServices) {
     const allowedServiceIds = new Set([
         ...((vendor.selectedServices || []).map(id => id.toString())),
         ...((vendor.categorySubscriptions || [])
+            .filter(sub => {
+                const subExp = sub.expiryDate ? new Date(sub.expiryDate) : null;
+                const isSubActive = subExp ? subExp > new Date() : false;
+                return isSubActive && sub.status === 'ACTIVE';
+            })
             .flatMap(sub => sub.services || [])
             .map(id => id.toString()))
     ]);
@@ -2939,6 +3019,11 @@ async function getVendorSelectableServicesForBooking(userId, bookingId) {
     const allowedServiceIds = Array.from(new Set([
         ...((vendor.selectedServices || []).map(id => id.toString())),
         ...((vendor.categorySubscriptions || [])
+            .filter(sub => {
+                const subExp = sub.expiryDate ? new Date(sub.expiryDate) : null;
+                const isSubActive = subExp ? subExp > new Date() : false;
+                return isSubActive && sub.status === 'ACTIVE';
+            })
             .flatMap(sub => sub.services || [])
             .map(id => id.toString()))
     ]));

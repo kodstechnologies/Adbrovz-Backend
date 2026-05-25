@@ -159,6 +159,13 @@ const processCategoryRenewals = async (start, end, mode) => {
             }
         });
         console.log(`[JOB] Sent ${type} (Category: ${catName}) to Vendor ${vendor._id}`);
+
+        if (!isWarning) {
+            expiringSub.status = 'EXPIRED';
+            vendor.markModified('categorySubscriptions');
+            await vendor.save();
+            console.log(`[JOB] Updated status to EXPIRED for Category: ${catName} in Vendor ${vendor._id}`);
+        }
     }
 };
 

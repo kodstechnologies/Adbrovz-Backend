@@ -318,6 +318,7 @@ const vendorSchema = new mongoose.Schema(
             return {
               ...sub,
               isActive: !isExpired,
+              status: isExpired ? 'EXPIRED' : (sub.status || 'ACTIVE'),
               validity
             };
           });
