@@ -73,6 +73,18 @@ const selectServices = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Get Service Approval Status
+ */
+const getServiceApprovalStatus = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.getServiceApprovalStatus(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Service approval status retrieved successfully')
+    );
+});
+
+
+/**
  * Create Razorpay order for membership payment
  * vendorId is taken from token — NOT from URL
  */
@@ -525,6 +537,7 @@ module.exports = {
     createMembership,
     verifyMembership,
     selectServices,
+    getServiceApprovalStatus,
     purchaseMembership,
     purchaseCreditPlan,
     toggleOnlineStatus,

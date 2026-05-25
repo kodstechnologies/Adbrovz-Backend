@@ -110,9 +110,13 @@ const verifyVendorDocument = asyncHandler(async (req, res) => {
 const verifyAllVendorDocuments = asyncHandler(async (req, res) => {
   const { vendorId } = req.params;
   const vendor = await adminService.verifyAllVendorDocuments(vendorId);
-  res.status(200).json(
-    new ApiResponse(200, vendor, 'All documents verified successfully')
-  );
+  res.status(200).json(new ApiResponse(200, vendor, 'All vendor documents verified successfully'));
+});
+
+const approveVendorServices = asyncHandler(async (req, res) => {
+  const { vendorId } = req.params;
+  const result = await adminService.approveVendorServices(vendorId, req.body);
+  res.status(200).json(new ApiResponse(200, result, 'Vendor services approved successfully'));
 });
 
 // Toggle vendor suspension
@@ -297,6 +301,7 @@ module.exports = {
   verifyVendor,
   verifyVendorDocument,
   verifyAllVendorDocuments,
+  approveVendorServices,
   toggleVendorSuspension,
   rejectVendorAccount,
   getEligibleVendors,

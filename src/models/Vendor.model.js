@@ -79,8 +79,13 @@ const vendorSchema = new mongoose.Schema(
     }],
     registrationStep: {
       type: String,
-      enum: ['SIGNUP', 'PIN_PENDING', 'SERVICES_SELECTED', 'MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED', 'PENDING', 'SIGNUP_COMPLETED'],
+      enum: ['SIGNUP', 'PIN_PENDING', 'SERVICES_SELECTED', 'SERVICES_APPROVED', 'MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED', 'PENDING', 'SIGNUP_COMPLETED'],
       default: 'PENDING',
+    },
+    serviceApprovalStatus: {
+      type: String,
+      enum: ['pending', 'approved'],
+      default: 'pending',
     },
     tcAcceptance: {
       type: Boolean,

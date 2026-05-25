@@ -426,6 +426,11 @@ const verifyAllVendorDocuments = async (vendorId) => {
   return await vendorService.verifyAllDocuments(vendorId);
 };
 
+const approveVendorServices = async (vendorId, serviceData) => {
+  const vendorService = require('../vendor/vendor.service');
+  return await vendorService.approveVendorServices(vendorId, serviceData);
+};
+
 const toggleVendorSuspension = async (vendorId, statusData) => {
   const vendorService = require('../vendor/vendor.service');
   return await vendorService.toggleVendorSuspension(vendorId, statusData);
@@ -1089,6 +1094,7 @@ module.exports = {
   verifyVendor,
   verifyVendorDocument,
   verifyAllVendorDocuments,
+  approveVendorServices,
   toggleVendorSuspension,
   rejectVendorAccount,
   respondToVendorDeletion,

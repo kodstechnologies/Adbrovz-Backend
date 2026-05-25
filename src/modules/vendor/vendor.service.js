@@ -759,14 +759,162 @@ const selectServices = async (vendorId, body) => {
 };
 
 /**
+ * Admin: Approve and Update Vendor Services
+ */
+const approveVendorServices = async (vendorId, serviceData) => {
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    // Normalize field names
+    const categoryId = serviceData.categoryId || serviceData.selectedCategory || serviceData.category;
+    const subcategoryIds = serviceData.subcategoryIds || serviceData.selectedSubcategories || serviceData.subcategories;
+    const serviceTypeIds = serviceData.serviceTypeIds || serviceData.selectedType || serviceData.selectedServiceTypes || serviceData.serviceTypes;
+    const serviceIds = serviceData.serviceIds || serviceData.selectedService || serviceData.selectedServices || serviceData.services;
+    const durationMonths = Number(serviceData.durationMonths || vendor.membership?.durationMonths || 3);
+
+    const originalServiceIds = vendor.selectedServices.map(id => id.toString());
+    const newServiceIds = parseArrayInput(serviceIds);
+
+    // Save Selections to Vendor
+    if (categoryId) {
+        const category = await Category.findById(categoryId);
+        if (category) {
+            vendor.membership.category = category._id;
+            const catIdStr = String(category._id);
+            if (!vendor.selectedCategories.map(id => String(id)).includes(catIdStr)) {
+                vendor.selectedCategories.push(category._id);
+            }
+        }
+    }
+
+    if (subcategoryIds) {
+        vendor.selectedSubcategories = parseArrayInput(subcategoryIds);
+    }
+    if (serviceTypeIds) {
+        vendor.selectedServiceTypes = parseArrayInput(serviceTypeIds);
+    }
+    if (serviceIds) {
+        vendor.selectedServices = newServiceIds;
+    }
+
+    // Auto-derive parent hierarchy
+    await _deriveVendorHierarchy(vendor);
+
+    // Recalculate membership fee based on the new final list
+    const calc = await _calculateMembershipAmounts({
+        vendorId,
+        durationMonths,
+        categoryId,
+        subcategoryIds,
+        serviceTypeIds,
+        serviceIds: newServiceIds
+    });
+
+    // Update vendor with calculation result
+    vendor.membership.membershipFee = calc.membershipTotal;
+    vendor.membership.serviceFee = calc.servicesSubtotal;
+    vendor.membership.gstAmount = calc.finalGst;
+    vendor.membership.totalAmount = calc.grandTotal;
+    vendor.membership.subtotal = calc.combinedSubtotal;
+    vendor.membership.fee = calc.grandTotal; // Keep for legacy compatibility
+    vendor.membership.durationMonths = durationMonths;
+
+    vendor.serviceApprovalStatus = 'approved';
+    vendor.registrationStep = 'SERVICES_APPROVED';
+
+    await vendor.save();
+
+    // Determine approved vs not approved services
+    const finalServices = await Service.find({ _id: { $in: newServiceIds } }).lean();
+    const approvedServices = finalServices.map(svc => ({
+        id: svc._id,
+        name: svc.name,
+        serviceCharge: svc.serviceCharge
+    }));
+
+    const originalServices = await Service.find({ _id: { $in: originalServiceIds } }).lean();
+    const newServiceIdsSet = new Set(newServiceIds.map(id => id.toString()));
+    const notApprovedServices = [];
+    for (const svc of originalServices) {
+        const svcIdStr = svc._id.toString();
+        if (!newServiceIdsSet.has(svcIdStr)) {
+            notApprovedServices.push({
+                id: svc._id,
+                name: svc.name,
+                serviceCharge: svc.serviceCharge
+            });
+        }
+    }
+
+    // Construct Socket payload
+    const payload = {
+        approvedServices,
+        notApprovedServices,
+        amount: calc.grandTotal,
+        registrationStep: 'SERVICES_APPROVED'
+    };
+
+    // Emit Socket event to vendor
+    emitToVendor(vendor._id, 'service_approval_response', payload);
+
+    // Send Push Notification
+    try {
+        await sendPush(
+            vendor._id,
+            'Vendor',
+            'service_approval',
+            'Services Approved',
+            'Your services have been approved by the administrator. Please proceed to payment.',
+            { registrationStep: 'SERVICES_APPROVED', amount: String(calc.grandTotal) }
+        );
+    } catch (pushError) {
+        console.error('Error sending service approval push notification:', pushError);
+    }
+
+    return {
+        vendor,
+        approvedServices,
+        notApprovedServices,
+        amount: calc.grandTotal
+    };
+};
+
+/**
+ * Vendor: Get Service Approval Status and Amount
+ */
+const getServiceApprovalStatus = async (vendorId) => {
+    const vendor = await Vendor.findById(vendorId).populate('selectedServices');
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const durationMonths = vendor.membership?.durationMonths || 3;
+    const calc = await _calculateMembershipAmounts({
+        vendorId,
+        durationMonths,
+        serviceIds: vendor.selectedServices.map(s => s._id)
+    });
+
+    const services = vendor.selectedServices.map(svc => ({
+        id: svc._id,
+        name: svc.name,
+        status: vendor.serviceApprovalStatus || 'pending'
+    }));
+
+    return {
+        services,
+        amount: calc.grandTotal,
+        registrationStep: vendor.registrationStep
+    };
+};
+
+/**
  * Step 3: Purchase Membership (Demo)
  */
 const purchaseMembership = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    if (vendor.registrationStep !== 'SERVICES_SELECTED' && vendor.registrationStep !== 'PENDING') {
-        throw new ApiError(400, 'Please select services before purchasing membership');
+    if (vendor.registrationStep !== 'SERVICES_APPROVED' && vendor.registrationStep !== 'PENDING') {
+        throw new ApiError(400, 'Please wait for admin service approval before purchasing membership');
     }
 
     if (vendor.isVerified) {
@@ -1293,7 +1441,7 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
         message = "Congratulations! Your account is now fully verified.";
 
         // Set registrationStep and startDate IF already paid or moved past selection
-        const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'SERVICES_SELECTED'].includes(vendor.registrationStep) || vendor.membership?.expiryDate;
+        const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID'].includes(vendor.registrationStep) || vendor.membership?.expiryDate;
 
         if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
             const startDate = new Date();
@@ -1365,7 +1513,7 @@ const verifyAllDocuments = async (vendorId) => {
     vendor.documentStatus = 'approved';
 
     // Set registrationStep and startDate IF already paid or moved past selection
-    const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'SERVICES_SELECTED'].includes(vendor.registrationStep) || vendor.membership?.expiryDate;
+    const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID'].includes(vendor.registrationStep) || vendor.membership?.expiryDate;
 
     if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
         const startDate = new Date();
@@ -1381,6 +1529,7 @@ const verifyAllDocuments = async (vendorId) => {
 
         vendor.serviceRenewal = vendor.serviceRenewal || {};
         vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || startDate;
+        const renExpiryDate = new Date();
         const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
         renExpiryDate.setDate(renExpiryDate.getDate() + Number(renewalDays));
         vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiryDate;
@@ -3731,6 +3880,8 @@ module.exports = {
     createMembershipOrder,
     verifyMembershipPayment,
     selectServices,
+    approveVendorServices,
+    getServiceApprovalStatus,
     purchaseMembership,
     purchaseCreditPlan,
     verifyVendor,
