@@ -131,6 +131,8 @@ const createBookingRequest = async (
         );
     }
 
+    const gstPercentAtCreation = await adminService.getSetting('pricing.booking_gst_percent');
+    console.log(`[GST] createBookingRequest: fetched booking_gst_percent = ${gstPercentAtCreation}`);
     const booking = await Booking.create({
         bookingID: `BK-${uuidv4().slice(0, 8).toUpperCase()}`,
         user: userId,
@@ -140,9 +142,9 @@ const createBookingRequest = async (
         scheduledTime: scheduledTime || '00:00',
         category: leadCategory,
         location: { address, latitude, longitude, pincode },
-        // Set GST percent from global settings (fallback to 0)
+        // Set GST percent from global settings
         pricing: {
-            gstPercent: (await adminService.getSetting('pricing.booking_gst_percent')) || 0
+            gstPercent: gstPercentAtCreation
         }
     });
 

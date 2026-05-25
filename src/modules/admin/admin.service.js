@@ -483,9 +483,12 @@ const updateGlobalSettings = async (settings, adminId) => {
   for (const [key, value] of Object.entries(settings)) {
     // Determine the type from DEFAULT_SETTINGS
     let processedValue = value;
-    if (DEFAULT_SETTINGS[key] && typeof DEFAULT_SETTINGS[key].value === 'number') {
+    // Treat as numeric if default is a number OR if the key is a known numeric field with null default
+    const isNumericField = (DEFAULT_SETTINGS[key] && typeof DEFAULT_SETTINGS[key].value === 'number') ||
+                           key === 'pricing.booking_gst_percent';
+    if (isNumericField) {
       processedValue = Number(value);
-      if (isNaN(processedValue)) processedValue = DEFAULT_SETTINGS[key].value;
+      if (isNaN(processedValue)) processedValue = DEFAULT_SETTINGS[key]?.value ?? 0;
     }
 
     const setting = await GlobalConfig.findOneAndUpdate(
@@ -512,19 +515,22 @@ const getSetting = async (key) => {
   let value = setting ? setting.value : DEFAULT_SETTINGS[key]?.value;
 
   if (key === 'pricing.booking_gst_percent' && (value === undefined || value === null)) {
-    // Fallback to membership GST percent if booking GST not set
+    // Fallback to membership GST percent if booking GST not set in DB
     const membershipSetting = await GlobalConfig.findOne({ key: 'pricing.membership_gst_percent' });
     if (membershipSetting && membershipSetting.value !== undefined && membershipSetting.value !== null) {
-      value = membershipSetting.value;
+      value = Number(membershipSetting.value);
     } else {
-      // Use default if DB does not have it
-      value = DEFAULT_SETTINGS['pricing.membership_gst_percent']?.value;
+      // Use membership default if neither is in DB
+      value = Number(DEFAULT_SETTINGS['pricing.membership_gst_percent']?.value || 0);
     }
   }
   // Auto-convert to Number if the default type is a number, to prevent string type issues
-  if (DEFAULT_SETTINGS[key] && typeof DEFAULT_SETTINGS[key].value === 'number' && value !== undefined && value !== null) {
+  // Also explicitly handle pricing.booking_gst_percent which uses a null default but is still numeric
+  const isNumericSetting = (DEFAULT_SETTINGS[key] && typeof DEFAULT_SETTINGS[key].value === 'number') ||
+                            key === 'pricing.booking_gst_percent';
+  if (isNumericSetting && value !== undefined && value !== null) {
     value = Number(value);
-    if (isNaN(value)) value = DEFAULT_SETTINGS[key].value;
+    if (isNaN(value)) value = DEFAULT_SETTINGS[key]?.value ?? 0;
   }
   return value;
 };
