@@ -1580,6 +1580,16 @@ const getVendorProfile = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
+    const isMembershipExpired = vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) < new Date();
+    const isServiceExpired = vendor.serviceRenewal?.expiryDate && new Date(vendor.serviceRenewal.expiryDate) < new Date();
+    
+    let effectiveIsOnline = vendor.isOnline || false;
+    if ((isMembershipExpired || isServiceExpired) && effectiveIsOnline) {
+        effectiveIsOnline = false;
+        vendor.isOnline = false;
+        await vendor.save();
+    }
+
     // Calculate metrics
     const mongoose = require('mongoose');
     const Booking = require('../../models/Booking.model');
@@ -1621,7 +1631,7 @@ const getVendorProfile = async (vendorId) => {
         zipcode: vendor.zipcode || (vendor.workPincodes && vendor.workPincodes[0]) || '',
         country: vendor.country || 'India',
         coins: vendor.coins || 0,
-        isOnline: vendor.isOnline || false,
+        isOnline: effectiveIsOnline,
         monthlyEarnings,
         totalCompletedBookingCounts,
     };
