@@ -91,7 +91,8 @@ const deleteCreditPlan = asyncHandler(async (req, res) => {
 // Verify vendor (account level)
 const verifyVendor = asyncHandler(async (req, res) => {
   const { vendorId } = req.params;
-  const vendor = await adminService.verifyVendor(vendorId, req.body);
+  const adminId = req.user.id || req.user.userId || req.user._id;
+  const vendor = await adminService.verifyVendor(vendorId, { ...req.body, adminId });
   res.status(200).json(
     new ApiResponse(200, vendor, 'Vendor verification status updated successfully')
   );
@@ -100,7 +101,8 @@ const verifyVendor = asyncHandler(async (req, res) => {
 // Verify specific document
 const verifyVendorDocument = asyncHandler(async (req, res) => {
   const { vendorId } = req.params;
-  const vendor = await adminService.verifyVendorDocument(vendorId, req.body);
+  const adminId = req.user.id || req.user.userId || req.user._id;
+  const vendor = await adminService.verifyVendorDocument(vendorId, { ...req.body, adminId });
   res.status(200).json(
     new ApiResponse(200, vendor, 'Document verification status updated successfully')
   );
@@ -109,7 +111,8 @@ const verifyVendorDocument = asyncHandler(async (req, res) => {
 // Verify all documents
 const verifyAllVendorDocuments = asyncHandler(async (req, res) => {
   const { vendorId } = req.params;
-  const vendor = await adminService.verifyAllVendorDocuments(vendorId);
+  const adminId = req.user.id || req.user.userId || req.user._id;
+  const vendor = await adminService.verifyAllVendorDocuments(vendorId, adminId, req.body);
   res.status(200).json(new ApiResponse(200, vendor, 'All vendor documents verified successfully'));
 });
 

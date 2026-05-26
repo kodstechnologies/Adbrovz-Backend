@@ -421,9 +421,9 @@ const verifyVendorDocument = async (vendorId, docData) => {
   return await vendorService.verifyDocument(vendorId, docData);
 };
 
-const verifyAllVendorDocuments = async (vendorId) => {
+const verifyAllVendorDocuments = async (vendorId, adminId, payload) => {
   const vendorService = require('../vendor/vendor.service');
-  return await vendorService.verifyAllDocuments(vendorId);
+  return await vendorService.verifyAllDocuments(vendorId, adminId, payload);
 };
 
 const approveVendorServices = async (vendorId, serviceData) => {

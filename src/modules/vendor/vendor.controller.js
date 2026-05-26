@@ -101,11 +101,35 @@ const getSelectedServices = asyncHandler(async (req, res) => {
     const approvalStatus = rawStatus === 'approved'
         ? 'approved'
         : (rawStatus === 'rejected' || rawStatus === 'disapproved' ? 'disapproved' : 'pending');
+    
     const services = (result?.selectedServices || []).map((service) => ({
         id: service.id,
         title: service.title,
         approvalStatus
     }));
+
+    // Fetch vendor and populate extraServiceRequests
+    const Vendor = require('../../models/Vendor.model');
+    const vendor = await Vendor.findById(vendorId)
+        .populate('extraServiceRequests.services', 'title');
+
+    if (vendor && vendor.extraServiceRequests) {
+        vendor.extraServiceRequests.forEach(request => {
+            if (request.services && request.services.length > 0) {
+                request.services.forEach(svc => {
+                    if (svc) {
+                        services.push({
+                            id: svc._id ? svc._id.toString() : svc.id,
+                            title: `${svc.title} (Extra Service)`,
+                            approvalStatus: request.approvalStatus || 'pending',
+                            isExtraService: true,
+                            requestId: request._id ? request._id.toString() : undefined
+                        });
+                    }
+                });
+            }
+        });
+    }
 
     const responseData = {
         vendorId: result?.vendorId || vendorId,

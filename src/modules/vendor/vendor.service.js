@@ -1415,9 +1415,57 @@ const _getVerificationPayload = (vendor) => {
 };
 
 /**
+ * Internal helper to process and store new approved extra service requests during verification
+ */
+const _processApprovedExtraServices = async (vendor, payload, adminId = null) => {
+    if (!payload) return;
+
+    let requests = [];
+
+    if (payload.extraServiceRequests && Array.isArray(payload.extraServiceRequests)) {
+        requests = payload.extraServiceRequests;
+    } else if (payload.extraServiceRequest && typeof payload.extraServiceRequest === 'object') {
+        requests = [payload.extraServiceRequest];
+    } else if (payload.serviceIds || payload.services) {
+        requests = [{
+            categoryId: payload.categoryId || payload.category,
+            subcategoryIds: payload.subcategoryIds || payload.subcategories || [],
+            serviceIds: payload.serviceIds || payload.services || []
+        }];
+    }
+
+    if (requests.length === 0) return;
+
+    vendor.extraServiceRequests = vendor.extraServiceRequests || [];
+
+    for (const reqData of requests) {
+        const catId = reqData.categoryId || reqData.category || null;
+        const subcatIds = parseArrayInput(reqData.subcategoryIds || reqData.subcategories || []);
+        const svcIds = parseArrayInput(reqData.serviceIds || reqData.services || []);
+
+        if (!svcIds || svcIds.length === 0) continue;
+
+        vendor.extraServiceRequests.push({
+            requestedBy: vendor._id,
+            category: catId || undefined,
+            subcategories: subcatIds,
+            services: svcIds,
+            approvalStatus: 'approved',
+            adminRemark: reqData.adminRemark || 'Approved during vendor verification',
+            reviewedBy: adminId || null,
+            reviewedAt: new Date(),
+            requestedAt: reqData.requestedAt || new Date()
+        });
+    }
+
+    vendor.markModified('extraServiceRequests');
+};
+
+/**
  * Admin: Verify Vendor Document
  */
-const verifyDocument = async (vendorId, { docType, status, reason }) => {
+const verifyDocument = async (vendorId, payload = {}) => {
+    const { docType, status, reason, adminId } = payload;
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
@@ -1490,6 +1538,22 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
         vendor.documentStatus = 'approved';
         message = "Congratulations! Your account is now fully verified.";
 
+        // Auto-approve existing pending extra service requests
+        if (vendor.extraServiceRequests && vendor.extraServiceRequests.length > 0) {
+            vendor.extraServiceRequests.forEach(req => {
+                if (req.approvalStatus === 'pending') {
+                    req.approvalStatus = 'approved';
+                    req.reviewedBy = adminId || null;
+                    req.reviewedAt = new Date();
+                    req.adminRemark = 'Auto-approved during document verification';
+                }
+            });
+            vendor.markModified('extraServiceRequests');
+        }
+
+        // Process any new extra service requests passed in the payload
+        await _processApprovedExtraServices(vendor, payload, adminId);
+
         // Set registrationStep and startDate IF already paid or moved past selection
         const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID'].includes(vendor.registrationStep) || vendor.membership?.expiryDate;
 
@@ -1527,10 +1591,10 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
     sendPush(vendor._id, 'Vendor', 'verification_update', 'Verification Update', message, { documentStatus: vendor.documentStatus, isVerified: vendor.isVerified });
 
 
-    const payload = _getVerificationPayload(vendor);
-    payload.message = message;
+    const verificationPayload = _getVerificationPayload(vendor);
+    verificationPayload.message = message;
 
-    emitToVendor(vendor._id, 'verification_status_response', payload);
+    emitToVendor(vendor._id, 'verification_status_response', verificationPayload);
 
     return {
         vendor,
@@ -1542,7 +1606,7 @@ const verifyDocument = async (vendorId, { docType, status, reason }) => {
 /**
  * Admin: Verify All Documents
  */
-const verifyAllDocuments = async (vendorId) => {
+const verifyAllDocuments = async (vendorId, adminId, payload = {}) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
@@ -1561,6 +1625,22 @@ const verifyAllDocuments = async (vendorId) => {
 
     vendor.isVerified = true;
     vendor.documentStatus = 'approved';
+
+    // Auto-approve existing pending extra service requests
+    if (vendor.extraServiceRequests && vendor.extraServiceRequests.length > 0) {
+        vendor.extraServiceRequests.forEach(req => {
+            if (req.approvalStatus === 'pending') {
+                req.approvalStatus = 'approved';
+                req.reviewedBy = adminId || null;
+                req.reviewedAt = new Date();
+                req.adminRemark = 'Auto-approved during verify-all documents';
+            }
+        });
+        vendor.markModified('extraServiceRequests');
+    }
+
+    // Process new extra services if any are provided in payload
+    await _processApprovedExtraServices(vendor, payload, adminId);
 
     // Set registrationStep and startDate IF already paid or moved past selection
     const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID'].includes(vendor.registrationStep) || vendor.membership?.expiryDate;
@@ -1594,10 +1674,10 @@ const verifyAllDocuments = async (vendorId) => {
 
 
     const message = "Account is now fully verified via Admin 'Verify All' action!";
-    const payload = _getVerificationPayload(vendor);
-    payload.message = message;
+    const verificationPayload = _getVerificationPayload(vendor);
+    verificationPayload.message = message;
 
-    emitToVendor(vendor._id, 'verification_status_response', payload);
+    emitToVendor(vendor._id, 'verification_status_response', verificationPayload);
 
     return {
         vendor,
@@ -1627,10 +1707,10 @@ const toggleVendorSuspension = async (vendorId, { isSuspended }) => {
 
 
     const message = isSuspended ? 'Your account has been suspended.' : 'Your account has been reactivated.';
-    const payload = _getVerificationPayload(vendor);
-    payload.message = message;
+    const verificationPayload = _getVerificationPayload(vendor);
+    verificationPayload.message = message;
 
-    emitToVendor(vendor._id, 'verification_status_response', payload);
+    emitToVendor(vendor._id, 'verification_status_response', verificationPayload);
 
     return vendor;
 };
@@ -1674,10 +1754,10 @@ const rejectVendorAccount = async (vendorId, { reason }) => {
 
 
     const message = `Your account has been rejected. Reason: ${reason || 'No reason provided'}`;
-    const payload = _getVerificationPayload(vendor);
-    payload.message = message;
+    const verificationPayload = _getVerificationPayload(vendor);
+    verificationPayload.message = message;
 
-    emitToVendor(vendor._id, 'verification_status_response', payload);
+    emitToVendor(vendor._id, 'verification_status_response', verificationPayload);
 
     return vendor;
 };
@@ -1685,10 +1765,11 @@ const rejectVendorAccount = async (vendorId, { reason }) => {
 /**
  * Admin: Verify Vendor (Legacy/Fallback)
  */
-const verifyVendor = async (vendorId, { status, documentStatus, reason }) => {
+const verifyVendor = async (vendorId, payload = {}) => {
+    const { status, documentStatus, reason, adminId } = payload;
     // Admin panel sends { documentStatus: 'approved' }, fallback to status
     const effectiveStatus = status || documentStatus;
-    if (effectiveStatus === 'approved') return await verifyAllDocuments(vendorId);
+    if (effectiveStatus === 'approved') return await verifyAllDocuments(vendorId, adminId, payload);
     return await rejectVendorAccount(vendorId, { reason });
 };
 
