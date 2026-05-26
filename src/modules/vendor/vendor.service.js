@@ -467,6 +467,20 @@ const getAllVendors = async () => {
             }
         }
 
+        const hasPendingDeletionApproval = Boolean(vendor.deletionRequest?.isRequested) && vendor.deletionRequest?.status === 'PENDING';
+        const hasPendingServiceApproval = (vendor.serviceApprovalStatus || 'pending') === 'pending';
+        const hasPendingExtraServiceApproval = (vendor.extraServiceRequests || []).some((req) => req?.approvalStatus === 'pending');
+        const attentionReasons = [];
+        if (hasPendingDeletionApproval) attentionReasons.push('DELETION_APPROVAL_PENDING');
+        if (hasPendingServiceApproval) attentionReasons.push('SERVICE_APPROVAL_PENDING');
+        if (hasPendingExtraServiceApproval) attentionReasons.push('EXTRA_SERVICE_APPROVAL_PENDING');
+
+        vendor.requiresAttention = attentionReasons.length > 0;
+        vendor.attentionColor = vendor.requiresAttention ? '#8B0000' : null;
+        vendor.profileBorderColor = vendor.attentionColor;
+        vendor.borderColor = vendor.attentionColor;
+        vendor.attentionReasons = attentionReasons;
+
         return vendor;
     });
 
@@ -862,13 +876,16 @@ const approveVendorServices = async (vendorId, serviceData) => {
     const payload = {
         approvedServices,
         notApprovedServices,
+        serviceApprovalStatus: vendor.serviceApprovalStatus || 'pending',
         amount: calc.grandTotal,
         registrationStep: 'SERVICES_APPROVED',
-        isServiceVerified: vendor.serviceApprovalStatus === 'approved'
+        isServiceVerified: vendor.serviceApprovalStatus === 'approved',
+        updatedAt: new Date()
     };
 
-    // Emit Socket event to vendor
+    // Emit Socket events to vendor (legacy + current listener compatibility)
     emitToVendor(vendor._id, 'service_approval_response', payload);
+    emitToVendor(vendor._id, 'service_approval_update', payload);
 
     // Send Push Notification
     try {
@@ -1801,6 +1818,14 @@ const getVendorProfile = async (vendorId) => {
         }
     });
 
+    const hasPendingDeletionApproval = Boolean(vendor.deletionRequest?.isRequested) && vendor.deletionRequest?.status === 'PENDING';
+    const hasPendingServiceApproval = (vendor.serviceApprovalStatus || 'pending') === 'pending';
+    const hasPendingExtraServiceApproval = (vendor.extraServiceRequests || []).some((req) => req?.approvalStatus === 'pending');
+    const attentionReasons = [];
+    if (hasPendingDeletionApproval) attentionReasons.push('DELETION_APPROVAL_PENDING');
+    if (hasPendingServiceApproval) attentionReasons.push('SERVICE_APPROVAL_PENDING');
+    if (hasPendingExtraServiceApproval) attentionReasons.push('EXTRA_SERVICE_APPROVAL_PENDING');
+
     return {
         id: vendor._id,
         image: vendor.documents?.photo?.url || '',
@@ -1816,6 +1841,11 @@ const getVendorProfile = async (vendorId) => {
         isOnline: effectiveIsOnline,
         monthlyEarnings,
         totalCompletedBookingCounts,
+        requiresAttention: attentionReasons.length > 0,
+        attentionColor: attentionReasons.length > 0 ? '#8B0000' : null,
+        profileBorderColor: attentionReasons.length > 0 ? '#8B0000' : null,
+        borderColor: attentionReasons.length > 0 ? '#8B0000' : null,
+        attentionReasons
     };
 };
 
@@ -3277,10 +3307,20 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
 /**
  * Add Category: Create order
  */
-const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [], serviceIds = [], subcategories: payloadSubcategories, services: payloadServices } = {}) => {
+const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [], serviceIds = [], approvalRequestId, subcategories: payloadSubcategories, services: payloadServices } = {}) => {
     // Support aliases often used by frontend
     if ((!subcategoryIds || !subcategoryIds.length) && payloadSubcategories) subcategoryIds = payloadSubcategories;
     if ((!serviceIds || !serviceIds.length) && payloadServices) serviceIds = payloadServices;
+
+    const vendor = await Vendor.findById(vendorId).select('extraServiceRequests');
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const approvedRequest = (vendor.extraServiceRequests || []).find((req) =>
+        String(req._id) === String(approvalRequestId || '') && req.approvalStatus === 'approved'
+    );
+    if (!approvedRequest) {
+        throw new ApiError(403, 'Admin approval is required before purchasing extra services');
+    }
 
     const feeDetails = await getAddCategoryFeeDetails(vendorId, { categoryId, subcategoryIds, serviceIds });
 
@@ -3316,6 +3356,7 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
                 selectedSubcategories: subcategoryIds,
                 selectedServices: serviceIds,
                 categoryId: categoryId,
+                approvalRequestId: approvedRequest._id,
                 isProrated: (feeDetails.prorationContext?.remainingDays || feeDetails.renewalDays) < feeDetails.renewalDays,
                 alignedExpiryDate: feeDetails.prorationContext?.expiryDate
             }
@@ -3338,6 +3379,116 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
             status: razorpayOrder.status,
         }
     };
+};
+
+const requestExtraServiceApproval = async (vendorId, { categoryId, subcategoryIds = [], serviceIds = [], subcategories: payloadSubcategories, services: payloadServices } = {}) => {
+    if ((!subcategoryIds || !subcategoryIds.length) && payloadSubcategories) subcategoryIds = payloadSubcategories;
+    if ((!serviceIds || !serviceIds.length) && payloadServices) serviceIds = payloadServices;
+
+    if (!serviceIds || !serviceIds.length) {
+        throw new ApiError(400, 'At least one service is required for approval request');
+    }
+
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    vendor.extraServiceRequests = vendor.extraServiceRequests || [];
+    vendor.extraServiceRequests.push({
+        requestedBy: vendor._id,
+        category: categoryId || undefined,
+        subcategories: parseArrayInput(subcategoryIds),
+        services: parseArrayInput(serviceIds),
+        approvalStatus: 'pending'
+    });
+    await vendor.save();
+
+    const latestRequest = vendor.extraServiceRequests[vendor.extraServiceRequests.length - 1];
+    return {
+        requestId: latestRequest._id,
+        requestedBy: latestRequest.requestedBy || vendor._id,
+        approvalStatus: latestRequest.approvalStatus,
+        requestedAt: latestRequest.requestedAt,
+        message: 'Extra service approval requested successfully'
+    };
+};
+
+const getExtraServiceApprovalRequests = async (vendorId) => {
+    const vendor = await Vendor.findById(vendorId)
+        .select('extraServiceRequests')
+        .populate('extraServiceRequests.requestedBy', 'name phoneNumber vendorID')
+        .populate('extraServiceRequests.category', 'name')
+        .populate('extraServiceRequests.subcategories', 'name')
+        .populate('extraServiceRequests.services', 'title');
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    return {
+        requests: (vendor.extraServiceRequests || []).map((req) => ({
+            requestId: req._id,
+            requestedBy: req.requestedBy ? {
+                id: req.requestedBy._id,
+                name: req.requestedBy.name || '',
+                phoneNumber: req.requestedBy.phoneNumber || '',
+                vendorID: req.requestedBy.vendorID || ''
+            } : { id: vendor._id },
+            approvalStatus: req.approvalStatus,
+            adminRemark: req.adminRemark || '',
+            reviewedAt: req.reviewedAt || null,
+            requestedAt: req.requestedAt,
+            category: req.category ? { id: req.category._id, name: req.category.name } : null,
+            services: (req.services || []).map((svc) => ({ id: svc._id, title: svc.title })),
+            disapprovedServices: req.approvalStatus === 'disapproved'
+                ? (req.services || []).map((svc) => ({ id: svc._id, title: svc.title }))
+                : [],
+        }))
+    };
+};
+
+const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, { approvalStatus, adminRemark } = {}) => {
+    const normalized = String(approvalStatus || '').toLowerCase();
+    if (!['approved', 'disapproved', 'pending'].includes(normalized)) {
+        throw new ApiError(400, 'approvalStatus must be approved, disapproved or pending');
+    }
+
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const request = (vendor.extraServiceRequests || []).id(requestId);
+    if (!request) throw new ApiError(404, 'Approval request not found');
+
+    request.approvalStatus = normalized;
+    request.adminRemark = adminRemark || '';
+    request.reviewedBy = adminId || null;
+    request.reviewedAt = new Date();
+    await vendor.save();
+
+    const payload = {
+        vendorId: vendor._id,
+        requestId: request._id,
+        requestedBy: request.requestedBy || vendor._id,
+        approvalStatus: request.approvalStatus,
+        adminRemark: request.adminRemark,
+        reviewedAt: request.reviewedAt,
+        serviceIds: (request.services || []).map((svcId) => String(svcId)),
+        disapprovedServiceIds: request.approvalStatus === 'disapproved'
+            ? (request.services || []).map((svcId) => String(svcId))
+            : []
+    };
+    emitToVendor(vendor._id, 'extra_service_approval_update', payload);
+
+    try {
+        await sendPush(
+            vendor._id,
+            'Vendor',
+            'extra_service_approval',
+            'Extra Service Approval Updated',
+            `Your extra service request is ${request.approvalStatus}.`,
+            payload
+        );
+    } catch (err) {
+        console.error('Error sending extra service approval push:', err);
+    }
+
+    return payload;
 };
 
 /**
@@ -3849,7 +4000,16 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
 /**
  * Purchase Categories: Create order for multi-category selection
  */
-const createPurchaseOrder = async (vendorId, { serviceIds = [] } = {}) => {
+const createPurchaseOrder = async (vendorId, { serviceIds = [], approvalRequestId } = {}) => {
+    const vendor = await Vendor.findById(vendorId).select('extraServiceRequests');
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+    const approvedRequest = (vendor.extraServiceRequests || []).find((req) =>
+        String(req._id) === String(approvalRequestId || '') && req.approvalStatus === 'approved'
+    );
+    if (!approvedRequest) {
+        throw new ApiError(403, 'Admin approval is required before purchasing extra services');
+    }
+
     const feeDetails = await calculatePurchasePaymentDetail(vendorId, serviceIds);
 
     const totalToPay = feeDetails.summary.totalAmount;
@@ -3881,6 +4041,7 @@ const createPurchaseOrder = async (vendorId, { serviceIds = [] } = {}) => {
             status: 'PENDING',
             metadata: {
                 serviceIds: serviceIds,
+                approvalRequestId: approvedRequest._id,
                 breakdown: feeDetails.purchasedItems,
                 summary: feeDetails.summary,
                 alignedExpiryDate: feeDetails.summary.expiryDate
@@ -3943,6 +4104,9 @@ module.exports = {
     getMembershipRenewalFeeNoGst,
     getHierarchicalMembershipCharges,
     getAddCategoryFeeDetails,
+    requestExtraServiceApproval,
+    getExtraServiceApprovalRequests,
+    reviewExtraServiceApprovalRequest,
     createAddCategoryOrder,
     verifyAddCategoryPayment,
     getAvailablePurchaseCategories,

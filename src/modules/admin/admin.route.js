@@ -39,6 +39,8 @@ router.patch('/vendors/:vendorId/verify', adminController.verifyVendor);
 router.patch('/vendors/:vendorId/verify-document', adminController.verifyVendorDocument);
 router.patch('/vendors/:vendorId/verify-all', adminController.verifyAllVendorDocuments);
 router.patch('/vendors/:vendorId/approve-services', adminController.approveVendorServices);
+router.get('/vendors/extra-service-approvals', adminController.getExtraServiceApprovalRequests);
+router.patch('/vendors/:vendorId/extra-service-approvals/:requestId', adminController.reviewExtraServiceApprovalRequest);
 router.patch('/vendors/:vendorId/toggle-suspension', adminController.toggleVendorSuspension);
 router.patch('/vendors/:vendorId/reject', adminController.rejectVendorAccount);
 router.get  ('/vendors/eligible', adminController.getEligibleVendors);

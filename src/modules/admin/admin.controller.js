@@ -119,6 +119,18 @@ const approveVendorServices = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, result, 'Vendor services approved successfully'));
 });
 
+const getExtraServiceApprovalRequests = asyncHandler(async (req, res) => {
+  const result = await adminService.getExtraServiceApprovalRequests(req.query);
+  res.status(200).json(new ApiResponse(200, result, 'Extra service approval requests fetched successfully'));
+});
+
+const reviewExtraServiceApprovalRequest = asyncHandler(async (req, res) => {
+  const { vendorId, requestId } = req.params;
+  const adminId = req.user.userId || req.user.id || req.user._id;
+  const result = await adminService.reviewExtraServiceApprovalRequest(adminId, vendorId, requestId, req.body);
+  res.status(200).json(new ApiResponse(200, result, 'Extra service approval status updated successfully'));
+});
+
 // Toggle vendor suspension
 const toggleVendorSuspension = asyncHandler(async (req, res) => {
   const { vendorId } = req.params;
@@ -302,6 +314,8 @@ module.exports = {
   verifyVendorDocument,
   verifyAllVendorDocuments,
   approveVendorServices,
+  getExtraServiceApprovalRequests,
+  reviewExtraServiceApprovalRequest,
   toggleVendorSuspension,
   rejectVendorAccount,
   getEligibleVendors,

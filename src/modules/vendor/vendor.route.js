@@ -104,8 +104,11 @@ router.post('/membership/verify', authenticate, authorize(ROLES.VENDOR), vendorC
 
 // Add/Repurchase Category API
 router.post('/add-category/fee', authenticate, authorize(ROLES.VENDOR), vendorController.getAddCategoryFee);
+router.post('/add-category/request-approval', authenticate, authorize(ROLES.VENDOR), vendorController.requestExtraServiceApproval);
+router.get('/add-category/approval-status', authenticate, authorize(ROLES.VENDOR), vendorController.getExtraServiceApprovalRequests);
 router.post('/add-category/create-order', authenticate, authorize(ROLES.VENDOR), vendorController.createAddCategoryOrder);
 router.post('/add-category/verify-payment', authenticate, authorize(ROLES.VENDOR), vendorController.verifyAddCategoryPayment);
+router.patch('/register/:vendorId/add-category/approval/:requestId', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.reviewExtraServiceApprovalRequest);
 // Service Renewal API
 router.get('/renewal/fee', authenticate, authorize(ROLES.VENDOR), vendorController.getServiceRenewalFee);
 router.post('/renewal/create-order', authenticate, authorize(ROLES.VENDOR), vendorController.createServiceRenewalOrder);

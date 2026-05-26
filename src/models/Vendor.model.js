@@ -226,6 +226,17 @@ const vendorSchema = new mongoose.Schema(
       expiryDate: { type: Date },
       status: { type: String, enum: ['ACTIVE', 'EXPIRED'], default: 'ACTIVE' }
     }],
+    extraServiceRequests: [{
+      requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor' },
+      category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
+      subcategories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subcategory' }],
+      services: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Service' }],
+      approvalStatus: { type: String, enum: ['pending', 'approved', 'disapproved'], default: 'pending' },
+      adminRemark: { type: String, default: '' },
+      reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+      reviewedAt: { type: Date },
+      requestedAt: { type: Date, default: Date.now }
+    }],
     deletedAt: {
       type: Date,
     },

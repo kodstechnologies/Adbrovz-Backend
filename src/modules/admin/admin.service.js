@@ -431,6 +431,58 @@ const approveVendorServices = async (vendorId, serviceData) => {
   return await vendorService.approveVendorServices(vendorId, serviceData);
 };
 
+const getExtraServiceApprovalRequests = async ({ status, vendorId, limit = 20, skip = 0 } = {}) => {
+  const match = {};
+  if (vendorId) match._id = new (require('mongoose').Types.ObjectId)(vendorId);
+
+  const pipeline = [
+    { $match: match },
+    {
+      $project: {
+        name: 1,
+        phoneNumber: 1,
+        extraServiceRequests: 1
+      }
+    },
+    { $unwind: '$extraServiceRequests' }
+  ];
+
+  if (status) {
+    pipeline.push({ $match: { 'extraServiceRequests.approvalStatus': String(status).toLowerCase() } });
+  }
+
+  pipeline.push(
+    { $sort: { 'extraServiceRequests.requestedAt': -1 } },
+    { $skip: Number(skip) },
+    { $limit: Number(limit) }
+  );
+
+  const rows = await Vendor.aggregate(pipeline);
+  return rows.map((row) => ({
+    vendorId: row._id,
+    vendorName: row.name,
+    vendorPhone: row.phoneNumber,
+    requestId: row.extraServiceRequests?._id,
+    requestedBy: row.extraServiceRequests?.requestedBy || row._id,
+    categoryId: row.extraServiceRequests?.category || null,
+    subcategoryIds: row.extraServiceRequests?.subcategories || [],
+    serviceIds: row.extraServiceRequests?.services || [],
+    approvalStatus: row.extraServiceRequests?.approvalStatus || 'pending',
+    adminRemark: row.extraServiceRequests?.adminRemark || '',
+    reviewedBy: row.extraServiceRequests?.reviewedBy || null,
+    reviewedAt: row.extraServiceRequests?.reviewedAt || null,
+    requestedAt: row.extraServiceRequests?.requestedAt || null,
+    disapprovedServiceIds: (row.extraServiceRequests?.approvalStatus || 'pending') === 'disapproved'
+      ? (row.extraServiceRequests?.services || [])
+      : []
+  }));
+};
+
+const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, payload) => {
+  const vendorService = require('../vendor/vendor.service');
+  return await vendorService.reviewExtraServiceApprovalRequest(adminId, vendorId, requestId, payload);
+};
+
 const toggleVendorSuspension = async (vendorId, statusData) => {
   const vendorService = require('../vendor/vendor.service');
   return await vendorService.toggleVendorSuspension(vendorId, statusData);
@@ -447,11 +499,30 @@ const rejectVendorAccount = async (vendorId, reasonData) => {
 };
 
 const getEligibleVendors = async () => {
-  return await Vendor.find({
+  const vendors = await Vendor.find({
     isVerified: true,
     isSuspended: false,
     registrationStep: 'COMPLETED',
     'creditPlan.expiryDate': { $gt: new Date() }
+  });
+  return vendors.map((vendorDoc) => {
+    const vendor = vendorDoc.toObject ? vendorDoc.toObject() : vendorDoc;
+    const hasPendingDeletionApproval = Boolean(vendor.deletionRequest?.isRequested) && vendor.deletionRequest?.status === 'PENDING';
+    const hasPendingServiceApproval = (vendor.serviceApprovalStatus || 'pending') === 'pending';
+    const hasPendingExtraServiceApproval = (vendor.extraServiceRequests || []).some((req) => req?.approvalStatus === 'pending');
+    const attentionReasons = [];
+    if (hasPendingDeletionApproval) attentionReasons.push('DELETION_APPROVAL_PENDING');
+    if (hasPendingServiceApproval) attentionReasons.push('SERVICE_APPROVAL_PENDING');
+    if (hasPendingExtraServiceApproval) attentionReasons.push('EXTRA_SERVICE_APPROVAL_PENDING');
+    const color = attentionReasons.length ? '#8B0000' : null;
+    return {
+      ...vendor,
+      requiresAttention: attentionReasons.length > 0,
+      attentionColor: color,
+      profileBorderColor: color,
+      borderColor: color,
+      attentionReasons
+    };
   });
 };
 
@@ -1095,6 +1166,8 @@ module.exports = {
   verifyVendorDocument,
   verifyAllVendorDocuments,
   approveVendorServices,
+  getExtraServiceApprovalRequests,
+  reviewExtraServiceApprovalRequest,
   toggleVendorSuspension,
   rejectVendorAccount,
   respondToVendorDeletion,

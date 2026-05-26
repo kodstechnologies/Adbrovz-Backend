@@ -109,6 +109,7 @@ const getSelectedServices = asyncHandler(async (req, res) => {
 
     const responseData = {
         vendorId: result?.vendorId || vendorId,
+        isserviceapproval: approvalStatus === 'approved',
         services
     };
 
@@ -445,6 +446,32 @@ const getAddCategoryFee = asyncHandler(async (req, res) => {
     );
 });
 
+const requestExtraServiceApproval = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.requestExtraServiceApproval(vendorId, req.body);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Extra service approval requested successfully')
+    );
+});
+
+const getExtraServiceApprovalRequests = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
+    const result = await vendorService.getExtraServiceApprovalRequests(vendorId);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Extra service approval status retrieved successfully')
+    );
+});
+
+const reviewExtraServiceApprovalRequest = asyncHandler(async (req, res) => {
+    const vendorId = req.params.vendorId;
+    const adminId = req.user.userId || req.user.id || req.user._id;
+    const { requestId } = req.params;
+    const result = await vendorService.reviewExtraServiceApprovalRequest(adminId, vendorId, requestId, req.body);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Extra service approval updated successfully')
+    );
+});
+
 /**
  * Add Category: Create Razorpay order
  */
@@ -522,13 +549,13 @@ const getPurchasePaymentDetail = asyncHandler(async (req, res) => {
 
 const createPurchaseOrder = asyncHandler(async (req, res) => {
     const vendorId = req.params.vendorId || req.user.id;
-    const { serviceIds } = req.body;
+    const { serviceIds, approvalRequestId } = req.body;
 
     if (!serviceIds || !Array.isArray(serviceIds)) {
         throw new ApiError(400, 'serviceIds must be an array');
     }
 
-    const result = await vendorService.createPurchaseOrder(vendorId, { serviceIds });
+    const result = await vendorService.createPurchaseOrder(vendorId, { serviceIds, approvalRequestId });
     res.status(200).json(new ApiResponse(200, result, 'Purchase order created successfully'));
 });
 
@@ -607,6 +634,9 @@ module.exports = {
     getMembershipRenewalFeeNoGst: getMembershipRenewalFeeNoGstController,
     getHierarchicalMembershipCharges: getHierarchicalMembershipChargesController,
     getAddCategoryFee,
+    requestExtraServiceApproval,
+    getExtraServiceApprovalRequests,
+    reviewExtraServiceApprovalRequest,
     createAddCategoryOrder,
     verifyAddCategoryPayment,
     activateAddCategory,

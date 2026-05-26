@@ -975,7 +975,7 @@ const emitToVendor = (vendorId, event, data) => {
     console.log(`[SOCKET DEBUG] emitToVendor called: event='${event}', vendorId='${vIdStr}', matchedSockets=${sockets.length}, allRegisteredVendors=[${[...activeVendors.keys()].join(', ')}]`);
 
     // Copy to diagnostics room so the Socket Simulator page captures all system booking actions in real time
-    if (['new_booking_request', 'booking_status_updated', 'booking_accepted_success', 'booking_rejected_success', 'booking_created_success'].includes(event)) {
+    if (['new_booking_request', 'booking_status_updated', 'booking_accepted_success', 'booking_rejected_success', 'booking_created_success', 'service_approval_response', 'service_approval_update', 'extra_service_approval_update'].includes(event)) {
         io.to('diagnostics').emit(event, data);
         console.log(`📡 [DIAGNOSTICS] Forwarded copy of '${event}' to diagnostics room`);
     }
@@ -1004,7 +1004,7 @@ const emitToUser = (userId, event, data) => {
     const sockets = activeUsers.get(userIdStr) || [];
 
     // Copy to diagnostics room so the Socket Simulator page captures all system booking actions in real time
-    if (['new_booking_request', 'booking_status_updated', 'booking_accepted_success', 'booking_rejected_success', 'booking_created_success'].includes(event)) {
+    if (['new_booking_request', 'booking_status_updated', 'booking_accepted_success', 'booking_rejected_success', 'booking_created_success', 'service_approval_response', 'service_approval_update', 'extra_service_approval_update'].includes(event)) {
         io.to('diagnostics').emit(event, data);
         console.log(`📡 [DIAGNOSTICS] Forwarded copy of '${event}' to diagnostics room`);
     }
