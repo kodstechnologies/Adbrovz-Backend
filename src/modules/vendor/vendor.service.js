@@ -3396,14 +3396,24 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
     const vendor = await Vendor.findById(vendorId).select('extraServiceRequests');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    const approvedRequest = (vendor.extraServiceRequests || []).find((req) =>
-        String(req._id) === String(approvalRequestId || '') && req.approvalStatus === 'approved'
-    );
+    const payloadIds = new Set((serviceIds || []).map((id) => String(id)));
+    let approvedRequest = null;
+    if (approvalRequestId) {
+        approvedRequest = (vendor.extraServiceRequests || []).find((req) =>
+            String(req._id) === String(approvalRequestId) && req.approvalStatus === 'approved'
+        );
+    } else {
+        approvedRequest = (vendor.extraServiceRequests || []).find((req) => {
+            if (req.approvalStatus !== 'approved') return false;
+            const reqIds = new Set((req.services || []).map((id) => String(id)));
+            return reqIds.size === payloadIds.size && [...payloadIds].every(id => reqIds.has(id));
+        });
+    }
+
     if (!approvedRequest) {
         throw new ApiError(403, 'Admin approval is required before purchasing extra services');
     }
     const requestedIds = new Set((approvedRequest.services || []).map((id) => String(id)));
-    const payloadIds = new Set((serviceIds || []).map((id) => String(id)));
     if (!serviceIds?.length || requestedIds.size !== payloadIds.size || [...payloadIds].some((id) => !requestedIds.has(id))) {
         throw new ApiError(403, 'Only approved services can be purchased');
     }
@@ -4100,14 +4110,24 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
 const createPurchaseOrder = async (vendorId, { serviceIds = [], approvalRequestId } = {}) => {
     const vendor = await Vendor.findById(vendorId).select('extraServiceRequests');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
-    const approvedRequest = (vendor.extraServiceRequests || []).find((req) =>
-        String(req._id) === String(approvalRequestId || '') && req.approvalStatus === 'approved'
-    );
+    const payloadIds = new Set((serviceIds || []).map((id) => String(id)));
+    let approvedRequest = null;
+    if (approvalRequestId) {
+        approvedRequest = (vendor.extraServiceRequests || []).find((req) =>
+            String(req._id) === String(approvalRequestId) && req.approvalStatus === 'approved'
+        );
+    } else {
+        approvedRequest = (vendor.extraServiceRequests || []).find((req) => {
+            if (req.approvalStatus !== 'approved') return false;
+            const reqIds = new Set((req.services || []).map((id) => String(id)));
+            return reqIds.size === payloadIds.size && [...payloadIds].every(id => reqIds.has(id));
+        });
+    }
+
     if (!approvedRequest) {
         throw new ApiError(403, 'Admin approval is required before purchasing extra services');
     }
     const requestedIds = new Set((approvedRequest.services || []).map((id) => String(id)));
-    const payloadIds = new Set((serviceIds || []).map((id) => String(id)));
     if (!serviceIds?.length || requestedIds.size !== payloadIds.size || [...payloadIds].some((id) => !requestedIds.has(id))) {
         throw new ApiError(403, 'Only approved services can be purchased');
     }
