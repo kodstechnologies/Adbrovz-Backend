@@ -97,8 +97,23 @@ const getSelectedServices = asyncHandler(async (req, res) => {
     }
 
     const result = await vendorService.getVendorMembershipDetails(vendorId, overrides);
+    const rawStatus = String(result?.serviceApprovalStatus || '').toLowerCase();
+    const approvalStatus = rawStatus === 'approved'
+        ? 'approved'
+        : (rawStatus === 'rejected' || rawStatus === 'disapproved' ? 'disapproved' : 'pending');
+    const services = (result?.selectedServices || []).map((service) => ({
+        id: service.id,
+        title: service.title,
+        approvalStatus
+    }));
+
+    const responseData = {
+        vendorId: result?.vendorId || vendorId,
+        services
+    };
+
     res.status(200).json(
-        new ApiResponse(200, result, 'Vendor selected services retrieved successfully')
+        new ApiResponse(200, responseData, 'Vendor selected services retrieved successfully')
     );
 });
 

@@ -609,6 +609,7 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         approvedServices,
         notApprovedServices: [],
         amount: calc.grandTotal,
+        serviceApprovalStatus: vendor.serviceApprovalStatus || 'pending',
         registrationStep: vendor.registrationStep || (vendor.serviceApprovalStatus === 'approved' ? 'SERVICES_APPROVED' : 'PENDING'),
         isServiceVerified: vendor.serviceApprovalStatus === 'approved'
     };
