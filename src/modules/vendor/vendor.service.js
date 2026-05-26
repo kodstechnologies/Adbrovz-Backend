@@ -3321,6 +3321,11 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
     if (!approvedRequest) {
         throw new ApiError(403, 'Admin approval is required before purchasing extra services');
     }
+    const requestedIds = new Set((approvedRequest.services || []).map((id) => String(id)));
+    const payloadIds = new Set((serviceIds || []).map((id) => String(id)));
+    if (!serviceIds?.length || requestedIds.size !== payloadIds.size || [...payloadIds].some((id) => !requestedIds.has(id))) {
+        throw new ApiError(403, 'Only approved services can be purchased');
+    }
 
     const feeDetails = await getAddCategoryFeeDetails(vendorId, { categoryId, subcategoryIds, serviceIds });
 
@@ -3528,6 +3533,17 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
 
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
+    if (!isAdminBypass && paymentRecord?.metadata?.approvalRequestId) {
+        const approvalReq = (vendor.extraServiceRequests || []).id(paymentRecord.metadata.approvalRequestId);
+        if (!approvalReq || approvalReq.approvalStatus !== 'approved') {
+            throw new ApiError(403, 'Approval is not valid anymore. Payment cannot be processed.');
+        }
+        const approvedIds = new Set((approvalReq.services || []).map((id) => String(id)));
+        const paidIds = new Set((finalServices || []).map((id) => String(id)));
+        if (!paidIds.size || approvedIds.size !== paidIds.size || [...paidIds].some((id) => !approvedIds.has(id))) {
+            throw new ApiError(403, 'Payment contains non-approved services.');
+        }
+    }
 
     // Add unique selections to vendor profile
     // Identify all categories involved in this purchase
@@ -4008,6 +4024,11 @@ const createPurchaseOrder = async (vendorId, { serviceIds = [], approvalRequestI
     );
     if (!approvedRequest) {
         throw new ApiError(403, 'Admin approval is required before purchasing extra services');
+    }
+    const requestedIds = new Set((approvedRequest.services || []).map((id) => String(id)));
+    const payloadIds = new Set((serviceIds || []).map((id) => String(id)));
+    if (!serviceIds?.length || requestedIds.size !== payloadIds.size || [...payloadIds].some((id) => !requestedIds.has(id))) {
+        throw new ApiError(403, 'Only approved services can be purchased');
     }
 
     const feeDetails = await calculatePurchasePaymentDetail(vendorId, serviceIds);
