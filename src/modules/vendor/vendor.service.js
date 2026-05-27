@@ -475,6 +475,9 @@ const getAllVendors = async () => {
         if (hasPendingServiceApproval) attentionReasons.push('SERVICE_APPROVAL_PENDING');
         if (hasPendingExtraServiceApproval) attentionReasons.push('EXTRA_SERVICE_APPROVAL_PENDING');
 
+        vendor.hasPendingServiceApproval = hasPendingServiceApproval;
+        vendor.hasPendingExtraServiceApproval = hasPendingExtraServiceApproval;
+        vendor.serviceApprovalStatus = vendor.serviceApprovalStatus || 'pending';
         vendor.requiresAttention = attentionReasons.length > 0;
         vendor.attentionColor = vendor.requiresAttention ? '#8B0000' : null;
         vendor.profileBorderColor = vendor.attentionColor;
@@ -637,6 +640,10 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
 const createMembershipOrder = async (vendorId, { durationMonths, amount, membershipId, planId } = {}) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    if (vendor.registrationStep !== 'SERVICES_APPROVED' && vendor.registrationStep !== 'PENDING' && vendor.registrationStep !== 'MEMBERSHIP_PAID' && vendor.registrationStep !== 'PLAN_PAID' && vendor.registrationStep !== 'COMPLETED') {
+        throw new ApiError(400, 'Please wait for admin service approval before purchasing membership');
+    }
 
     // Accept planId as an alias for membershipId (the app sends planId from the plan selection screen)
     const resolvedMembershipId = membershipId || planId || null;
@@ -1922,6 +1929,9 @@ const getVendorProfile = async (vendorId) => {
         isOnline: effectiveIsOnline,
         monthlyEarnings,
         totalCompletedBookingCounts,
+        hasPendingServiceApproval,
+        hasPendingExtraServiceApproval,
+        serviceApprovalStatus: vendor.serviceApprovalStatus || 'pending',
         requiresAttention: attentionReasons.length > 0,
         attentionColor: attentionReasons.length > 0 ? '#8B0000' : null,
         profileBorderColor: attentionReasons.length > 0 ? '#8B0000' : null,

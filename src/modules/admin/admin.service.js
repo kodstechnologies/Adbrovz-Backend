@@ -517,6 +517,8 @@ const getEligibleVendors = async () => {
     const color = attentionReasons.length ? '#8B0000' : null;
     return {
       ...vendor,
+      hasPendingServiceApproval,
+      hasPendingExtraServiceApproval,
       requiresAttention: attentionReasons.length > 0,
       attentionColor: color,
       profileBorderColor: color,
