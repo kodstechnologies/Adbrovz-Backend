@@ -316,7 +316,7 @@ const initiateUserLogin = async ({ phoneNumber, acceptedPolicies }) => {
   const user = await User.findOne({ phoneNumber, deletedAt: null });
 
   if (!user) {
-    throw new ApiError(401, "The mobile number not registerd please signup to contiunu");
+    throw new ApiError(401, "The mobile number not registerd please signup to continue");
   }
 
   // Verification check removed as per requirement
@@ -680,7 +680,7 @@ const initiateVendorLogin = async ({ phoneNumber }) => {
   const vendor = await Vendor.findOne({ phoneNumber, deletedAt: null });
 
   if (!vendor) {
-    throw new ApiError(401, "The mobile number not registerd please signup to contiunu");
+    throw new ApiError(401, "The mobile number not registerd please signup to continue");
   }
 
   // Document approval check removed per request - allow login regardless of status
@@ -739,7 +739,7 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
   if (role === 'vendor') {
     user = await Vendor.findOne({ phoneNumber, deletedAt: null }).select('+pin');
     if (!user) {
-      throw new ApiError(401, "The mobile number not registerd please signup to contiunu");
+      throw new ApiError(401, "The mobile number not registerd please signup to continue");
     }
     // Document approval check removed per request
     /*
@@ -751,7 +751,7 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
     // Default to user
     user = await User.findOne({ phoneNumber, deletedAt: null }).select('+pin');
     if (!user) {
-      throw new ApiError(401, "The mobile number not registerd please signup to contiunu");
+      throw new ApiError(401, "The mobile number not registerd please signup to continue");
     }
     if (!user.isVerified) {
       throw new ApiError(403, MESSAGES.AUTH.ACCOUNT_NOT_VERIFIED);

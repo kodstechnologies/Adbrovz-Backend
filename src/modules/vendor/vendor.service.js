@@ -1098,41 +1098,59 @@ const getMembershipPlans = async (serviceMembershipFee = 0, options = {}) => {
  * Get all categories with subcategories and services (Registration Menu)
  */
 const getCategoryRegistrationData = async () => {
-    const categories = await Category.find().lean();
-    const subcategories = await Subcategory.find().lean();
-    const services = await Service.find().lean();
+    const { isCategoryValid, isSubcategoryValid, isServiceTypeValid } = require('../service/service.service');
+    const categories = await Category.find({ isActive: { $ne: false } }).lean();
+    const subcategories = await Subcategory.find({ isActive: { $ne: false } }).lean();
+    const services = await Service.find({ isActive: { $ne: false } }).lean();
 
-    return categories.map(cat => {
-        const catSubcategories = subcategories
-            .filter(sub => sub.category && sub.category.toString() === cat._id.toString())
-            .map(sub => {
-                const subServices = services
-                    .filter(svc => svc.subcategory && svc.subcategory.toString() === sub._id.toString())
-                    .map(svc => ({
-                        id: svc._id,
-                        name: svc.title,
-                        membershipFee: _getMembershipCharge(svc, 'service')
-                    }));
+    const formatted = [];
+    for (const cat of categories) {
+        const isCatOk = await isCategoryValid(cat._id);
+        if (!isCatOk) continue;
 
-                return {
+        const catSubcategories = [];
+        for (const sub of subcategories) {
+            if (sub.category && sub.category.toString() === cat._id.toString()) {
+                const isSubOk = await isSubcategoryValid(sub._id);
+                if (!isSubOk) continue;
+
+                const subServices = [];
+                for (const svc of services) {
+                    if (svc.subcategory && svc.subcategory.toString() === sub._id.toString()) {
+                        const isTypeOk = svc.serviceType ? await isServiceTypeValid(svc.serviceType) : true;
+                        if (isTypeOk) {
+                            subServices.push({
+                                id: svc._id,
+                                name: svc.title,
+                                membershipFee: _getMembershipCharge(svc, 'service')
+                            });
+                        }
+                    }
+                }
+
+                catSubcategories.push({
                     id: sub._id,
                     name: sub.name,
                     membershipFee: _getMembershipCharge(sub, 'subcategory'),
                     serviceRenewalCharge: sub.serviceRenewalCharge || 0,
                     renewalCharge: sub.renewalCharge || 0,
                     services: subServices
-                };
-            });
+                });
+            }
+        }
 
-        const catServices = services
-            .filter(svc => svc.category && svc.category.toString() === cat._id.toString() && !svc.subcategory)
-            .map(svc => ({
-                id: svc._id,
-                name: svc.title,
-                membershipFee: _getMembershipCharge(svc, 'service')
-            }));
+        const catServices = [];
+        for (const svc of services) {
+            if (svc.category && svc.category.toString() === cat._id.toString() && !svc.subcategory) {
+                catServices.push({
+                    id: svc._id,
+                    name: svc.title,
+                    membershipFee: _getMembershipCharge(svc, 'service')
+                });
+            }
+        }
 
-        return {
+        formatted.push({
             id: cat._id,
             name: cat.name,
             membershipFee: _getMembershipCharge(cat, 'category'),
@@ -1140,8 +1158,10 @@ const getCategoryRegistrationData = async () => {
             renewalCharge: cat.renewalCharge || 0,
             subcategories: catSubcategories,
             services: catServices
-        };
-    });
+        });
+    }
+
+    return formatted;
 };
 
 /**
@@ -1243,10 +1263,32 @@ const getAvailablePurchaseCategories = async (vendorId) => {
     const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
     const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 0;
 
-    const allCategories = await Category.find({}).lean();
-    const allSubcategories = await Subcategory.find({}).lean();
-    const allServices = await Service.find({}).lean();
-    const allServiceTypes = await ServiceType.find({}).lean();
+    const allCategories = await Category.find({ isActive: { $ne: false } }).lean();
+    const allSubcategories = await Subcategory.find({ isActive: { $ne: false } }).lean();
+    const allServices = await Service.find({ isActive: { $ne: false } }).lean();
+    const allServiceTypes = await ServiceType.find({ isActive: { $ne: false } }).lean();
+
+    const { isCategoryValid, isSubcategoryValid, isServiceTypeValid } = require('../service/service.service');
+
+    const validCategoryIds = new Set();
+    const validSubcategoryIds = new Set();
+    const validServiceTypeIds = new Set();
+
+    for (const cat of allCategories) {
+        if (await isCategoryValid(cat._id)) {
+            validCategoryIds.add(cat._id.toString());
+        }
+    }
+    for (const sub of allSubcategories) {
+        if (await isSubcategoryValid(sub._id)) {
+            validSubcategoryIds.add(sub._id.toString());
+        }
+    }
+    for (const type of allServiceTypes) {
+        if (await isServiceTypeValid(type._id)) {
+            validServiceTypeIds.add(type._id.toString());
+        }
+    }
 
     const selectedCategoryIds = new Set((vendor.selectedCategories || []).map(id => id.toString()));
     const selectedSubcategoryIds = new Set((vendor.selectedSubcategories || []).map(id => id.toString()));
@@ -1342,6 +1384,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
         const subId = service.subcategory?.toString();
         const typeId = service.serviceType?.toString();
         if (!catId || !subId || !typeId) continue;
+        if (!validCategoryIds.has(catId) || !validSubcategoryIds.has(subId) || !validServiceTypeIds.has(typeId)) continue;
 
         const cat = allCategories.find(item => item._id.toString() === catId);
         const sub = subcategoryMap.get(subId);
@@ -1353,9 +1396,6 @@ const getAvailablePurchaseCategories = async (vendorId) => {
         const typeNode = ensureType(subNode, type);
 
         const isServicePurchased = selectedServiceIds.has(service._id.toString());
-        const categoryRegistrationCharge = catNode.categoryCharge;
-        const subcategoryRegistrationCharge = subNode.subcategoryCharge;
-        const typeRegistrationCharge = typeNode.typeCharge;
         const serviceRegistrationCharge = _getMembershipCharge(service, 'service');
 
 

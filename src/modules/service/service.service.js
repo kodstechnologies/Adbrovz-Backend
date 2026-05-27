@@ -61,20 +61,66 @@ const _buildManagementRow = ({ key, label, items, selectedId, dependsOn, emptyMe
     items
 });
 
+async function isServiceTypeValid(serviceTypeId) {
+    const type = await ServiceType.findOne({ _id: serviceTypeId, isActive: { $ne: false } });
+    if (!type) return false;
+
+    const sub = await Subcategory.findOne({ _id: type.subcategory, isActive: { $ne: false } });
+    if (!sub) return false;
+
+    const cat = await Category.findOne({ _id: type.category, isActive: { $ne: false } });
+    if (!cat) return false;
+
+    const activeServicesCount = await Service.countDocuments({ serviceType: serviceTypeId, isActive: { $ne: false } });
+    return activeServicesCount > 0;
+}
+
+async function isSubcategoryValid(subcategoryId) {
+    const sub = await Subcategory.findOne({ _id: subcategoryId, isActive: { $ne: false } });
+    if (!sub) return false;
+
+    const cat = await Category.findOne({ _id: sub.category, isActive: { $ne: false } });
+    if (!cat) return false;
+
+    const serviceTypes = await ServiceType.find({ subcategory: subcategoryId, isActive: { $ne: false } }).lean();
+    if (serviceTypes.length === 0) return false;
+
+    for (const type of serviceTypes) {
+        if (await isServiceTypeValid(type._id)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+async function isCategoryValid(categoryId) {
+    const cat = await Category.findOne({ _id: categoryId, isActive: { $ne: false } });
+    if (!cat) return false;
+
+    const subcategories = await Subcategory.find({ category: categoryId, isActive: { $ne: false } }).lean();
+    if (subcategories.length === 0) return false;
+
+    for (const sub of subcategories) {
+        if (await isSubcategoryValid(sub._id)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /**
  * Get all categories
  */
 const getAllCategories = async () => {
-    const categories = await Category.find({})
+    const categories = await Category.find({ isActive: { $ne: false } })
         .sort({ order: 1, name: 1 })
         .select('name description icon defaultFreeCredits slotStartTime slotEndTime serviceCharge bookingPrice membershipCharge serviceRenewalCharge membershipRenewalCharge renewalCharge')
         .lean();
 
-    // Filter: only return categories that have at least one active service
     const filtered = await Promise.all(
         categories.map(async (cat) => {
-            const count = await Service.countDocuments({ category: cat._id, isActive: { $ne: false } });
-            return count > 0 ? cat : null;
+            const isValid = await isCategoryValid(cat._id);
+            return isValid ? cat : null;
         })
     );
 
@@ -245,16 +291,15 @@ const getServiceManagementRows = async ({ categoryId, subcategoryId, serviceType
  * Get subcategories by category ID
  */
 const getSubcategoriesByCategoryId = async (categoryId) => {
-    const subcategories = await Subcategory.find({ category: categoryId })
+    const subcategories = await Subcategory.find({ category: categoryId, isActive: { $ne: false } })
         .sort({ order: 1, name: 1 })
         .select('name description icon order price serviceCharge bookingPrice coupon discount membershipCharge serviceRenewalCharge membershipRenewalCharge renewalCharge')
         .lean();
 
-    // Filter: only return subcategories that have at least one service type
     const filtered = await Promise.all(
         subcategories.map(async (sub) => {
-            const count = await ServiceType.countDocuments({ subcategory: sub._id });
-            return count > 0 ? sub : null;
+            const isValid = await isSubcategoryValid(sub._id);
+            return isValid ? sub : null;
         })
     );
 
@@ -265,18 +310,17 @@ const getSubcategoriesByCategoryId = async (categoryId) => {
  * Get service types by subcategory ID
  */
 const getServiceTypesBySubcategoryId = async (subcategoryId) => {
-    const serviceTypes = await ServiceType.find({ subcategory: subcategoryId })
+    const serviceTypes = await ServiceType.find({ subcategory: subcategoryId, isActive: { $ne: false } })
         .populate('category', 'name')
         .populate('subcategory', 'name')
         .sort({ order: 1, name: 1 })
         .select('name description photo order serviceCharge bookingPrice coupon discount membershipCharge serviceRenewalCharge membershipRenewalCharge category subcategory')
         .lean();
 
-    // Filter: only return service types that have at least one active service
     const filtered = await Promise.all(
         serviceTypes.map(async (type) => {
-            const count = await Service.countDocuments({ serviceType: type._id, isActive: { $ne: false } });
-            return count > 0 ? type : null;
+            const isValid = await isServiceTypeValid(type._id);
+            return isValid ? type : null;
         })
     );
 
@@ -291,13 +335,23 @@ const getServiceTypesBySubcategories = async (subcategoryIds) => {
         throw new ApiError(400, 'subcategoryIds must be a non-empty array');
     }
 
-    const serviceTypes = await ServiceType.find({ subcategory: { $in: subcategoryIds } })
+    const serviceTypes = await ServiceType.find({ subcategory: { $in: subcategoryIds }, isActive: { $ne: false } })
         .populate('category', 'name')
         .populate('subcategory', 'name')
-        .sort({ order: 1, name: 1 });
+        .sort({ order: 1, name: 1 })
+        .lean();
+
+    const filtered = await Promise.all(
+        serviceTypes.map(async (type) => {
+            const isValid = await isServiceTypeValid(type._id);
+            return isValid ? type : null;
+        })
+    );
+
+    const validServiceTypes = filtered.filter(Boolean);
 
     // Group service types by subcategory name
-    const groupedTypes = serviceTypes.reduce((acc, type) => {
+    const groupedTypes = validServiceTypes.reduce((acc, type) => {
         const subName = type.subcategory?.name || 'Other';
         if (!acc[subName]) {
             acc[subName] = {
@@ -319,13 +373,16 @@ const getServicesByServiceTypeId = async (serviceTypeId, options = {}) => {
     const { page = 1, limit = 10, search } = options;
     const skip = (page - 1) * limit;
 
-    const serviceType = await ServiceType.findById(serviceTypeId);
-    if (!serviceType) {
-        throw new ApiError(404, 'Service type not found');
+    const isValid = await isServiceTypeValid(serviceTypeId);
+    if (!isValid) {
+        throw new ApiError(404, 'Service type not found or is inactive');
     }
 
+    const serviceType = await ServiceType.findById(serviceTypeId);
+
     const query = {
-        serviceType: serviceTypeId
+        serviceType: serviceTypeId,
+        isActive: { $ne: false }
     };
 
     if (search) {
@@ -389,8 +446,30 @@ const getServicesByTypes = async (typeIds, options = {}) => {
         throw new ApiError(400, 'typeIds must be a non-empty array');
     }
 
+    const validTypes = await Promise.all(
+        typeIds.map(async (id) => {
+            const isValid = await isServiceTypeValid(id);
+            return isValid ? id : null;
+        })
+    );
+    const filteredTypeIds = validTypes.filter(Boolean);
+
+    if (filteredTypeIds.length === 0) {
+        return {
+            categoryId: null,
+            data: [],
+            pagination: {
+                page,
+                limit,
+                total: 0,
+                pages: 0
+            }
+        };
+    }
+
     const query = {
-        serviceType: { $in: typeIds }
+        serviceType: { $in: filteredTypeIds },
+        isActive: { $ne: false }
     };
 
     if (search) {
@@ -464,14 +543,16 @@ const getServicesBySubcategoryId = async (subcategoryId, options = {}) => {
     const { page = 1, limit = 10, search } = options;
     const skip = (page - 1) * limit;
 
-    // Fetch subcategory to get categoryId
-    const subcategory = await Subcategory.findById(subcategoryId);
-    if (!subcategory) {
-        throw new ApiError(404, 'Subcategory not found');
+    const isValid = await isSubcategoryValid(subcategoryId);
+    if (!isValid) {
+        throw new ApiError(404, 'Subcategory not found or is inactive');
     }
 
+    const subcategory = await Subcategory.findById(subcategoryId);
+
     const query = {
-        subcategory: subcategoryId
+        subcategory: subcategoryId,
+        isActive: { $ne: false }
     };
 
     if (search) {
@@ -527,11 +608,30 @@ const getServicesBySubcategoryId = async (subcategoryId, options = {}) => {
  * Get service details by ID
  */
 const getServiceById = async (serviceId) => {
-    const service = await Service.findById(serviceId)
-        .populate('category', 'name')
-        .populate('subcategory', 'name');
+    const service = await Service.findOne({ _id: serviceId, isActive: { $ne: false } })
+        .populate('category')
+        .populate('subcategory')
+        .populate('serviceType');
 
     if (!service) {
+        throw new ApiError(404, 'Service not found');
+    }
+
+    if (!service.category || service.category.isActive === false) {
+        throw new ApiError(404, 'Service not found');
+    }
+    if (service.subcategory && service.subcategory.isActive === false) {
+        throw new ApiError(404, 'Service not found');
+    }
+    if (service.serviceType && service.serviceType.isActive === false) {
+        throw new ApiError(404, 'Service not found');
+    }
+
+    const isTypeOk = service.serviceType ? await isServiceTypeValid(service.serviceType._id) : true;
+    const isSubOk = service.subcategory ? await isSubcategoryValid(service.subcategory._id) : true;
+    const isCatOk = await isCategoryValid(service.category._id);
+
+    if (!isTypeOk || !isSubOk || !isCatOk) {
         throw new ApiError(404, 'Service not found');
     }
 
@@ -547,31 +647,57 @@ const globalSearch = async (query) => {
     const searchRegex = { $regex: query, $options: 'i' };
 
     const [categories, subcategories, services] = await Promise.all([
-        Category.find({ name: searchRegex })
+        Category.find({ name: searchRegex, isActive: { $ne: false } })
             .select('name icon description')
             .limit(10),
 
-        Subcategory.find({ name: searchRegex })
-            .populate('category', 'name')
+        Subcategory.find({ name: searchRegex, isActive: { $ne: false } })
+            .populate('category')
             .select('name icon description category')
             .limit(10),
 
-        Service.find({ title: searchRegex })
-            .populate('category', 'name serviceCharge bookingPrice discount coupon')
-            .populate('subcategory', 'name serviceCharge bookingPrice discount coupon')
-            .populate('serviceType', 'name serviceCharge bookingPrice discount coupon')
+        Service.find({ title: searchRegex, isActive: { $ne: false } })
+            .populate('category')
+            .populate('subcategory')
+            .populate('serviceType')
             .select(
                 'title description photo serviceCharge bookingPrice approxCompletionTime category subcategory serviceType discount coupon'
             )
             .limit(20)
     ]);
 
-    const formattedServices = services.map(service => {
+    const validCategories = await Promise.all(
+        categories.map(async (cat) => {
+            const isValid = await isCategoryValid(cat._id);
+            return isValid ? cat : null;
+        })
+    );
+
+    const validSubcategories = await Promise.all(
+        subcategories.map(async (sub) => {
+            const isValid = await isSubcategoryValid(sub._id);
+            return isValid ? sub : null;
+        })
+    );
+
+    const validServices = await Promise.all(
+        services.map(async (service) => {
+            if (!service.category || service.category.isActive === false) return null;
+            if (service.subcategory && service.subcategory.isActive === false) return null;
+            if (service.serviceType && service.serviceType.isActive === false) return null;
+            
+            const isTypeOk = service.serviceType ? await isServiceTypeValid(service.serviceType._id) : true;
+            const isSubOk = service.subcategory ? await isSubcategoryValid(service.subcategory._id) : true;
+            const isCatOk = await isCategoryValid(service.category._id);
+            if (!isTypeOk || !isSubOk || !isCatOk) return null;
+            return service;
+        })
+    );
+
+    const formattedServices = validServices.filter(Boolean).map(service => {
         const doc = service.toJSON();
         const pricing = _calculateServicePricing(service);
         
-        // Retain original behavior in globalSearch, but strip out the pricing sub-fields if desired as strings,
-        // Wait, for globalSearch, they probably want string IDs as well to be consistent. Let's do that.
         if (doc.serviceType && doc.serviceType.id) doc.serviceType = doc.serviceType.id;
         else if (doc.serviceType && doc.serviceType._id) doc.serviceType = doc.serviceType._id.toString();
         if (doc.subcategory && doc.subcategory.id) doc.subcategory = doc.subcategory.id;
@@ -588,8 +714,8 @@ const globalSearch = async (query) => {
     });
 
     return {
-        categories,
-        subcategories,
+        categories: validCategories.filter(Boolean),
+        subcategories: validSubcategories.filter(Boolean),
         services: formattedServices
     };
 };
@@ -599,20 +725,32 @@ const globalSearch = async (query) => {
  */
 const getAllServices = async () => {
     let services = await Service.find({ isActive: { $ne: false } })
-        .populate('category', 'name')
-        .populate('subcategory', 'name')
+        .populate('category')
+        .populate('subcategory')
+        .populate('serviceType')
         .sort({ title: 1 });
+
+    const filtered = await Promise.all(
+        services.map(async (s) => {
+            if (!s.category || s.category.isActive === false) return null;
+            if (s.subcategory && s.subcategory.isActive === false) return null;
+            if (s.serviceType && s.serviceType.isActive === false) return null;
+
+            const isTypeOk = s.serviceType ? await isServiceTypeValid(s.serviceType._id) : true;
+            const isSubOk = s.subcategory ? await isSubcategoryValid(s.subcategory._id) : true;
+            const isCatOk = await isCategoryValid(s.category._id);
+            if (!isTypeOk || !isSubOk || !isCatOk) return null;
+
+            return s;
+        })
+    );
         
-    return services.map(s => {
+    return filtered.filter(Boolean).map(s => {
         const doc = s.toJSON ? s.toJSON() : s;
         if (doc.isActive === undefined) {
             doc.isActive = true;
         }
         const pricing = _calculateServicePricing(s);
-        
-        // Optionally revert to string IDs if they are not specifically expected as objects
-        // However getAllServices relies on populated names, so we'll just remove serviceCharge/discount wrapper if needed.
-        // Since we didn't add serviceCharge to 'category' here, let's leave it intact.
         
         doc.adminPrice = pricing.adminPrice;
         doc.discountPercentage = pricing.discountPercentage;
@@ -1049,54 +1187,35 @@ const getAllCategoriesWithSubcategories = async () => {
  * Public: Get all subcategories with their services
  */
 const getAllSubcategoriesWithServices = async () => {
-    const result = await Subcategory.aggregate([
-        { $sort: { order: 1, name: 1 } },
-        {
-            $lookup: {
-                from: 'services',
-                let: { subcatId: '$_id' },
-                pipeline: [
-                    {
-                        $match: {
-                            $expr: {
-                                $eq: ['$subcategory', '$$subcatId']
-                            }
-                        }
-                    },
-                    { $sort: { title: 1 } },
-                    {
-                        $project: {
-                            _id: 1,
-                            title: 1,
-                            membershipCharge: {
-                                $cond: [
-                                    { $gt: ['$membershipCharge', 0] },
-                                    '$membershipCharge',
-                                    '$$REMOVE'
-                                ]
-                            }
-                        }
-                    }
-                ],
-                as: 'services'
-            }
-        },
-        {
-            $project: {
-                name: 1,
-                description: 1,
-                icon: 1,
-                order: 1,
-                price: 1,
-                serviceRenewalCharge: 1,
-                renewalCharge: 1,
-                services: 1,
-                category: 1
-            }
-        }
-    ]);
+    const subcategories = await Subcategory.find({ isActive: { $ne: false } }).sort({ order: 1, name: 1 }).lean();
 
-    // Recursive helper to clean IDs and remove internal fields
+    const filtered = await Promise.all(
+        subcategories.map(async (sub) => {
+            const isValid = await isSubcategoryValid(sub._id);
+            if (!isValid) return null;
+
+            const services = await Service.find({ subcategory: sub._id, isActive: { $ne: false } })
+                .sort({ title: 1 })
+                .select('_id title membershipCharge')
+                .lean();
+
+            const formattedServices = services.map(s => {
+                const cleaned = { _id: s._id, title: s.title };
+                if (s.membershipCharge > 0) {
+                    cleaned.membershipCharge = s.membershipCharge;
+                }
+                return cleaned;
+            });
+
+            return {
+                ...sub,
+                services: formattedServices
+            };
+        })
+    );
+
+    const validSubcategories = filtered.filter(Boolean);
+
     const cleanDoc = (doc) => {
         if (!doc) return doc;
         const cleaned = { ...doc, id: doc._id?.toString() || doc.id };
@@ -1109,29 +1228,29 @@ const getAllSubcategoriesWithServices = async () => {
         return cleaned;
     };
 
-    return result.map(cleanDoc);
+    return validSubcategories.map(cleanDoc);
 };
 
 /**
  * Public: Get full catalogue grouped as category -> subcategory -> service type -> services
  */
 const getServiceCatalogue = async () => {
-    const categories = await Category.find({})
+    const categories = await Category.find({ isActive: { $ne: false } })
         .select('name _id')
         .sort({ order: 1, name: 1 })
         .lean();
 
-    const subcategories = await Subcategory.find({})
+    const subcategories = await Subcategory.find({ isActive: { $ne: false } })
         .select('name _id category')
         .sort({ order: 1, name: 1 })
         .lean();
 
-    const serviceTypes = await ServiceType.find({})
+    const serviceTypes = await ServiceType.find({ isActive: { $ne: false } })
         .select('name _id category subcategory')
         .sort({ order: 1, name: 1 })
         .lean();
 
-    const services = await Service.find({})
+    const services = await Service.find({ isActive: { $ne: false } })
         .select('title _id serviceType subcategory category')
         .sort({ title: 1 })
         .lean();
@@ -1316,6 +1435,9 @@ const getServiceTypeById = async (serviceTypeId) => {
 };
 
 module.exports = {
+    isCategoryValid,
+    isSubcategoryValid,
+    isServiceTypeValid,
     getCategorySlots,
     getAllCategories,
     getServiceManagementRows,

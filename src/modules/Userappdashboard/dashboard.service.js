@@ -10,48 +10,91 @@ const ApiError = require('../../utils/ApiError');
  * USER: Get dashboard data (service sections + banners)
  */
 const getDashboardData = async () => {
+    const { isCategoryValid, isSubcategoryValid, isServiceTypeValid } = require('../service/service.service');
+
     // Get banners
     const banners = await Banner.find({ type: 'user' })
         .sort({ order: 1 })
-        .populate('category', '_id name')
-        .select('title description image category order')
-        .then(docs => docs.filter(doc => doc.category)); // Filter out orphaned banners
+        .populate('category')
+        .select('title description image category order');
+
+    // Filter banners to ensure their category is active and valid
+    const filteredBanners = [];
+    for (const banner of banners) {
+        if (banner.category && banner.category.isActive !== false) {
+            const isValid = await isCategoryValid(banner.category._id);
+            if (isValid) {
+                // Keep only name and id in populated category to match original behavior
+                banner.category = {
+                    _id: banner.category._id,
+                    name: banner.category.name
+                };
+                filteredBanners.push(banner);
+            }
+        }
+    }
 
     // Get service sections
     const serviceSections = await ServiceSection.find({})
         .sort({ order: 1 })
-        .populate('category', '_id name')
-        .populate('subcategory', '_id name');
+        .populate('category')
+        .populate('subcategory');
 
     // For each service section, get the services
     const sectionsWithServices = await Promise.all(
         serviceSections.map(async (section) => {
-            // Check if category or subcategory is missing
-            if (!section.category || !section.subcategory) {
+            // Check if category or subcategory is missing or inactive
+            if (!section.category || section.category.isActive === false ||
+                !section.subcategory || section.subcategory.isActive === false) {
+                return null;
+            }
+
+            const isCatOk = await isCategoryValid(section.category._id);
+            const isSubOk = await isSubcategoryValid(section.subcategory._id);
+            if (!isCatOk || !isSubOk) {
                 return null;
             }
 
             const services = await Service.find({
                 category: section.category._id,
-                subcategory: section.subcategory._id
+                subcategory: section.subcategory._id,
+                isActive: { $ne: false }
             })
                 .limit(section.limit)
-                .select('title description photo approxCompletionTime serviceCharge isAdminPriced category subcategory')
+                .select('title description photo approxCompletionTime serviceCharge isAdminPriced category subcategory serviceType')
                 .populate('category', '_id name')
-                .populate('subcategory', '_id name');
+                .populate('subcategory', '_id name')
+                .populate('serviceType');
+
+            // Filter services to ensure their serviceType (if any) is valid
+            const filteredServices = [];
+            for (const s of services) {
+                if (s.serviceType) {
+                    const isTypeOk = await isServiceTypeValid(s.serviceType._id);
+                    if (isTypeOk) {
+                        filteredServices.push(s);
+                    }
+                } else {
+                    filteredServices.push(s);
+                }
+            }
+
+            if (filteredServices.length === 0) {
+                return null;
+            }
 
             return {
                 _id: section._id,
                 title: section.title,
-                category: section.category,
-                subcategory: section.subcategory,
-                services
+                category: { _id: section.category._id, name: section.category.name },
+                subcategory: { _id: section.subcategory._id, name: section.subcategory.name },
+                services: filteredServices
             };
         })
     );
 
     return {
-        banners,
+        banners: filteredBanners,
         serviceSections: sectionsWithServices.filter(Boolean)
     };
 };
@@ -61,17 +104,30 @@ const getDashboardData = async () => {
  * Query params: ignoreEmpty (boolean)
  */
 const getAllServiceSections = async (query = {}) => {
+    const { isCategoryValid, isSubcategoryValid, isServiceTypeValid } = require('../service/service.service');
     const filter = {};
 
     const sections = await ServiceSection.find(filter)
         .sort({ order: 1 })
-        .populate('category', 'name icon')
-        .populate('subcategory', 'name icon');
+        .populate('category')
+        .populate('subcategory');
 
     const sectionsWithServices = await Promise.all(
         sections.map(async (section) => {
-            // Handle missing category or subcategory
-            if (!section.category || !section.subcategory) {
+            // Handle missing or inactive category or subcategory
+            if (!section.category || section.category.isActive === false ||
+                !section.subcategory || section.subcategory.isActive === false) {
+                return {
+                    ...section.toObject(),
+                    services: [],
+                    totalServices: 0,
+                    isOrphaned: true
+                };
+            }
+
+            const isCatOk = await isCategoryValid(section.category._id);
+            const isSubOk = await isSubcategoryValid(section.subcategory._id);
+            if (!isCatOk || !isSubOk) {
                 return {
                     ...section.toObject(),
                     services: [],
@@ -83,28 +139,39 @@ const getAllServiceSections = async (query = {}) => {
             // Find services for this section
             const services = await Service.find({
                 category: section.category._id,
-                subcategory: section.subcategory._id
+                subcategory: section.subcategory._id,
+                isActive: { $ne: false }
             })
                 .limit(section.limit) // limit to section's limit
-                .sort({ order: 1 }) // implied service order, or createdAt
-                // .select('title description photo approxCompletionTime adminPrice isAdminPriced category subcategory') // Removed to return everything
+                .sort({ order: 1 })
                 .populate('category', '_id name icon')
-                .populate('subcategory', '_id name icon');
+                .populate('subcategory', '_id name icon')
+                .populate('serviceType');
+
+            const filteredServices = [];
+            for (const s of services) {
+                if (s.serviceType) {
+                    const isTypeOk = await isServiceTypeValid(s.serviceType._id);
+                    if (isTypeOk) {
+                        filteredServices.push(s);
+                    }
+                } else {
+                    filteredServices.push(s);
+                }
+            }
 
             // If ignoreEmpty is true and no services, filter this section out
-            if (query.ignoreEmpty === 'true' && services.length === 0) {
+            if (query.ignoreEmpty === 'true' && filteredServices.length === 0) {
                 return null;
             }
 
-            // Get total count of services for this subcategory
-            const count = await Service.countDocuments({
-                category: section.category._id,
-                subcategory: section.subcategory._id
-            });
+            const count = filteredServices.length;
 
             return {
                 ...section.toObject(),
-                services,
+                category: { _id: section.category._id, name: section.category.name, icon: section.category.icon },
+                subcategory: { _id: section.subcategory._id, name: section.subcategory.name, icon: section.subcategory.icon },
+                services: filteredServices,
                 totalServices: count
             };
         })
@@ -199,6 +266,8 @@ const getVendorBanners = async () => {
  * PUBLIC: Get top 4 best services based on average rating
  */
 const getBestServices = async () => {
+    const { isCategoryValid, isSubcategoryValid, isServiceTypeValid } = require('../service/service.service');
+
     const result = await Booking.aggregate([
         // Only completed bookings with a rating
         { $match: { status: 'completed', 'rating.value': { $exists: true, $ne: null } } },
@@ -214,8 +283,8 @@ const getBestServices = async () => {
         },
         // Sort by average rating descending
         { $sort: { avgRating: -1 } },
-        // Take top 4
-        { $limit: 4 },
+        // Take a larger limit initially so we can filter inactive/empty ones in JS and still have enough
+        { $limit: 30 },
         // Lookup service details
         {
             $lookup: {
@@ -226,6 +295,8 @@ const getBestServices = async () => {
             }
         },
         { $unwind: '$service' },
+        // Only keep active services
+        { $match: { 'service.isActive': { $ne: false } } },
         // Lookup category
         {
             $lookup: {
@@ -256,41 +327,89 @@ const getBestServices = async () => {
                 approxCompletionTime: '$service.approxCompletionTime',
                 avgRating: { $round: ['$avgRating', 1] },
                 totalRatings: 1,
-                category: { $arrayElemAt: [{ $map: { input: '$category', as: 'c', in: { _id: '$$c._id', name: '$$c.name' } } }, 0] },
-                subcategory: { $arrayElemAt: [{ $map: { input: '$subcategory', as: 's', in: { _id: '$$s._id', name: '$$s.name' } } }, 0] }
+                category: { $arrayElemAt: [{ $map: { input: '$category', as: 'c', in: { _id: '$$c._id', name: '$$c.name', isActive: '$$c.isActive' } } }, 0] },
+                subcategory: { $arrayElemAt: [{ $map: { input: '$subcategory', as: 's', in: { _id: '$$s._id', name: '$$s.name', isActive: '$$s.isActive' } } }, 0] }
             }
         }
     ]);
 
-    // If there are less than 4 rated services, fetch additional services to fill the gap
-    if (result.length < 4) {
-        const excludeIds = result.map(s => s._id);
-        const limit = 4 - result.length;
+    // Now validate hierarchy on the result in JavaScript
+    const filteredResult = [];
+    for (const r of result) {
+        if (!r.category || r.category.isActive === false) continue;
+        if (r.subcategory && r.subcategory.isActive === false) continue;
 
-        const additionalServices = await Service.find({ _id: { $nin: excludeIds } })
-            .limit(limit)
-            .select('title description photo approxCompletionTime serviceCharge isAdminPriced category subcategory')
-            .populate('category', '_id name')
-            .populate('subcategory', '_id name');
+        // Find if service type is active/valid
+        const serviceDoc = await Service.findById(r._id);
+        if (serviceDoc && serviceDoc.serviceType) {
+            const isTypeOk = await isServiceTypeValid(serviceDoc.serviceType);
+            if (!isTypeOk) continue;
+        }
 
-        const formattedAdditional = additionalServices.map(s => ({
-            _id: s._id,
-            title: s.title,
-            description: s.description,
-            photo: s.photo,
-            adminPrice: s.serviceCharge,
-            isAdminPriced: s.isAdminPriced,
-            approxCompletionTime: s.approxCompletionTime,
-            avgRating: 0,
-            totalRatings: 0,
-            category: s.category,
-            subcategory: s.subcategory
-        }));
-
-        result.push(...formattedAdditional);
+        const isCatOk = await isCategoryValid(r.category._id);
+        const isSubOk = r.subcategory ? await isSubcategoryValid(r.subcategory._id) : true;
+        if (isCatOk && isSubOk) {
+            filteredResult.push({
+                _id: r._id,
+                title: r.title,
+                description: r.description,
+                photo: r.photo,
+                adminPrice: r.adminPrice,
+                isAdminPriced: r.isAdminPriced,
+                approxCompletionTime: r.approxCompletionTime,
+                avgRating: r.avgRating,
+                totalRatings: r.totalRatings,
+                category: { _id: r.category._id, name: r.category.name },
+                subcategory: r.subcategory ? { _id: r.subcategory._id, name: r.subcategory.name } : null
+            });
+        }
     }
 
-    return result;
+    // Limit to top 4
+    const finalResult = filteredResult.slice(0, 4);
+
+    // If there are less than 4 rated services, fetch additional services to fill the gap
+    if (finalResult.length < 4) {
+        const excludeIds = finalResult.map(s => s._id);
+
+        // Fetch a pool of active services and filter them in JS
+        const pool = await Service.find({ _id: { $nin: excludeIds }, isActive: { $ne: false } })
+            .populate('category')
+            .populate('subcategory')
+            .populate('serviceType');
+
+        const additional = [];
+        for (const s of pool) {
+            if (additional.length >= (4 - finalResult.length)) break;
+
+            if (!s.category || s.category.isActive === false) continue;
+            if (s.subcategory && s.subcategory.isActive === false) continue;
+
+            const isTypeOk = s.serviceType ? await isServiceTypeValid(s.serviceType._id) : true;
+            const isSubOk = s.subcategory ? await isSubcategoryValid(s.subcategory._id) : true;
+            const isCatOk = await isCategoryValid(s.category._id);
+
+            if (isTypeOk && isSubOk && isCatOk) {
+                additional.push({
+                    _id: s._id,
+                    title: s.title,
+                    description: s.description,
+                    photo: s.photo,
+                    adminPrice: s.serviceCharge,
+                    isAdminPriced: s.isAdminPriced,
+                    approxCompletionTime: s.approxCompletionTime,
+                    avgRating: 0,
+                    totalRatings: 0,
+                    category: { _id: s.category._id, name: s.category.name },
+                    subcategory: s.subcategory ? { _id: s.subcategory._id, name: s.subcategory.name } : null
+                });
+            }
+        }
+
+        finalResult.push(...additional);
+    }
+
+    return finalResult;
 };
 
 module.exports = {
