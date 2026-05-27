@@ -1161,7 +1161,53 @@ const getCategoryRegistrationData = async () => {
         });
     }
 
-    return formatted;
+    // After building the hierarchical category structure, also attach any approved extra service requests
+    // Extra services are stored in vendor.extraServiceRequests and have fields: category, subcategories, services, isPurchased, etc.
+    // We expose them as a separate top‑level array `extraServices` so the front‑end can render them clearly.
+    const extraServices = [];
+    if (vendor.extraServiceRequests && vendor.extraServiceRequests.length) {
+        for (const req of vendor.extraServiceRequests) {
+            // Only show approved (or purchased) extra services – pending requests are handled elsewhere
++            if (req.approvalStatus !== 'approved' && req.approvalStatus !== 'purchased') continue;
++            const cat = await Category.findById(req.category).lean();
++            const catName = cat ? cat.name : null;
++            const subcats = [];
++            for (const subId of req.subcategories || []) {
++                const sub = await Subcategory.findById(subId).lean();
++                if (sub) subcats.push({ id: sub._id, name: sub.name });
++            }
++            const svcList = [];
++            for (const svcId of req.services || []) {
++                const svc = await Service.findById(svcId).lean();
++                if (svc) svcList.push({ id: svc._id, name: svc.title });
++            }
++            extraServices.push({
++                requestId: req._id,
++                category: catName,
++                subcategories: subcats,
++                services: svcList,
++                isPurchased: true,
++                payable: req.payable || {}
++            });
++        }
++    }
++    // Attach the extra services list to the formatted response
++    if (extraServices.length) {
++        formatted.push({
++            id: null,
++            name: 'Extra Services',
++            membershipFee: 0,
++            serviceRenewalCharge: 0,
++            renewalCharge: 0,
++            subcategories: [],
++            services: [],
++            extraServices
++        });
++    }
+
+-    return formatted;
++    return formatted;
+
 };
 
 /**
@@ -2454,7 +2500,7 @@ const getSubscriptionStatus = async (vendorId) => {
     let finalServices = [];
     if (query.$or.length > 0) {
         const Service = require('../../models/Service.model');
-        finalServices = await Service.find(query);
+        finalServices = await Service.find({ ...query, isActive: { $ne: false } });
     }
 
     // Determine the list of services across all levels of hierarchy
@@ -2479,9 +2525,15 @@ const getSubscriptionStatus = async (vendorId) => {
         }
         
         return {
+            id: svc._id.toString(),
             serviceId: svc.title,
+            name: svc.title,
+            title: svc.title,
             isActive: active,
-            daysRemaining: remaining
+            daysRemaining: remaining,
+            category: svc.category ? svc.category.toString() : null,
+            subcategory: svc.subcategory ? svc.subcategory.toString() : null,
+            serviceType: svc.serviceType ? svc.serviceType.toString() : null
         };
     });
 
