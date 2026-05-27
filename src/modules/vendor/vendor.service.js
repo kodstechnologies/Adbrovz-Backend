@@ -1790,10 +1790,9 @@ const toggleVendorSuspension = async (vendorId, { isSuspended }) => {
 
     // Notify Vendor
     const title = isSuspended ? 'Account Suspended' : 'Account Reactivated';
-    sendPush(vendor._id, 'Vendor', 'account_status', title, message, { isSuspended });
-
-
     const message = isSuspended ? 'Your account has been suspended.' : 'Your account has been reactivated.';
+    
+    sendPush(vendor._id, 'Vendor', 'account_status', title, message, { isSuspended });
     const verificationPayload = _getVerificationPayload(vendor);
     verificationPayload.message = message;
 
