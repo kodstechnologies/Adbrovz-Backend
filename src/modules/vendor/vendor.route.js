@@ -5,6 +5,7 @@ const { authenticate, authorize, optionalAuth } = require('../../middlewares/aut
 const { ROLES } = require('../../constants/roles');
 const { upload, uploadToCloudinary } = require('../../middlewares/cloudinary.middleware');
 const { uploadVendorDocs, processVendorDocs } = require('../../middlewares/vendorUpload.middleware');
+const userController = require('../user/user.controller');
 
 // Debugging middleware
 router.use((req, res, next) => {
@@ -13,6 +14,9 @@ router.use((req, res, next) => {
     if (Object.keys(req.body).length) console.log(`   Body:`, JSON.stringify(req.body));
     next();
 });
+
+// Public/Optional Auth status endpoint
+router.get('/status', optionalAuth, userController.getUserStatus);
 
 // High-priority purchase routes
 router.post('/purchase-categories/payment-detail', 
