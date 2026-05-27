@@ -2,12 +2,15 @@ const express = require('express');
 const router = express.Router();
 const userController = require('./user.controller');
 const couponController = require('../admin/coupon.controller');
-const { authenticate } = require('../../middlewares/auth.middleware');
+const { authenticate, optionalAuth } = require('../../middlewares/auth.middleware');
 const { validateUpdateProfile } = require('../../validators/user.validator');
 
 const { upload, uploadToCloudinary } = require('../../middlewares/cloudinary.middleware');
 
-// All routes require authentication
+// Public/Optional Auth status endpoint
+router.get('/status', optionalAuth, userController.getUserStatus);
+
+// All routes below require authentication
 router.use(authenticate);
 
 router.get('/profile', userController.getProfile);

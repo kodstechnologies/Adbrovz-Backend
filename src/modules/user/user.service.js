@@ -64,8 +64,75 @@ const deleteUser = async (userId, req = null) => {
   return user;
 };
 
+const getUserStatus = async (queryParams) => {
+  const { userId, phoneNumber, role } = queryParams;
+  const Vendor = require('../../models/Vendor.model');
+
+  let user = null;
+  let vendor = null;
+
+  // 1. Search by userId/vendorId if provided
+  if (userId) {
+    if (role === 'vendor') {
+      const mongoose = require('mongoose');
+      if (mongoose.Types.ObjectId.isValid(userId)) {
+        vendor = await Vendor.findById(userId);
+      }
+      if (!vendor) vendor = await Vendor.findOne({ vendorID: userId });
+    } else if (role === 'user') {
+      const mongoose = require('mongoose');
+      if (mongoose.Types.ObjectId.isValid(userId)) {
+        user = await User.findById(userId);
+      }
+      if (!user) user = await User.findOne({ userID: userId });
+    } else {
+      const mongoose = require('mongoose');
+      const isValidObjectId = mongoose.Types.ObjectId.isValid(userId);
+      if (isValidObjectId) {
+        user = await User.findById(userId);
+        vendor = await Vendor.findById(userId);
+      }
+      if (!user) user = await User.findOne({ userID: userId });
+      if (!vendor) vendor = await Vendor.findOne({ vendorID: userId });
+    }
+  }
+
+  // 2. Search by phoneNumber if provided and user/vendor not found yet
+  if (!user && !vendor && phoneNumber) {
+    user = await User.findOne({ phoneNumber });
+    vendor = await Vendor.findOne({ phoneNumber });
+  }
+
+  // 3. Determine status
+  // A vendor is found
+  if (vendor) {
+    if (vendor.deletedAt || (vendor.deletionRequest && vendor.deletionRequest.isRequested && vendor.deletionRequest.status === 'APPROVED')) {
+      return 'deleted';
+    }
+    if (vendor.isSuspended || vendor.isBlocked) {
+      return 'suspend';
+    }
+    return 'existing';
+  }
+
+  // A user is found
+  if (user) {
+    if (user.status === 'DELETED' || user.deletedAt) {
+      return 'deleted';
+    }
+    if (user.status === 'SUSPENDED' || user.isLocked) {
+      return 'suspend';
+    }
+    return 'existing';
+  }
+
+  // If neither is found
+  return 'deleted';
+};
+
 module.exports = {
   getUserById,
   updateUser,
   deleteUser,
+  getUserStatus,
 };

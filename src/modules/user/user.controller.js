@@ -108,6 +108,19 @@ const updateFcmToken = asyncHandler(async (req, res) => {
   );
 });
 
+// Get user status (existing, suspend, deleted)
+const getUserStatus = asyncHandler(async (req, res) => {
+  const userId = req.query.userId || req.query.userID || (req.user ? (req.user.userId || req.user.id || req.user._id) : null);
+  const phoneNumber = req.query.phoneNumber || (req.user ? req.user.phoneNumber : null);
+  const role = req.query.role || (req.user ? req.user.role : null);
+
+  const status = await userService.getUserStatus({ userId, phoneNumber, role });
+
+  res.status(200).json(
+    new ApiResponse(200, { status }, 'User status retrieved successfully')
+  );
+});
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -116,4 +129,5 @@ module.exports = {
   exportUsersToCSV,
   getUserCoins,
   updateFcmToken,
+  getUserStatus,
 };
