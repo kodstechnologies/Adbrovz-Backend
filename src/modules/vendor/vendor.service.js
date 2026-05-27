@@ -2458,8 +2458,9 @@ const getSubscriptionStatus = async (vendorId) => {
     const isRenActive = renExp ? renExp > now : false;
 
     let daysRemaining = 0;
-    if (isRenActive) {
-        const diff = renExp - now;
+    // Use membership expiry as primary source for daysRemaining
+    if (isMemActive) {
+        const diff = memExp - now;
         daysRemaining = Math.ceil(diff / (1000 * 60 * 60 * 24));
     }
 
@@ -2503,17 +2504,27 @@ const getSubscriptionStatus = async (vendorId) => {
             sub.category && (sub.category._id || sub.category).toString() === catIdStr
         );
         
-        let active = isRenActive;
+        let active = isMemActive;
         let remaining = daysRemaining;
         
         if (catSub) {
             const subExp = catSub.expiryDate ? new Date(catSub.expiryDate) : null;
             const isSubActive = subExp ? subExp > now : false;
-            active = isSubActive && catSub.status === 'ACTIVE';
-            remaining = 0;
-            if (isSubActive) {
-                const diff = subExp - now;
+
+            // Service is active if either membership or catSub covers it
+            active = isMemActive || (isSubActive && catSub.status === 'ACTIVE');
+
+            // Use the latest (maximum) expiry date among membership and catSub
+            const candidateExpiries = [];
+            if (isMemActive && memExp) candidateExpiries.push(memExp);
+            if (isSubActive && subExp) candidateExpiries.push(subExp);
+
+            if (candidateExpiries.length > 0) {
+                const latestExpiry = new Date(Math.max(...candidateExpiries.map(d => d.getTime())));
+                const diff = latestExpiry - now;
                 remaining = Math.ceil(diff / (1000 * 60 * 60 * 24));
+            } else {
+                remaining = 0;
             }
         }
         
