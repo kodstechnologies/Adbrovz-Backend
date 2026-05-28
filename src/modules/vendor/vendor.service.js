@@ -3616,15 +3616,22 @@ const requestExtraServiceApproval = async (vendorId, { categoryId, subcategoryId
 
 const getExtraServiceApprovalRequests = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId)
-        .select('extraServiceRequests')
+        .select('extraServiceRequests selectedServices')
         .populate('extraServiceRequests.requestedBy', 'name phoneNumber vendorID')
         .populate('extraServiceRequests.category', 'name')
         .populate('extraServiceRequests.subcategories', 'name')
         .populate('extraServiceRequests.services', 'title');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
+    const purchasedServiceIds = new Set((vendor.selectedServices || []).map((service) => String(service?._id || service)));
+    const visibleRequests = (vendor.extraServiceRequests || []).filter((req) => {
+        if (req.approvalStatus !== 'approved') return true;
+        const requestServiceIds = (req.services || []).map((service) => String(service?._id || service));
+        return !requestServiceIds.some((serviceId) => purchasedServiceIds.has(serviceId));
+    });
+
     return {
-        requests: (vendor.extraServiceRequests || []).map((req) => ({
+        requests: visibleRequests.map((req) => ({
             requestId: req._id,
             requestedBy: req.requestedBy ? {
                 id: req.requestedBy._id,
@@ -3898,6 +3905,18 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
             }
         });
     }
+
+    const purchasedServiceIds = new Set((vendor.selectedServices || []).map((service) => String(service?._id || service)));
+    vendor.extraServiceRequests = (vendor.extraServiceRequests || []).filter((request) => {
+        if (paymentRecord?.metadata?.approvalRequestId && String(request._id) === String(paymentRecord.metadata.approvalRequestId)) {
+            return false;
+        }
+        if (request.approvalStatus !== 'approved') {
+            return true;
+        }
+        const requestServiceIds = (request.services || []).map((service) => String(service?._id || service));
+        return !requestServiceIds.some((serviceId) => purchasedServiceIds.has(serviceId));
+    });
 
     await vendor.save();
 
