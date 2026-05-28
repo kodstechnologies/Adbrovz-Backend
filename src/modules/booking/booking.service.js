@@ -1484,7 +1484,7 @@ const searchVendors = async (booking, broadcast = false) => {
             if (catSub) {
                 const subExp = catSub.expiryDate ? new Date(catSub.expiryDate) : null;
                 const isSubActive = subExp ? subExp > new Date() : false;
-                return isSubActive && sub.status === 'ACTIVE';
+                return isSubActive && catSub.status === 'ACTIVE';
             }
             return false;
         });
