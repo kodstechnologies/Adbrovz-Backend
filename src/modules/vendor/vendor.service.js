@@ -680,6 +680,24 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount, members
                 purpose: 'membership',
             },
         });
+        // Log the pending payment record
+        await PaymentRecord.create({
+            vendor: vendorId,
+            orderId: razorpayOrder.id,
+            purpose: 'MEMBERSHIP_PURCHASE',
+            amount: calc.combinedSubtotal,
+            gstAmount: calc.finalGst,
+            totalAmount: calc.grandTotal,
+            planId: calc.planId,
+            validityDays: calc.validityDays,
+            metadata: {
+                services: calc.itemBreakdown,
+                serviceSelectionsTotal: calc.servicesSubtotal,
+                basePlanFee: calc.basePlanFee,
+                durationMonths: durationMonths || calc.durationMonths
+            },
+            status: 'PENDING'
+        });
     } catch (error) {
         console.error('Razorpay Order Creation Error:', error);
         const errorMsg = error.error?.description || error.message || 'Failed to create payment order with Razorpay';
@@ -2083,25 +2101,26 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         vendor.membership.membershipId = resolvedMembershipId;
     }
 
+    // Resolve plan: prefer planId/membershipId over durationMonths fallback
+    let plan;
+    if (resolvedMembershipId) {
+        const planDoc = await CreditPlan.findById(resolvedMembershipId).lean();
+        if (planDoc) {
+            plan = { validityDays: Number(planDoc.validityDays), durationMonths: Math.round(planDoc.validityDays / 30) };
+        }
+    }
+    if (!plan) {
+        const durationMonths = vendor.membership?.durationMonths || 3;
+        plan = await getPlanByDuration(durationMonths);
+    }
+    const validityDays = plan.validityDays;
+
+    let expiryDate = null;
     if (vendor.isVerified) {
         const now = new Date();
 
-        // Resolve plan: prefer planId/membershipId over durationMonths fallback
-        let plan;
-        if (resolvedMembershipId) {
-            const planDoc = await CreditPlan.findById(resolvedMembershipId).lean();
-            if (planDoc) {
-                plan = { validityDays: Number(planDoc.validityDays), durationMonths: Math.round(planDoc.validityDays / 30) };
-            }
-        }
-        if (!plan) {
-            const durationMonths = vendor.membership.durationMonths || 3;
-            plan = await getPlanByDuration(durationMonths);
-        }
-        const validityDays = plan.validityDays;
-
         vendor.membership.startDate = vendor.membership.startDate || now;
-        const expiryDate = new Date(vendor.membership.startDate);
+        expiryDate = new Date(vendor.membership.startDate);
         expiryDate.setDate(expiryDate.getDate() + Number(validityDays));
         vendor.membership.expiryDate = expiryDate;
 
@@ -2144,32 +2163,68 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         vendor.registrationStep = 'MEMBERSHIP_PAID';
     }
 
-    // Ensure membership metadata is populated if missing
-    if (!vendor.membership.totalAmount || !vendor.membership.category) {
-        try {
-            const memDetails = await getVendorMembershipDetails(vendor._id, { membershipId });
-            if (!vendor.membership.membershipFee) vendor.membership.membershipFee = memDetails.basePlanFee;
-            if (!vendor.membership.serviceFee) vendor.membership.serviceFee = memDetails.serviceSelectionsTotal;
-            if (!vendor.membership.gstAmount) vendor.membership.gstAmount = memDetails.gstAmount;
-            if (!vendor.membership.totalAmount) vendor.membership.totalAmount = memDetails.totalFee;
-            if (!vendor.membership.subtotal) vendor.membership.subtotal = memDetails.subtotal;
-            if (!vendor.membership.fee) vendor.membership.fee = memDetails.totalFee;
-
-            if (!vendor.membership.category && memDetails.services.length > 0) {
-                const Service = require('../../models/Service.model');
-                const Subcategory = require('../../models/Subcategory.model');
-                const firstItem = memDetails.services[0];
-                if (firstItem.type === 'subcategory') {
-                    const sub = await Subcategory.findById(firstItem.id).select('category');
-                    vendor.membership.category = sub?.category;
-                } else {
-                    const svc = await Service.findById(firstItem.id).select('category');
-                    vendor.membership.category = svc?.category;
-                }
-            }
-        } catch (err) {
-            console.error('Error auto-populating membership metadata:', err.message);
+    // Find or complete PaymentRecord
+    let paymentRecord = await PaymentRecord.findOne({ orderId: razorpay_order_id });
+    if (paymentRecord) {
+        paymentRecord.status = 'COMPLETED';
+        paymentRecord.paymentId = razorpay_payment_id;
+        if (expiryDate) {
+            paymentRecord.newExpiryDate = expiryDate;
         }
+        await paymentRecord.save();
+    } else {
+        // Fallback: Create completed PaymentRecord if it didn't exist
+        try {
+            const memDetails = await getVendorMembershipDetails(vendor._id, { membershipId: resolvedMembershipId });
+            paymentRecord = await PaymentRecord.create({
+                vendor: vendorId,
+                orderId: razorpay_order_id,
+                paymentId: razorpay_payment_id,
+                purpose: 'MEMBERSHIP_PURCHASE',
+                amount: memDetails.subtotal,
+                gstAmount: memDetails.gstAmount,
+                totalAmount: memDetails.totalFee,
+                planId: resolvedMembershipId,
+                validityDays: validityDays,
+                status: 'COMPLETED',
+                ...(expiryDate && { newExpiryDate: expiryDate }),
+                metadata: memDetails.services
+            });
+        } catch (createErr) {
+            console.error('Failed to create fallback PaymentRecord:', createErr.message);
+        }
+    }
+
+    // Unconditionally update/populate membership metadata with correct values
+    try {
+        const memDetails = await getVendorMembershipDetails(vendor._id, { membershipId: resolvedMembershipId });
+        vendor.membership.membershipFee = paymentRecord ? (paymentRecord.amount - (memDetails.serviceSelectionsTotal || 0)) : memDetails.basePlanFee;
+        vendor.membership.serviceFee = memDetails.serviceSelectionsTotal;
+        vendor.membership.gstAmount = paymentRecord ? paymentRecord.gstAmount : memDetails.gstAmount;
+        vendor.membership.totalAmount = paymentRecord ? paymentRecord.totalAmount : memDetails.totalFee;
+        vendor.membership.subtotal = paymentRecord ? paymentRecord.amount : memDetails.subtotal;
+        vendor.membership.fee = paymentRecord ? paymentRecord.totalAmount : memDetails.totalFee;
+        
+        if (paymentRecord?.validityDays) {
+            vendor.membership.durationMonths = Math.round(paymentRecord.validityDays / 30);
+        } else {
+            vendor.membership.durationMonths = memDetails.durationMonths;
+        }
+
+        if (!vendor.membership.category && memDetails.services.length > 0) {
+            const Service = require('../../models/Service.model');
+            const Subcategory = require('../../models/Subcategory.model');
+            const firstItem = memDetails.services[0];
+            if (firstItem.type === 'subcategory') {
+                const sub = await Subcategory.findById(firstItem.id).select('category');
+                vendor.membership.category = sub?.category;
+            } else {
+                const svc = await Service.findById(firstItem.id).select('category');
+                vendor.membership.category = svc?.category;
+            }
+        }
+    } catch (err) {
+        console.error('Error populating/updating membership metadata:', err.message);
     }
 
     await vendor.save();

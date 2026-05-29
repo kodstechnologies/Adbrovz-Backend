@@ -2,10 +2,33 @@ const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const config = require('./config/env');
 
+// ── Top-level requires (fix #4: no require() inside event handlers) ──────────
+const Vendor = require('./models/Vendor.model');
+const bookingService = require('./modules/booking/booking.service');
+const vendorService = require('./modules/vendor/vendor.service');
+
 let io;
 const activeVendors = new Map(); // vendorId -> [socketId1, socketId2, ...]
 const activeUsers = new Map(); // userId -> [socketId1, socketId2, ...]
 const pendingVendorDisconnects = new Map(); // vendorId -> setTimeout ID
+
+// ── Fix #8: Clear all pending disconnect timeouts on process shutdown ─────────
+const _cleanupOnShutdown = async () => {
+    console.log('[SOCKET] Shutdown signal received. Clearing pending disconnect timers and marking all vendors offline...');
+    for (const [vendorId, timeoutId] of pendingVendorDisconnects.entries()) {
+        clearTimeout(timeoutId);
+        try {
+            await Vendor.findByIdAndUpdate(vendorId, { isOnline: false });
+            console.log(`🔴 [SHUTDOWN] Vendor ${vendorId} marked offline in DB`);
+        } catch (err) {
+            console.error(`⚠️ [SHUTDOWN] Failed to mark vendor ${vendorId} offline:`, err.message);
+        }
+    }
+    pendingVendorDisconnects.clear();
+};
+
+process.on('SIGTERM', _cleanupOnShutdown);
+process.on('SIGINT', _cleanupOnShutdown);
 
 const emitToDiagnostics = (event, data) => {
     if (io) {
@@ -42,7 +65,6 @@ const registerVendorSocket = async (vendorId, socketId) => {
         pendingVendorDisconnects.delete(vId);
     }
 
-
     if (!activeVendors.has(vId)) activeVendors.set(vId, []);
     const sockets = activeVendors.get(vId);
     if (!sockets.includes(socketId)) sockets.push(socketId);
@@ -56,11 +78,15 @@ const registerVendorSocket = async (vendorId, socketId) => {
 
     // Persist online status to DB (only if membership is valid)
     try {
-        const Vendor = require('./models/Vendor.model');
         const vendor = await Vendor.findById(vId).select('membership.expiryDate serviceRenewal.expiryDate');
         
         if (!vendor) {
             console.error(`⚠️ Vendor ${vId} not found during socket registration`);
+            // Fix #2: clean up the empty array entry we just created
+            const currentSockets = activeVendors.get(vId) || [];
+            const idx = currentSockets.indexOf(socketId);
+            if (idx !== -1) currentSockets.splice(idx, 1);
+            if (currentSockets.length === 0) activeVendors.delete(vId);
             return;
         }
 
@@ -69,6 +95,13 @@ const registerVendorSocket = async (vendorId, socketId) => {
         
         if (isMembershipExpired || isServiceExpired) {
             console.log(`🚫 Vendor ${vId} membership or service expired. Keeping offline.`);
+
+            // Fix #2: Remove socket from activeVendors so expired vendors don't accumulate
+            const currentSockets = activeVendors.get(vId) || [];
+            const idx = currentSockets.indexOf(socketId);
+            if (idx !== -1) currentSockets.splice(idx, 1);
+            if (currentSockets.length === 0) activeVendors.delete(vId);
+
             await Vendor.findByIdAndUpdate(vId, { isOnline: false });
             if (io) {
                 io.to(socketId).emit('membership_expired_error', { 
@@ -103,6 +136,19 @@ const registerUserSocket = (userId, socketId) => {
         id: uId,
         timestamp: new Date()
     });
+};
+
+// ── Fix #6: Auth guard helper — rejects unauthenticated sockets for sensitive events ──
+const requireAuth = (socket, role) => {
+    if (role === 'vendor' && !socket.vendorId) {
+        socket.emit('auth_error', { message: 'Vendor authentication required.', code: 'UNAUTHENTICATED' });
+        return false;
+    }
+    if (role === 'user' && !socket.userId) {
+        socket.emit('auth_error', { message: 'User authentication required.', code: 'UNAUTHENTICATED' });
+        return false;
+    }
+    return true;
 };
 
 const initSocket = (server) => {
@@ -162,7 +208,8 @@ const initSocket = (server) => {
         
         if (token) {
             try {
-                const decoded = jwt.verifyUnsafe ? jwt.verifyUnsafe(token) : jwt.verify(token, config.JWT_SECRET);
+                // Fix #1: removed nonexistent jwt.verifyUnsafe; always use jwt.verify with the secret
+                const decoded = jwt.verify(token, config.JWT_SECRET);
                 const role = decoded.role;
                 const id = stringifyId(decoded.userId || decoded.id || decoded._id);
                 console.log(`[SOCKET] Decoded token - role: ${role}, id: ${id}`);
@@ -209,92 +256,97 @@ const initSocket = (server) => {
             console.log(`[SOCKET] Socket ${socket.id} successfully joined diagnostics room`);
         });
 
-        // Simulator for testing: User triggers a mock booking that automatically notifies active vendors
-        socket.on('trigger_mock_booking', (data) => {
-            try {
-                const bookingId = stringifyId(data?.bookingId) || ("BK-" + Math.floor(1000 + Math.random() * 9000));
-                const userId = stringifyId(data?.userId || socket.userId || "6a0a9ac23acfd6f22281d799");
-                const vendorId = stringifyId(data?.vendorId);
+        // Fix #9: Simulator only exposed outside production
+        if (process.env.NODE_ENV !== 'production') {
+            // Simulator for testing: User triggers a mock booking that automatically notifies active vendors
+            socket.on('trigger_mock_booking', (data) => {
+                try {
+                    const bookingId = stringifyId(data?.bookingId) || ("BK-" + Math.floor(1000 + Math.random() * 9000));
+                    const userId = stringifyId(data?.userId || socket.userId || "6a0a9ac23acfd6f22281d799");
+                    const vendorId = stringifyId(data?.vendorId);
 
-                console.log(`[SOCKET SIMULATOR] trigger_mock_booking - bookingId: ${bookingId}, userId: ${userId}, vendorId: ${vendorId}`);
+                    console.log(`[SOCKET SIMULATOR] trigger_mock_booking - bookingId: ${bookingId}, userId: ${userId}, vendorId: ${vendorId}`);
 
-                const payload = {
-                    _id: bookingId,
-                    bookingID: bookingId,
-                    status: 'pending_acceptance',
-                    user: {
-                        _id: userId,
-                        name: 'Mock Customer',
-                        phoneNumber: '9876543210',
-                        photo: null
-                    },
-                    category: { 
-                        _id: '6a0a9c3267ba064f7fde1111',
-                        title: data?.category || 'AC Repair & Service',
-                        name: data?.category || 'AC Repair & Service'
-                    },
-                    services: [
-                        {
-                            service: { 
-                                _id: '6a0a9c3267ba064f7fde2222',
-                                title: data?.serviceTitle || 'AC Cleaning & Deep Wash',
-                                serviceCharge: 499,
-                                approxCompletionTime: 45
-                            },
-                            quantity: 1,
-                            finalPrice: 499
-                        }
-                    ],
-                    pricing: { 
-                        basePrice: 499,
-                        travelCharge: 50,
-                        totalPrice: 549 
-                    },
-                    location: { 
-                        address: '123 Premium Glassmorphism Blvd, Indiranagar', 
-                        latitude: 12.9715987, 
-                        longitude: 77.5945627 
-                    },
-                    totalDurationMins: 45,
-                    radius: 5,
-                    createdAt: new Date()
-                };
+                    const payload = {
+                        _id: bookingId,
+                        bookingID: bookingId,
+                        status: 'pending_acceptance',
+                        user: {
+                            _id: userId,
+                            name: 'Mock Customer',
+                            phoneNumber: '9876543210',
+                            photo: null
+                        },
+                        category: { 
+                            _id: '6a0a9c3267ba064f7fde1111',
+                            title: data?.category || 'AC Repair & Service',
+                            name: data?.category || 'AC Repair & Service'
+                        },
+                        services: [
+                            {
+                                service: { 
+                                    _id: '6a0a9c3267ba064f7fde2222',
+                                    title: data?.serviceTitle || 'AC Cleaning & Deep Wash',
+                                    serviceCharge: 499,
+                                    approxCompletionTime: 45
+                                },
+                                quantity: 1,
+                                finalPrice: 499
+                            }
+                        ],
+                        pricing: { 
+                            basePrice: 499,
+                            travelCharge: 50,
+                            totalPrice: 549 
+                        },
+                        location: { 
+                            address: '123 Premium Glassmorphism Blvd, Indiranagar', 
+                            latitude: 12.9715987, 
+                            longitude: 77.5945627 
+                        },
+                        totalDurationMins: 45,
+                        radius: 5,
+                        createdAt: new Date()
+                    };
 
-                // Emit new_booking_request to target vendor if provided, or to all active vendors
-                if (vendorId) {
-                    const sockets = activeVendors.get(vendorId) || [];
-                    sockets.forEach(sId => {
-                        io.to(sId).emit('new_booking_request', payload);
-                    });
-                    console.log(`📡 [SOCKET SIMULATOR] Sent new_booking_request to specific Vendor ${vendorId}`);
-                } else {
-                    const vendorIds = Array.from(activeVendors.keys());
-                    if (vendorIds.length > 0) {
-                        vendorIds.forEach(vId => {
-                            const sockets = activeVendors.get(vId) || [];
-                            sockets.forEach(sId => {
-                                io.to(sId).emit('new_booking_request', payload);
-                            });
+                    // Emit new_booking_request to target vendor if provided, or to all active vendors
+                    if (vendorId) {
+                        const sockets = activeVendors.get(vendorId) || [];
+                        sockets.forEach(sId => {
+                            io.to(sId).emit('new_booking_request', payload);
                         });
-                        console.log(`📡 [SOCKET SIMULATOR] Broadcasted new_booking_request to all online vendors: ${vendorIds.join(', ')}`);
+                        console.log(`📡 [SOCKET SIMULATOR] Sent new_booking_request to specific Vendor ${vendorId}`);
                     } else {
-                        console.log(`⚠️ [SOCKET SIMULATOR] No vendors online in activeVendors map.`);
+                        const vendorIds = Array.from(activeVendors.keys());
+                        if (vendorIds.length > 0) {
+                            vendorIds.forEach(vId => {
+                                const sockets = activeVendors.get(vId) || [];
+                                sockets.forEach(sId => {
+                                    io.to(sId).emit('new_booking_request', payload);
+                                });
+                            });
+                            console.log(`📡 [SOCKET SIMULATOR] Broadcasted new_booking_request to all online vendors: ${vendorIds.join(', ')}`);
+                        } else {
+                            console.log(`⚠️ [SOCKET SIMULATOR] No vendors online in activeVendors map.`);
+                        }
                     }
-                }
 
-                // Confirm back to the user client
-                socket.emit('booking_created_success', {
-                    booking: payload,
-                    message: 'Mock booking triggered successfully! Broadcasted to active vendors.'
-                });
-            } catch (error) {
-                console.error(`[SOCKET SIMULATOR] Error in trigger_mock_booking:`, error);
-                socket.emit('booking_error', { action: 'trigger_mock_booking', message: error.message });
-            }
-        });
+                    // Confirm back to the user client
+                    socket.emit('booking_created_success', {
+                        booking: payload,
+                        message: 'Mock booking triggered successfully! Broadcasted to active vendors.'
+                    });
+                } catch (error) {
+                    console.error(`[SOCKET SIMULATOR] Error in trigger_mock_booking:`, error);
+                    socket.emit('booking_error', { action: 'trigger_mock_booking', message: error.message });
+                }
+            });
+        }
 
         // Vendor actions on bookings
         socket.on('accept_booking', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
@@ -323,7 +375,6 @@ const initSocket = (server) => {
                     return;
                 }
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.acceptBooking(vendorId, bookingId);
                 socket.emit('booking_accepted_success', result);
             } catch (error) {
@@ -333,6 +384,8 @@ const initSocket = (server) => {
         });
 
         socket.on('reject_booking', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
@@ -359,7 +412,6 @@ const initSocket = (server) => {
                     return;
                 }
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.rejectBooking(vendorId, bookingId);
                 socket.emit('booking_rejected_success', result);
             } catch (error) {
@@ -368,6 +420,8 @@ const initSocket = (server) => {
         });
 
         socket.on('later_booking', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
@@ -375,7 +429,6 @@ const initSocket = (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.markBookingLater(vendorId, bookingId);
                 socket.emit('booking_later_success', result);
             } catch (error) {
@@ -384,6 +437,8 @@ const initSocket = (server) => {
         });
 
         socket.on('mark_on_the_way', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
@@ -391,7 +446,6 @@ const initSocket = (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.markOnTheWay(vendorId, bookingId);
                 socket.emit('booking_on_the_way_success', result);
             } catch (error) {
@@ -400,6 +454,8 @@ const initSocket = (server) => {
         });
 
         socket.on('mark_arrived', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
@@ -407,7 +463,6 @@ const initSocket = (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.markArrived(vendorId, bookingId);
                 socket.emit('booking_arrived_success', result);
             } catch (error) {
@@ -416,6 +471,8 @@ const initSocket = (server) => {
         });
 
         socket.on('start_work', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -424,7 +481,6 @@ const initSocket = (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.startWork(vendorId, bookingId, otp);
                 socket.emit('booking_start_work_success', result);
             } catch (error) {
@@ -433,6 +489,8 @@ const initSocket = (server) => {
         });
 
         socket.on('request_completion_otp', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -440,7 +498,6 @@ const initSocket = (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.requestCompletionOTP(vendorId, bookingId);
                 socket.emit('booking_request_completion_otp_success', result);
             } catch (error) {
@@ -449,6 +506,8 @@ const initSocket = (server) => {
         });
 
         socket.on('complete_work', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -457,7 +516,6 @@ const initSocket = (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.completeWork(vendorId, bookingId, otp, paymentMethod);
                 socket.emit('booking_complete_work_success', result);
             } catch (error) {
@@ -466,6 +524,8 @@ const initSocket = (server) => {
         });
 
         socket.on('update_booking_price', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -474,7 +534,6 @@ const initSocket = (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.updateBookingPrice(vendorId, bookingId, updatedServices);
                 socket.emit('booking_price_proposed', result);
             } catch (error) {
@@ -483,6 +542,8 @@ const initSocket = (server) => {
         });
 
         socket.on('confirm_booking_price', async (data) => {
+            // Fix #6: guard user-only action
+            if (!requireAuth(socket, 'user')) return;
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -490,7 +551,6 @@ const initSocket = (server) => {
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.confirmBookingPrice(userId, bookingId);
                 socket.emit('booking_update_price_success', result);
             } catch (error) {
@@ -499,6 +559,8 @@ const initSocket = (server) => {
         });
 
         socket.on('reject_booking_price', async (data) => {
+            // Fix #6: guard user-only action
+            if (!requireAuth(socket, 'user')) return;
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -507,7 +569,6 @@ const initSocket = (server) => {
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.rejectBookingPrice(userId, bookingId, reason);
                 socket.emit('booking_reject_price_success', result);
             } catch (error) {
@@ -518,6 +579,8 @@ const initSocket = (server) => {
         // ── New real-time actions ──
 
         socket.on('update_location', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 let { lat, lng, accuracy } = data || {};
@@ -525,9 +588,11 @@ const initSocket = (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (lat === undefined || lng === undefined) throw new Error('Latitude and Longitude are required');
 
-                // In India, longitude is always > 60 and latitude is < 40.
-                // If they are sent swapped from the app, we auto-detect and correct them.
-                if (lng < lat) {
+                // Fix #5: In India, longitude is always > 60 and latitude is < 40.
+                // Only swap if the values are clearly transposed (lng looks like lat and vice versa).
+                // Logs a warning so the client-side bug can be identified and fixed.
+                if (lng < lat && lng < 40 && lat > 60) {
+                    console.warn(`[SOCKET] update_location: Detected likely swapped lat/lng for vendor ${vendorId}. Received lat=${lat}, lng=${lng}. Auto-correcting. Please fix the client.`);
                     [lng, lat] = [lat, lng];
                 }
 
@@ -544,7 +609,6 @@ const initSocket = (server) => {
                     return;
                 }
 
-                const Vendor = require('./models/Vendor.model');
                 // Update location and check existence
                 const vendor = await Vendor.findByIdAndUpdate(vendorId, {
                     'liveLocation.type': 'Point',
@@ -556,7 +620,6 @@ const initSocket = (server) => {
                     throw new Error('Vendor not found');
                 }
 
-                const bookingService = require('./modules/booking/booking.service');
                 if (bookingService.broadcastVendorLocation) {
                     await bookingService.broadcastVendorLocation(vendorId, lat, lng);
                 }
@@ -576,11 +639,12 @@ const initSocket = (server) => {
          * Used by mobile app to save battery.
          */
         socket.on('check_vendor_tracking_status', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 if (!vendorId) throw new Error('Vendor ID is required');
  
-                const bookingService = require('./modules/booking/booking.service');
                 const isTrackingActive = await bookingService.shouldTrackVendor(vendorId);
  
                 socket.emit('vendor_tracking_status', { 
@@ -602,7 +666,6 @@ const initSocket = (server) => {
                 const vendorId = stringifyId(data?.vendorId);
                 if (!vendorId) throw new Error('Vendor ID is required');
 
-                const Vendor = require('./models/Vendor.model');
                 const vendor = await Vendor.findById(vendorId).select('liveLocation isOnline name');
                 if (!vendor) throw new Error('Vendor not found');
 
@@ -629,6 +692,8 @@ const initSocket = (server) => {
         });
 
         socket.on('report_vendor_no_show', async (data) => {
+            // Fix #6: guard user-only action
+            if (!requireAuth(socket, 'user')) return;
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -636,7 +701,6 @@ const initSocket = (server) => {
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.reportVendorNoShow(userId, bookingId);
                 socket.emit('booking_vendor_no_show_success', result);
             } catch (error) {
@@ -645,6 +709,8 @@ const initSocket = (server) => {
         });
 
         socket.on('grace_period_cancel', async (data) => {
+            // Fix #6: guard user-only action
+            if (!requireAuth(socket, 'user')) return;
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -652,7 +718,6 @@ const initSocket = (server) => {
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.gracePeriodCancel(userId, bookingId);
                 socket.emit('booking_grace_period_cancel_success', result);
             } catch (error) {
@@ -661,6 +726,8 @@ const initSocket = (server) => {
         });
 
         socket.on('add_booking_services', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -669,7 +736,6 @@ const initSocket = (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.addServicesToBooking(vendorId, bookingId, newServices);
                 socket.emit('booking_services_proposal_sent', result);
             } catch (error) {
@@ -678,6 +744,8 @@ const initSocket = (server) => {
         });
 
         socket.on('confirm_proposed_services', async (data) => {
+            // Fix #6: guard user-only action
+            if (!requireAuth(socket, 'user')) return;
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -685,7 +753,6 @@ const initSocket = (server) => {
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.confirmProposedServices(userId, bookingId);
                 socket.emit('booking_services_confirmed_success', result);
             } catch (error) {
@@ -694,6 +761,8 @@ const initSocket = (server) => {
         });
 
         socket.on('reject_proposed_services', async (data) => {
+            // Fix #6: guard user-only action
+            if (!requireAuth(socket, 'user')) return;
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -702,7 +771,6 @@ const initSocket = (server) => {
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.rejectProposedServices(userId, bookingId, reason);
                 socket.emit('booking_services_rejected_success', result);
             } catch (error) {
@@ -711,6 +779,8 @@ const initSocket = (server) => {
         });
 
         socket.on('request_extra_services', async (data) => {
+            // Fix #6: guard user-only action
+            if (!requireAuth(socket, 'user')) return;
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -719,7 +789,6 @@ const initSocket = (server) => {
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.requestExtraServices(userId, bookingId, services);
                 socket.emit('extra_services_request_sent', result);
             } catch (error) {
@@ -728,6 +797,8 @@ const initSocket = (server) => {
         });
 
         socket.on('vendor_confirm_extra_services', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -736,7 +807,6 @@ const initSocket = (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.vendorConfirmExtraServices(vendorId, bookingId, services);
                 socket.emit('vendor_confirm_extra_services_success', result);
             } catch (error) {
@@ -746,6 +816,8 @@ const initSocket = (server) => {
 
         // Simple accept — vendor agrees to do user's requested extra services (no price change needed)
         socket.on('vendor_accept_extra_services', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -753,7 +825,6 @@ const initSocket = (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.vendorAcceptExtraServices(vendorId, bookingId);
                 socket.emit('vendor_accept_extra_services_success', result);
             } catch (error) {
@@ -762,6 +833,8 @@ const initSocket = (server) => {
         });
 
         socket.on('vendor_reject_extra_services', async (data) => {
+            // Fix #6: guard vendor-only action
+            if (!requireAuth(socket, 'vendor')) return;
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -770,7 +843,6 @@ const initSocket = (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.vendorRejectExtraServices(vendorId, bookingId, reason);
                 socket.emit('vendor_reject_extra_services_success', result);
             } catch (error) {
@@ -779,6 +851,8 @@ const initSocket = (server) => {
         });
 
         socket.on('user_confirm_extra_services', async (data) => {
+            // Fix #6: guard user-only action
+            if (!requireAuth(socket, 'user')) return;
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -787,7 +861,6 @@ const initSocket = (server) => {
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.userConfirmExtraServices(userId, bookingId, acceptedServiceIds);
                 socket.emit('user_confirm_extra_services_success', result);
             } catch (error) {
@@ -796,6 +869,8 @@ const initSocket = (server) => {
         });
 
         socket.on('user_reject_extra_services', async (data) => {
+            // Fix #6: guard user-only action
+            if (!requireAuth(socket, 'user')) return;
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -804,7 +879,6 @@ const initSocket = (server) => {
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.userRejectExtraServices(userId, bookingId, reason);
                 socket.emit('user_reject_extra_services_success', result);
             } catch (error) {
@@ -821,7 +895,6 @@ const initSocket = (server) => {
                 if (!bookingId) throw new Error('Booking ID is required');
                 if (!userId) throw new Error('You must be logged in to check booking status');
 
-                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.getBookingDetails(bookingId, userId, role);
                 socket.emit('booking_status_response', result);
             } catch (error) {
@@ -841,7 +914,6 @@ const initSocket = (server) => {
 
                 if (!vendorId) throw new Error('Vendor ID is required');
 
-                const vendorService = require('./modules/vendor/vendor.service');
                 const result = await vendorService.verifyDocument(vendorId, { docType, status, reason });
                 socket.emit('verify_vendor_document_success', result);
             } catch (error) {
@@ -859,7 +931,6 @@ const initSocket = (server) => {
                     throw new Error('Vendor ID is required');
                 }
 
-                const vendorService = require('./modules/vendor/vendor.service');
                 const result = await vendorService.getVerificationStatus(vendorId);
                 socket.emit('verification_status_response', result);
                 console.log(`📡 [SOCKET] Sent verification status to Vendor ${vendorId} via Socket ${socket.id}`);
@@ -874,7 +945,6 @@ const initSocket = (server) => {
                 const vendorId = stringifyId(data?.vendorId);
                 if (!vendorId) throw new Error('Vendor ID is required');
 
-                const vendorService = require('./modules/vendor/vendor.service');
                 const result = await vendorService.verifyAllDocuments(vendorId);
                 socket.emit('verify_all_vendor_documents_success', result);
             } catch (error) {
@@ -909,23 +979,25 @@ const initSocket = (server) => {
                             clearTimeout(pendingVendorDisconnects.get(vendorId));
                         }
                         
+                        // Fix #3: Capture the vendorId string in closure scope so the timeout
+                        // always re-reads from activeVendors by key (not a stale array reference).
+                        const capturedVendorId = vendorId;
                         const timeoutId = setTimeout(async () => {
-                            pendingVendorDisconnects.delete(vendorId);
+                            pendingVendorDisconnects.delete(capturedVendorId);
                             
-                            // Double check if they are still at 0 sockets
-                            const currentSockets = activeVendors.get(vendorId) || [];
+                            // Re-fetch fresh array reference by key — fixes stale reference race condition
+                            const currentSockets = activeVendors.get(capturedVendorId) || [];
                             if (currentSockets.length === 0) {
-                                activeVendors.delete(vendorId);
-                                console.log(`   Vendor ${vendorId} fully offline after grace period.`);
+                                activeVendors.delete(capturedVendorId);
+                                console.log(`   Vendor ${capturedVendorId} fully offline after grace period.`);
                                 try {
-                                    const Vendor = require('./models/Vendor.model');
-                                    await Vendor.findByIdAndUpdate(vendorId, { isOnline: false });
-                                    console.log(`🔴 Vendor ${vendorId} marked offline in DB`);
+                                    await Vendor.findByIdAndUpdate(capturedVendorId, { isOnline: false });
+                                    console.log(`🔴 Vendor ${capturedVendorId} marked offline in DB`);
                                 } catch (err) {
-                                    console.error(`⚠️ Failed to update vendor ${vendorId} offline status:`, err.message);
+                                    console.error(`⚠️ Failed to update vendor ${capturedVendorId} offline status:`, err.message);
                                 }
                             } else {
-                                console.log(`   Vendor ${vendorId} reconnected during grace period. Keeping online.`);
+                                console.log(`   Vendor ${capturedVendorId} reconnected during grace period. Keeping online.`);
                             }
                         }, 15000); // 15 seconds grace period
                         
@@ -974,8 +1046,21 @@ const emitToVendor = (vendorId, event, data) => {
 
     console.log(`[SOCKET DEBUG] emitToVendor called: event='${event}', vendorId='${vIdStr}', matchedSockets=${sockets.length}, allRegisteredVendors=[${[...activeVendors.keys()].join(', ')}]`);
 
-    // Copy to diagnostics room so the Socket Simulator page captures all system booking actions in real time
-    if (['new_booking_request', 'booking_status_updated', 'booking_accepted_success', 'booking_rejected_success', 'booking_created_success', 'service_approval_response', 'service_approval_update', 'extra_service_approval_update'].includes(event)) {
+    // Fix #7: Only forward to diagnostics room once (from emitToVendor), not again from emitToUser,
+    // to avoid duplicate diagnostics events when both vendor and user are notified for the same booking.
+    // The caller is responsible for choosing which side (vendor or user) triggers the diagnostics copy.
+    const DIAGNOSTICS_EVENTS = new Set([
+        'new_booking_request',
+        'booking_status_updated',
+        'booking_accepted_success',
+        'booking_rejected_success',
+        'booking_created_success',
+        'service_approval_response',
+        'service_approval_update',
+        'extra_service_approval_update'
+    ]);
+
+    if (DIAGNOSTICS_EVENTS.has(event)) {
         io.to('diagnostics').emit(event, data);
         console.log(`📡 [DIAGNOSTICS] Forwarded copy of '${event}' to diagnostics room`);
     }
@@ -994,6 +1079,11 @@ const emitToVendor = (vendorId, event, data) => {
 /**
  * Emit an event to all socket connections of a given user.
  * Safe to call even if the user is not connected (no-op).
+ *
+ * Fix #7: Diagnostics forwarding intentionally removed from emitToUser.
+ * emitToVendor already forwards to the diagnostics room for shared booking events,
+ * so forwarding here too would cause every event to appear twice in the diagnostics feed.
+ * If a user-only event needs diagnostics visibility, call emitToDiagnostics() explicitly.
  */
 const emitToUser = (userId, event, data) => {
     if (!io) {
@@ -1003,12 +1093,6 @@ const emitToUser = (userId, event, data) => {
     const userIdStr = userId.toString();
     const sockets = activeUsers.get(userIdStr) || [];
 
-    // Copy to diagnostics room so the Socket Simulator page captures all system booking actions in real time
-    if (['new_booking_request', 'booking_status_updated', 'booking_accepted_success', 'booking_rejected_success', 'booking_created_success', 'service_approval_response', 'service_approval_update', 'extra_service_approval_update'].includes(event)) {
-        io.to('diagnostics').emit(event, data);
-        console.log(`📡 [DIAGNOSTICS] Forwarded copy of '${event}' to diagnostics room`);
-    }
-    
     if (sockets.length === 0) {
         console.log(`[SOCKET] No active sockets found for User ${userIdStr}. FAILED to emit '${event}'.`);
     } else {
