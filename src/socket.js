@@ -67,6 +67,7 @@ const registerVendorSocket = async (vendorId, socketId, socket) => {
     const sockets = activeVendors.get(vId);
     if (!sockets.includes(socketId)) sockets.push(socketId);
 
+
     emitToDiagnostics('socket_registration_event', {
         socketId,
         role: 'vendor',
@@ -79,6 +80,7 @@ const registerVendorSocket = async (vendorId, socketId, socket) => {
         const vendor = await Vendor.findById(vId).select('membership.expiryDate serviceRenewal.expiryDate');
 
         if (!vendor) {
+            console.error(`⚠️ Vendor ${vId} not found during socket registration`);
             return;
         }
 
@@ -86,6 +88,7 @@ const registerVendorSocket = async (vendorId, socketId, socket) => {
         const isServiceExpired = vendor.serviceRenewal?.expiryDate && new Date(vendor.serviceRenewal.expiryDate) < new Date();
 
         if (isMembershipExpired || isServiceExpired) {
+            console.log(`🚫 Vendor ${vId} membership or service expired. Keeping offline.`);
             await Vendor.findByIdAndUpdate(vId, { isOnline: false });
             if (io) {
                 io.to(socketId).emit('membership_expired_error', {
@@ -97,6 +100,7 @@ const registerVendorSocket = async (vendorId, socketId, socket) => {
         }
 
         await Vendor.findByIdAndUpdate(vId, { isOnline: true });
+        console.log(`📡 Vendor ${vId} marked online in DB`);
 
         // Push any pending bookings so events missed during disconnect are not lost
         if (socket && bookingService.getPendingBookingsForVendor) {
@@ -104,8 +108,10 @@ const registerVendorSocket = async (vendorId, socketId, socket) => {
                 const pending = await bookingService.getPendingBookingsForVendor(vId);
                 if (pending && pending.length > 0) {
                     pending.forEach(booking => io.to(socketId).emit('new_booking_request', booking));
+                    console.log(`📬 Replayed ${pending.length} pending booking(s) to Vendor ${vId}`);
                 }
             } catch (err) {
+                console.warn(`[SOCKET] Could not replay pending bookings for vendor ${vId}:`, err.message);
             }
         }
     } catch (err) {
