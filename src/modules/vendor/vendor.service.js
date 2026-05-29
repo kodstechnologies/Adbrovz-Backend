@@ -475,6 +475,13 @@ const getAllVendors = async () => {
         if (hasPendingServiceApproval) attentionReasons.push('SERVICE_APPROVAL_PENDING');
         if (hasPendingExtraServiceApproval) attentionReasons.push('EXTRA_SERVICE_APPROVAL_PENDING');
 
+        // ── Admin UI Highlight for new service requests ──
+        const pendingRequestCount = (vendor.extraServiceRequests || []).filter(req => req?.approvalStatus === 'pending').length 
+            + (hasPendingServiceApproval ? 1 : 0);
+
+        vendor.hasPendingServiceRequest = pendingRequestCount > 0;
+        vendor.pendingRequestCount = pendingRequestCount;
+
         vendor.hasPendingServiceApproval = hasPendingServiceApproval;
         vendor.hasPendingExtraServiceApproval = hasPendingExtraServiceApproval;
         vendor.serviceApprovalStatus = vendor.serviceApprovalStatus || 'pending';
@@ -752,8 +759,30 @@ const selectServices = async (vendorId, body) => {
         durationMonths
     });
 
-    // Save Selections to Vendor
+    // ── Intercept already approved/paid vendors ──
+    const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED', 'SIGNUP_COMPLETED'].includes(vendor.registrationStep);
+    if (hasPaid || vendor.isVerified) {
+        console.log(`[selectServices] Vendor ${vendorId} is already active/paid. Routing to extraServiceRequests to prevent membership overwrite.`);
+        
+        await requestExtraServiceApproval(vendorId, {
+            categoryId,
+            subcategoryIds: parseArrayInput(subcategoryIds),
+            serviceIds: parseArrayInput(serviceIds)
+        });
 
+        // Return a mock calculation response to satisfy frontend expectations, 
+        // without actually mutating the core membership fees.
+        return {
+            totalPrice: vendor.membership?.totalAmount || 0,
+            durationMonths: vendor.membership?.durationMonths || durationMonths,
+            membershipTotal: vendor.membership?.membershipFee || 0,
+            serviceSelectionsTotal: vendor.membership?.serviceFee || 0,
+            gstAmount: vendor.membership?.gstAmount || 0,
+            itemBreakdown: []
+        };
+    }
+
+    // Save Selections to Vendor
     if (categoryId) {
         const category = await Category.findById(categoryId);
         if (category) {
