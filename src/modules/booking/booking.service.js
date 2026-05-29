@@ -14,6 +14,7 @@ const adminService = require('../admin/admin.service');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const { sendPush } = require('../../utils/pushNotification');
+const { activeVendors } = require('../../socket');
 const { v4: uuidv4 } = require('uuid');
 
 const getSearchWaveConfig = async () => {
@@ -1493,6 +1494,16 @@ const searchVendors = async (booking, broadcast = false) => {
     });
 
     console.log(`[DEBUG] searchVendors - Geo query and category expiry filtering found ${vendors.length} vendors within ${radiusInKm}km radius`);
+
+    // Fallback: if no vendors found after filtering, broadcast to all active vendors to ensure visibility during debugging
+    if (vendors.length === 0 && activeVendors.size > 0) {
+        console.log('[DEBUG] No vendors matched filter; broadcasting to all active vendors as fallback');
+        // Fetch all vendor IDs from activeVendors map
+        const allActiveVendorIds = Array.from(activeVendors.keys());
+        // Retrieve full vendor docs for these IDs (lightweight fields)
+        vendors = await Vendor.find({ _id: { $in: allActiveVendorIds } })
+            .select('_id fcmToken categorySubscriptions membership');
+    }
 
     if (broadcast) {
         try {
