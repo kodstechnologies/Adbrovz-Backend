@@ -658,9 +658,10 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount, members
     const calc = await _calculateMembershipAmounts({ vendorId, durationMonths, membershipId: resolvedMembershipId });
     const totalFee = calc.grandTotal;
 
-    // Ensure the resolved membershipId is persisted to the vendor
+    // Ensure the resolved membershipId and duration are persisted to the vendor
     vendor.membership = vendor.membership || {};
     vendor.membership.membershipId = calc.planId;
+    vendor.membership.durationMonths = Number(calc.durationMonths || vendor.membership.durationMonths || 3);
     await vendor.save();
 
     if (totalFee <= 0) {
@@ -685,6 +686,27 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount, members
         const errorMsg = error.error?.description || error.message || 'Failed to create payment order with Razorpay';
         throw new ApiError(400, `Payment Error: ${errorMsg}`);
     }
+
+    await PaymentRecord.create({
+        vendor: vendor._id,
+        orderId: razorpayOrder.id,
+        purpose: 'MEMBERSHIP_PURCHASE',
+        amount: calc.combinedSubtotal,
+        gstAmount: calc.finalGst,
+        totalAmount: totalFee,
+        planId: calc.planId,
+        validityDays: calc.validityDays,
+        status: 'PENDING',
+        metadata: {
+            membershipId: calc.planId,
+            durationMonths: calc.durationMonths,
+            validityDays: calc.validityDays,
+            selectedCategories: vendor.selectedCategories || [],
+            selectedSubcategories: vendor.selectedSubcategories || [],
+            selectedServiceTypes: vendor.selectedServiceTypes || [],
+            selectedServices: vendor.selectedServices || []
+        }
+    });
 
     return {
         vendorId: vendor._id,
@@ -2072,15 +2094,22 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     }
 
     // Signature valid — activate vendor membership
+    const paymentRecord = await PaymentRecord.findOne({ orderId: razorpay_order_id });
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     // Accept planId as an alias for membershipId (app may send either field)
-    const resolvedMembershipId = membershipId || planId || vendor.membership?.membershipId || null;
+    let resolvedMembershipId = membershipId || planId || vendor.membership?.membershipId || null;
+    if (!resolvedMembershipId && paymentRecord) {
+        resolvedMembershipId = paymentRecord.planId || paymentRecord.metadata?.membershipId || null;
+    }
 
     if (resolvedMembershipId) {
         vendor.membership = vendor.membership || {};
         vendor.membership.membershipId = resolvedMembershipId;
+        if (!vendor.membership.durationMonths && paymentRecord?.metadata?.durationMonths) {
+            vendor.membership.durationMonths = Number(paymentRecord.metadata.durationMonths);
+        }
     }
 
     if (vendor.isVerified) {
@@ -2173,6 +2202,13 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     }
 
     await vendor.save();
+
+    if (paymentRecord) {
+        paymentRecord.status = 'COMPLETED';
+        paymentRecord.paymentId = razorpay_payment_id;
+        paymentRecord.newExpiryDate = vendor.membership.expiryDate;
+        await paymentRecord.save();
+    }
 
     // Emit real-time membership activation to vendor via socket
     const docTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
