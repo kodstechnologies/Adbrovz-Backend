@@ -330,20 +330,14 @@ const acceptBooking = async (vendorId, bookingId) => {
     // ── Emit acceptance update IMMEDIATELY after locking ──
     try {
         const { emitToUser } = require('../../socket');
-        const { waves, totalSearchTimeMins } = await getSearchWaveConfig();
         emitToUser(booking.user, 'booking_search_update', {
             bookingId: booking._id,
             bookingID: booking.bookingID,
             status: 'accepted',
             message: 'A vendor has accepted your booking request!',
             searchCompleted: true,
-            ...buildSearchTimingPayload({
-                searchId: booking.searchId,
-                retryCount: booking.retryCount || 0,
-                waves,
-                totalSearchTimeMins
-            }),
-            remainingSearchTimeMins: 0
+            vendorName: vendor.name,
+            vendorPhone: vendor.phoneNumber
         });
         console.log(`[SOCKET] Emitted 'accepted' status update for user: ${booking.user}`);
     } catch (socketErr) {
@@ -1500,14 +1494,8 @@ const searchVendors = async (booking, broadcast = false) => {
 
     console.log(`[DEBUG] searchVendors - Geo query and category expiry filtering found ${vendors.length} vendors within ${radiusInKm}km radius`);
 
-    // Fallback: if no vendors found after filtering, broadcast to all active vendors to ensure visibility during debugging
-    if (vendors.length === 0 && activeVendors.size > 0) {
-        console.log('[DEBUG] No vendors matched filter; broadcasting to all active vendors as fallback');
-        // Fetch all vendor IDs from activeVendors map
-        const allActiveVendorIds = Array.from(activeVendors.keys());
-        // Retrieve full vendor docs for these IDs (lightweight fields)
-        vendors = await Vendor.find({ _id: { $in: allActiveVendorIds } })
-            .select('_id fcmToken categorySubscriptions membership');
+    if (vendors.length === 0) {
+        console.log('[SEARCH] No eligible vendors matched current search filters; not broadcasting fallback to all active vendors.');
     }
 
     if (broadcast) {
@@ -1719,29 +1707,39 @@ const rejectBooking = async (vendorId, bookingId) => {
             bookingID: booking.bookingID,
             message: 'Booking rejected and removed from your list'
         });
-        // Emit search update to user indicating rejection and stop remaining timer
+        // Emit search update to user indicating rejection but CONTINUE search (don't mark as completed)
         try {
             const { waves, totalSearchTimeMins } = await getSearchWaveConfig();
+            const searchPayload = buildSearchTimingPayload({
+                searchId: booking.searchId,
+                retryCount: booking.retryCount || 0,
+                waves,
+                totalSearchTimeMins
+            });
             emitToUser(booking.user, 'booking_search_update', {
                 bookingId: booking._id,
                 bookingID: booking.bookingID,
-                status: 'rejected',
-                message: 'Your booking request was rejected by the vendor.',
-                searchCompleted: true,
-                ...buildSearchTimingPayload({
-                    searchId: booking.searchId,
-                    retryCount: booking.retryCount || 0,
-                    waves,
-                    totalSearchTimeMins
-                }),
-                remainingSearchTimeMins: 0
+                status: 'searching',
+                message: 'That vendor rejected the request. Continuing search...',
+                searchCompleted: false,
+                ...searchPayload,
+                vendorRejectionCount: booking.rejectedVendors.length
             });
-            console.log(`[SOCKET] Emitted 'rejected' status update for user: ${booking.user}`);
+            console.log(`[SOCKET] Emitted rejection update for user: ${booking.user}, continuing search with remaining ${searchPayload.remainingSearchTimeMins} mins`);
         } catch (socketErr) {
             console.error(`[SOCKET] Failed to emit booking_search_update after rejection: ${socketErr.message}`);
         }
     } catch (socketErr) {
         console.error('[SOCKET ERROR] Failed to emit booking_rejected_success:', socketErr.message);
+    }
+
+    // ── Re-trigger vendor search to find alternatives ──
+    try {
+        await searchVendors(booking, true).catch(err => {
+            console.error(`[SEARCH] Failed to re-search after rejection: ${err.message}`);
+        });
+    } catch (err) {
+        console.error(`[SEARCH] Error triggering re-search after rejection: ${err.message}`);
     }
 
     return {
@@ -1780,14 +1778,45 @@ const markBookingLater = async (vendorId, bookingId) => {
 
     // ── Socket Sync ──
     try {
-        const { emitToVendor } = require('../../socket');
+        const { emitToVendor, emitToUser } = require('../../socket');
         emitToVendor(vendorId, 'booking_later_success', {
             bookingId: booking._id,
             bookingID: booking.bookingID,
             message: 'Marked as later successfully'
         });
+        // Also emit search update to user continuing the search
+        try {
+            const { waves, totalSearchTimeMins } = await getSearchWaveConfig();
+            const searchPayload = buildSearchTimingPayload({
+                searchId: booking.searchId,
+                retryCount: booking.retryCount || 0,
+                waves,
+                totalSearchTimeMins
+            });
+            emitToUser(booking.user, 'booking_search_update', {
+                bookingId: booking._id,
+                bookingID: booking.bookingID,
+                status: 'searching',
+                message: 'Vendor marked for later. Continuing search...',
+                searchCompleted: false,
+                ...searchPayload,
+                vendorDeferredCount: booking.laterVendors.length
+            });
+            console.log(`[SOCKET] Emitted 'later' status update for user: ${booking.user}, continuing search with remaining ${searchPayload.remainingSearchTimeMins} mins`);
+        } catch (socketErr) {
+            console.error(`[SOCKET] Failed to emit booking_search_update after marking later: ${socketErr.message}`);
+        }
     } catch (socketErr) {
         console.error('[SOCKET ERROR] Failed to emit booking_later_success:', socketErr.message);
+    }
+
+    // ── Re-trigger vendor search to find alternatives ──
+    try {
+        await searchVendors(booking, true).catch(err => {
+            console.error(`[SEARCH] Failed to re-search after marking later: ${err.message}`);
+        });
+    } catch (err) {
+        console.error(`[SEARCH] Error triggering re-search after marking later: ${err.message}`);
     }
 
     return {

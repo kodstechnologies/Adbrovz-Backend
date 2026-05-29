@@ -57,7 +57,7 @@ const registerVendorSocket = async (vendorId, socketId) => {
     // Persist online status to DB (only if membership is valid)
     try {
         const Vendor = require('./models/Vendor.model');
-        const vendor = await Vendor.findById(vId).select('membership.expiryDate serviceRenewal.expiryDate');
+        const vendor = await Vendor.findById(vId).select('isVerified isSuspended isBlocked isLocked registrationStep membership.expiryDate serviceRenewal.expiryDate');
         
         if (!vendor) {
             console.error(`⚠️ Vendor ${vId} not found during socket registration`);
@@ -66,7 +66,19 @@ const registerVendorSocket = async (vendorId, socketId) => {
 
         const isMembershipExpired = vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) < new Date();
         const isServiceExpired = vendor.serviceRenewal?.expiryDate && new Date(vendor.serviceRenewal.expiryDate) < new Date();
-        
+        const isRegistrationEligible = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(vendor.registrationStep);
+
+        if (!vendor.isVerified || vendor.isSuspended || vendor.isBlocked || vendor.isLocked || !isRegistrationEligible) {
+            console.log(`🚫 Vendor ${vId} is not eligible to go online. verified=${vendor.isVerified}, suspended=${vendor.isSuspended}, blocked=${vendor.isBlocked}, locked=${vendor.isLocked}, registrationStep=${vendor.registrationStep}`);
+            await Vendor.findByIdAndUpdate(vId, { isOnline: false });
+            if (io) {
+                io.to(socketId).emit('online_denied', {
+                    message: 'Your account is not eligible to go online. Please complete your membership or resolve account issues.'
+                });
+            }
+            return;
+        }
+
         if (isMembershipExpired || isServiceExpired) {
             console.log(`🚫 Vendor ${vId} membership or service expired. Keeping offline.`);
             await Vendor.findByIdAndUpdate(vId, { isOnline: false });
