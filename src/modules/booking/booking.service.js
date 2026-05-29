@@ -563,8 +563,11 @@ const startWork = async (vendorId, bookingId, enteredOTP) => {
     }
 
     const validStartOTP = booking.otp?.startOTP || '1234';
-    if (!booking.isPriceConfirmed) {
-        throw new ApiError(400, "Price must be confirmed by user before starting work");
+    // ── Per-service price confirmation check ──
+    // Work can only start once ALL services have been price-confirmed by the user.
+    const unconfirmedServices = (booking.services || []).filter(s => !s.isPriceConfirmed);
+    if (unconfirmedServices.length > 0) {
+        throw new ApiError(400, `Price must be confirmed by the user for all services before starting work (${unconfirmedServices.length} service(s) still pending).`);
     }
     if (!enteredOTP || enteredOTP.toString() !== validStartOTP) {
         throw new ApiError(400, 'Invalid Start OTP');
@@ -882,11 +885,17 @@ const _formatBooking = (bookingDoc, role) => {
                 }
             };
 
+            // ── Derive price confirmation from per-service flags ──
+            // All services must have isPriceConfirmed=true before OTP is revealed.
+            const allPricesConfirmed = (bookingObj.services || []).length > 0
+                ? (bookingObj.services || []).every(s => s.isPriceConfirmed)
+                : !!bookingObj.isPriceConfirmed; // fallback for legacy bookings with no services
+
             if (['pending', 'on_the_way', 'arrived'].includes(bookingObj.status)) {
-                if (bookingObj.isPriceConfirmed) {
+                if (allPricesConfirmed) {
                     bookingObj.activeOTP = bookingObj.currentOTP.startOTP;
                 } else {
-                    bookingObj.activeOTP = { label: 'Start OTP', code: 'Locked', instruction: 'Visible once price is confirmed' };
+                    bookingObj.activeOTP = { label: 'Start OTP', code: 'Locked', instruction: 'Visible once price is confirmed for all services' };
                     bookingObj.currentOTP.startOTP.code = 'Locked';
                     bookingObj.currentOTP.startOTP.instruction = 'Price confirmation pending';
                 }
@@ -894,7 +903,7 @@ const _formatBooking = (bookingDoc, role) => {
                 bookingObj.activeOTP = bookingObj.currentOTP.completionOTP;
             }
 
-            if (!bookingObj.isPriceConfirmed) bookingObj.otp.startOTP = 'Locked (Price Pending)';
+            if (!allPricesConfirmed) bookingObj.otp.startOTP = 'Locked (Price Pending)';
             if (!completionOTPCode) bookingObj.otp.completionOTP = 'Hidden (Pending)';
         } else if (isVendorRole) {
             delete bookingObj.otp;
@@ -1552,8 +1561,22 @@ const searchVendors = async (booking, broadcast = false) => {
             const { emitToVendor, isVendorOnline } = require('../../socket');
             const notificationService = require('../notification/notification.service');
 
+            // Build a Set of already-notified vendor IDs for O(1) dedup lookup
+            const alreadyNotifiedSet = new Set(
+                (booking.notifiedVendors || []).map(id => id.toString())
+            );
+
             const notificationPromises = vendors.map(async (v) => {
                 const vendorIdStr = v._id.toString();
+
+                // ── Deduplication guard ──
+                // notifiedVendors is already excluded from the geo-query, but guard here
+                // too in case of race conditions or fallback path.
+                if (alreadyNotifiedSet.has(vendorIdStr)) {
+                    console.log(`[SEARCH] Skipping Vendor ${vendorIdStr} — already notified for Booking ${booking._id}`);
+                    return null;
+                }
+
                 const online = isVendorOnline(vendorIdStr);
                 
                 console.log(`[DEBUG] searchVendors notifying Vendor ${vendorIdStr} - Online: ${online}, Has Token: ${!!v.fcmToken}`);
@@ -1568,7 +1591,6 @@ const searchVendors = async (booking, broadcast = false) => {
                 }
 
                 // 2. Push Notification (Always or Fallback)
-                // We send it to everyone matched to ensure visibility
                 await notificationService.createNotification({
                     user: v._id,
                     userModel: 'Vendor',
@@ -1587,7 +1609,7 @@ const searchVendors = async (booking, broadcast = false) => {
                 return v._id;
             });
 
-            const notifiedIds = await Promise.all(notificationPromises);
+            const notifiedIds = (await Promise.all(notificationPromises)).filter(Boolean);
 
             // Persist notified vendors to DB
             if (notifiedIds.length > 0) {
@@ -1892,32 +1914,31 @@ const cancelBooking = async (userId, bookingId, reason) => {
         // ── Send Push Notification to Vendor ──
         sendPush(booking.vendor, 'Vendor', 'booking_cancelled', 'Booking Cancelled', `The user has cancelled booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
     } else {
-        // If the booking had no vendor (still searching), notify online vendors that it's no longer available
+        // If the booking had no vendor (still searching), notify ONLY previously-notified vendors
         try {
-            const { activeVendors, getIo } = require('../../socket');
-            const io = getIo();
-            activeVendors.forEach((socketIds, otherVendorId) => {
-                socketIds.forEach(socketId => {
-                    io.to(socketId).emit('booking_already_accepted', {
+            const { emitToVendor } = require('../../socket');
+
+            if (booking.notifiedVendors && booking.notifiedVendors.length > 0) {
+                booking.notifiedVendors.forEach(nVendorId => {
+                    // Socket notify
+                    emitToVendor(nVendorId.toString(), 'booking_already_accepted', {
                         bookingId: booking._id,
                         bookingID: booking.bookingID,
                         message: 'This booking request is no longer available.'
                     });
-                });
-            });
-
-            // Send silent FCM cancel push notification to all notified vendors so they can clear running background notifications
-            if (booking.notifiedVendors && booking.notifiedVendors.length > 0) {
-                booking.notifiedVendors.forEach(vendorId => {
+                    // FCM push to clear background notifications
                     sendPush(
-                        vendorId, 
-                        'Vendor', 
-                        'booking_already_accepted', 
-                        'Booking Request Cancelled', 
-                        'This booking request is no longer available.', 
+                        nVendorId,
+                        'Vendor',
+                        'booking_already_accepted',
+                        'Booking Request Cancelled',
+                        'This booking request is no longer available.',
                         { bookingId: booking._id.toString(), bookingID: booking.bookingID }
                     );
                 });
+                console.log(`[CANCEL] Notified ${booking.notifiedVendors.length} previously-notified vendors about cancellation for Booking ${booking._id}`);
+            } else {
+                console.log(`[CANCEL] No previously-notified vendors to inform for Booking ${booking._id}`);
             }
         } catch (err) {
             console.error('[SOCKET ERROR] Failed to broadcast search cancellation to vendors:', err.message);
@@ -2447,6 +2468,7 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
     await recalculateBookingPrice(booking);
 
     booking.priceUpdatedOnce = true;
+    // Sync booking-level flag: false because at least one service needs re-confirmation
     booking.isPriceConfirmed = false;
     booking.statusHistory.push({
         status: 'price_proposed',
@@ -2542,8 +2564,14 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
     const booking = await findBookingByUser(bookingId, userId);
     if (!booking) throw new ApiError(404, 'Booking not found');
 
-    if (booking.isPriceConfirmed) {
-        throw new ApiError(400, 'Cannot reject price that is already confirmed');
+    // Derive from per-service flags: if ALL services already have isPriceConfirmed=true,
+    // there is nothing left to reject.
+    const alreadyAllConfirmed = (booking.services || []).length > 0
+        ? (booking.services || []).every(s => s.isPriceConfirmed)
+        : !!booking.isPriceConfirmed;
+
+    if (alreadyAllConfirmed) {
+        throw new ApiError(400, 'Cannot reject price — all service prices are already confirmed');
     }
 
     // Identify unconfirmed services in main services array
@@ -2610,7 +2638,11 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
         };
     }
     
-    booking.isPriceConfirmed = true; // Remaining ones are confirmed
+    // Sync booking-level flag: true if all remaining services are confirmed
+    const remainingAllConfirmed = (booking.services || []).length > 0
+        ? (booking.services || []).every(s => s.isPriceConfirmed)
+        : true;
+    booking.isPriceConfirmed = remainingAllConfirmed;
     booking.statusHistory.push({ 
         status: booking.status, 
         actor: 'user',
