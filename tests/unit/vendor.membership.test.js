@@ -1,12 +1,14 @@
-const Vendor = require('../../src/models/Vendor.model');
-const PaymentRecord = require('../../src/models/PaymentRecord.model');
-const CreditPlan = require('../../src/models/CreditPlan.model');
-const vendorService = require('../../src/modules/vendor/vendor.service');
-const Razorpay = require('razorpay');
-const crypto = require('crypto');
-
 jest.mock('../../src/models/Vendor.model');
-jest.mock('../../src/models/PaymentRecord.model');
+jest.mock('../../src/models/PaymentRecord.model', () => ({
+    find: jest.fn().mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        populate: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue([]),
+    }),
+    findOne: jest.fn(),
+    create: jest.fn(),
+    findOneAndUpdate: jest.fn(),
+}));
 jest.mock('../../src/models/CreditPlan.model');
 jest.mock('razorpay');
 jest.mock('crypto');
@@ -14,9 +16,21 @@ jest.mock('../../src/modules/admin/admin.service', () => ({
     getSetting: jest.fn().mockResolvedValue(30),
 }));
 
+const Vendor = require('../../src/models/Vendor.model');
+const PaymentRecord = require('../../src/models/PaymentRecord.model');
+const CreditPlan = require('../../src/models/CreditPlan.model');
+const vendorService = require('../../src/modules/vendor/vendor.service');
+const Razorpay = require('razorpay');
+const crypto = require('crypto');
+
 describe('vendor membership checkout & payment verification', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        PaymentRecord.find.mockReturnValue({
+            sort: jest.fn().mockReturnThis(),
+            populate: jest.fn().mockReturnThis(),
+            lean: jest.fn().mockResolvedValue([]),
+        });
     });
 
     const createQueryMock = (doc) => ({
@@ -119,11 +133,6 @@ describe('vendor membership checkout & payment verification', () => {
             Vendor.findById.mockReturnValue(createQueryMock(vendorDoc));
             CreditPlan.findById.mockReturnValue(createQueryMock(planDoc));
             PaymentRecord.findOne.mockResolvedValue(paymentRecordDoc);
-            PaymentRecord.find.mockReturnValue({
-                sort: jest.fn().mockReturnThis(),
-                populate: jest.fn().mockReturnThis(),
-                lean: jest.fn().mockResolvedValue([]),
-            });
 
             // Mock crypto verification
             crypto.createHmac.mockReturnValue({

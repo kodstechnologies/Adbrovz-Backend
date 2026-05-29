@@ -159,8 +159,8 @@ const initSocket = (server) => {
             methods: ['GET', 'POST'],
             credentials: config.CORS_ORIGIN !== '*'
         },
-        transports: ['polling', 'websocket'],
-        upgrade: true,
+        transports: ['websocket'],
+        allowUpgrades: false,
         pingTimeout: 120000,
         pingInterval: 30000,
         connectTimeout: 45000,

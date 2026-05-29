@@ -586,6 +586,7 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
             membershipCharge: item.membershipCharge
         }));
 
+    console.log('DEBUG: PaymentRecord in service:', PaymentRecord, 'typeof find:', typeof PaymentRecord?.find, 'mockImplementation:', PaymentRecord?.find?._isMockFunction);
     const paymentHistory = await PaymentRecord.find({ vendor: vendorId, status: 'COMPLETED' })
         .sort({ createdAt: -1 })
         .populate('planId', 'name price validityDays')
