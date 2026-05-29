@@ -1406,21 +1406,17 @@ const searchVendors = async (booking, broadcast = false) => {
     console.log(`[SEARCH] Found ${serviceIdsInCategories.length} services in categoryIds [${categoryIds}] for cross-matching`);
 
     // ── Geospatial Query ──
-    // Match vendors who have the category selected OR have any services from that category
     const serviceIds = (booking.services || []).map(s => s.service);
     let categoryOrServiceFilter = [];
 
-        if (serviceIds.length > 0) {
+    if (serviceIds.length > 0) {
         const mongoose = require('mongoose');
         const serviceObjectIds = serviceIds.map(id => new mongoose.Types.ObjectId(id));
-        // Inclusive match: Vendor must have ALL selected services OR the parent category/subcategory
+        // STRICT match: Vendor must have ALL requested services explicitly.
+        // Removed the $or fallback to categoryIds to prevent vendors from receiving
+        // notifications for services they haven't explicitly purchased/selected.
         categoryOrServiceFilter = [
-            {
-                $or: [
-                    { selectedServices: { $all: serviceObjectIds } },
-                    { selectedCategories: { $in: categoryIds } }
-                ]
-            }
+            { selectedServices: { $all: serviceObjectIds } }
         ];
     } else {
         categoryOrServiceFilter = [
