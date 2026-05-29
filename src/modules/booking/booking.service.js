@@ -1713,12 +1713,33 @@ const rejectBooking = async (vendorId, bookingId) => {
 
     // ── Socket Sync ──
     try {
-        const { emitToVendor } = require('../../socket');
+        const { emitToVendor, emitToUser } = require('../../socket');
         emitToVendor(vendorId, 'booking_rejected_success', {
             bookingId: booking._id,
             bookingID: booking.bookingID,
             message: 'Booking rejected and removed from your list'
         });
+        // Emit search update to user indicating rejection and stop remaining timer
+        try {
+            const { waves, totalSearchTimeMins } = await getSearchWaveConfig();
+            emitToUser(booking.user, 'booking_search_update', {
+                bookingId: booking._id,
+                bookingID: booking.bookingID,
+                status: 'rejected',
+                message: 'Your booking request was rejected by the vendor.',
+                searchCompleted: true,
+                ...buildSearchTimingPayload({
+                    searchId: booking.searchId,
+                    retryCount: booking.retryCount || 0,
+                    waves,
+                    totalSearchTimeMins
+                }),
+                remainingSearchTimeMins: 0
+            });
+            console.log(`[SOCKET] Emitted 'rejected' status update for user: ${booking.user}`);
+        } catch (socketErr) {
+            console.error(`[SOCKET] Failed to emit booking_search_update after rejection: ${socketErr.message}`);
+        }
     } catch (socketErr) {
         console.error('[SOCKET ERROR] Failed to emit booking_rejected_success:', socketErr.message);
     }
