@@ -2,17 +2,10 @@ const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const config = require('./config/env');
 
-// ── Hoist all service/model requires to avoid cold-start latency on first event ──
-const Vendor = require('./models/Vendor.model');
-const bookingService = require('./modules/booking/booking.service');
-const vendorService = require('./modules/vendor/vendor.service');
-
 let io;
 const activeVendors = new Map(); // vendorId -> [socketId1, socketId2, ...]
-const activeUsers = new Map();   // userId   -> [socketId1, socketId2, ...]
-const pendingVendorDisconnects = new Map(); // vendorId -> { timeoutId, nonce }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const activeUsers = new Map(); // userId -> [socketId1, socketId2, ...]
+const pendingVendorDisconnects = new Map(); // vendorId -> setTimeout ID
 
 const emitToDiagnostics = (event, data) => {
     if (io) {
@@ -20,6 +13,7 @@ const emitToDiagnostics = (event, data) => {
         console.log(`📡 [DIAGNOSTICS] Direct broadcast: '${event}'`);
     }
 };
+
 
 const stringifyId = (id) => {
     if (!id) return null;
@@ -32,42 +26,27 @@ const stringifyId = (id) => {
     return id.toString();
 };
 
-// ── India-specific coordinate range check (replaces fragile lng < lat swap) ───
-// Valid Indian lat: 8–37, lng: 68–97. If values look swapped, correct them.
-const normalizeIndiaCoords = (lat, lng) => {
-    const latInRange = lat >= 8 && lat <= 37;
-    const lngInRange = lng >= 68 && lng <= 97;
-    if (!latInRange && lngInRange) {
-        // Likely swapped
-        return { lat: lng, lng: lat };
-    }
-    return { lat, lng };
-};
-
-// ─── Registration ─────────────────────────────────────────────────────────────
-
-/**
- * Register a vendor socket and mark them online in the DB.
- * MUST be awaited so membership checks complete before the caller continues.
- */
-const registerVendorSocket = async (vendorId, socketId, socket) => {
+const registerVendorSocket = async (vendorId, socketId) => {
     const vId = stringifyId(vendorId);
-
+    console.log(`[SOCKET] Registration request - vendorId: ${vendorId}, stringified: ${vId}, socketId: ${socketId}`);
+    
     if (!vId || vId === '[object Object]') {
+        console.error(`⚠️ Attempted to register vendor with invalid ID:`, vendorId);
         return;
     }
 
-    // Clear any pending disconnect timeout so the vendor stays online
+    // Clear any pending disconnect timeout if the vendor reconnects/registers
     if (pendingVendorDisconnects.has(vId)) {
-        clearTimeout(pendingVendorDisconnects.get(vId).timeoutId);
+        console.log(`♻️ Vendor ${vId} reconnected before offline timeout. Clearing timeout.`);
+        clearTimeout(pendingVendorDisconnects.get(vId));
         pendingVendorDisconnects.delete(vId);
     }
+
 
     if (!activeVendors.has(vId)) activeVendors.set(vId, []);
     const sockets = activeVendors.get(vId);
     if (!sockets.includes(socketId)) sockets.push(socketId);
-
-
+    console.log(`✅ Vendor ${vId} auto-registered on socket ${socketId}. Total sockets for this vendor: ${sockets.length}. All active vendors: ${[...activeVendors.keys()].join(', ')}`);
     emitToDiagnostics('socket_registration_event', {
         socketId,
         role: 'vendor',
@@ -77,8 +56,9 @@ const registerVendorSocket = async (vendorId, socketId, socket) => {
 
     // Persist online status to DB (only if membership is valid)
     try {
+        const Vendor = require('./models/Vendor.model');
         const vendor = await Vendor.findById(vId).select('membership.expiryDate serviceRenewal.expiryDate');
-
+        
         if (!vendor) {
             console.error(`⚠️ Vendor ${vId} not found during socket registration`);
             return;
@@ -86,12 +66,12 @@ const registerVendorSocket = async (vendorId, socketId, socket) => {
 
         const isMembershipExpired = vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) < new Date();
         const isServiceExpired = vendor.serviceRenewal?.expiryDate && new Date(vendor.serviceRenewal.expiryDate) < new Date();
-
+        
         if (isMembershipExpired || isServiceExpired) {
             console.log(`🚫 Vendor ${vId} membership or service expired. Keeping offline.`);
             await Vendor.findByIdAndUpdate(vId, { isOnline: false });
             if (io) {
-                io.to(socketId).emit('membership_expired_error', {
+                io.to(socketId).emit('membership_expired_error', { 
                     message: 'Your membership or service has expired. Please renew to go online.',
                     expiryDate: vendor.membership?.expiryDate || vendor.serviceRenewal?.expiryDate
                 });
@@ -101,19 +81,6 @@ const registerVendorSocket = async (vendorId, socketId, socket) => {
 
         await Vendor.findByIdAndUpdate(vId, { isOnline: true });
         console.log(`📡 Vendor ${vId} marked online in DB`);
-
-        // Push any pending bookings so events missed during disconnect are not lost
-        if (socket && bookingService.getPendingBookingsForVendor) {
-            try {
-                const pending = await bookingService.getPendingBookingsForVendor(vId);
-                if (pending && pending.length > 0) {
-                    pending.forEach(booking => io.to(socketId).emit('new_booking_request', booking));
-                    console.log(`📬 Replayed ${pending.length} pending booking(s) to Vendor ${vId}`);
-                }
-            } catch (err) {
-                console.warn(`[SOCKET] Could not replay pending bookings for vendor ${vId}:`, err.message);
-            }
-        }
     } catch (err) {
         console.error(`❌ Failed to update vendor ${vId} online status:`, err.message);
     }
@@ -121,7 +88,6 @@ const registerVendorSocket = async (vendorId, socketId, socket) => {
 
 const registerUserSocket = (userId, socketId) => {
     const uId = stringifyId(userId);
-    // FIX: guard '[object Object]' same as registerVendorSocket
     if (!uId || uId === '[object Object]') {
         console.error(`⚠️ Attempted to register user with invalid ID:`, userId);
         return;
@@ -130,8 +96,7 @@ const registerUserSocket = (userId, socketId) => {
     if (!activeUsers.has(uId)) activeUsers.set(uId, []);
     const sockets = activeUsers.get(uId);
     if (!sockets.includes(socketId)) sockets.push(socketId);
-    console.log(`✅ User ${uId} registered on socket ${socketId}. Total: ${sockets.length}`);
-
+    console.log(`✅ User ${uId} auto-registered on socket ${socketId}. Total: ${sockets.length}`);
     emitToDiagnostics('socket_registration_event', {
         socketId,
         role: 'user',
@@ -140,18 +105,7 @@ const registerUserSocket = (userId, socketId) => {
     });
 };
 
-// ─── Init ─────────────────────────────────────────────────────────────────────
-
-const initSocket = async (server) => {
-    // FIX: Reset all vendors to offline at startup so stale isOnline:true
-    // records left by a previous crash are cleared immediately.
-    try {
-        await Vendor.updateMany({}, { isOnline: false });
-        console.log(`🔄 [SOCKET INIT] All vendors reset to offline.`);
-    } catch (err) {
-        console.error(`[SOCKET INIT] Failed to reset vendor online statuses:`, err.message);
-    }
-
+const initSocket = (server) => {
     io = new Server(server, {
         path: '/socket.io/',
         cors: {
@@ -168,7 +122,8 @@ const initSocket = async (server) => {
         maxHttpBufferSize: 1e7
     });
 
-    io.engine.on('connection_error', (err) => {
+    // Log connection errors for debugging
+    io.engine.on("connection_error", (err) => {
         console.error(`[SOCKET ENGINE ERROR] Code: ${err.code}, Message: ${err.message}, URL: ${err.req?.url}`);
     });
 
@@ -176,6 +131,7 @@ const initSocket = async (server) => {
         const transport = socket.conn.transport.name;
         console.log(`🔌 New Connection: ${socket.id} [Transport: ${transport}] [IP: ${socket.handshake.address}]`);
 
+        // Broadcast new connection to diagnostics room
         emitToDiagnostics('socket_connection_event', {
             type: 'connect',
             socketId: socket.id,
@@ -184,106 +140,80 @@ const initSocket = async (server) => {
             timestamp: new Date()
         });
 
+        // Log upgrade events
         socket.conn.on('upgrade', () => {
-            console.log(`🚀 Socket ${socket.id} upgraded to ${socket.conn.transport.name}`);
+            const upgradedTransport = socket.conn.transport.name;
+            console.log(`🚀 Socket ${socket.id} upgraded to ${upgradedTransport}`);
         });
 
-        socket.conn.on('close', (reason) => {
+        // Log underlying Engine.IO connection close and error events
+        socket.conn.on("close", (reason) => {
             console.log(`🔴 [ENGINE CLOSE] Socket ${socket.id} closed. Reason: ${reason}`);
         });
 
-        socket.conn.on('error', (err) => {
+        socket.conn.on("error", (err) => {
             console.error(`🚨 [ENGINE ERROR] Socket ${socket.id} error:`, err);
         });
 
-        // ─── AUTO-REGISTRATION FROM JWT ───────────────────────────────────────
-        // FIX: removed jwt.verifyUnsafe fallback — always verify the signature.
+        // ─── AUTO-REGISTRATION FROM JWT ────────────────────────────────────
+        // App passes token via socket.handshake.auth.token or query.token
         const token = socket.handshake.auth?.token || socket.handshake.query?.token;
         console.log(`[SOCKET] Handshake token present: ${!!token} for socket: ${socket.id}`);
-
+        
         if (token) {
-            // Wrap in async IIFE so registerVendorSocket can be properly awaited.
-            (async () => {
-                try {
-                    const decoded = jwt.verify(token, config.JWT_SECRET); // ALWAYS verify signature
-                    const role = decoded.role;
-                    const id = stringifyId(decoded.userId || decoded.id || decoded._id);
-                    console.log(`[SOCKET] Decoded token - role: ${role}, id: ${id}`);
-
-                    if (id) {
-                        if (role === 'vendor') {
-                            await registerVendorSocket(id, socket.id, socket); // awaited
-                            socket.vendorId = id;
-                        } else if (role === 'user') {
-                            registerUserSocket(id, socket.id);
-                            socket.userId = id;
-                        }
+            try {
+                const decoded = jwt.verifyUnsafe ? jwt.verifyUnsafe(token) : jwt.verify(token, config.JWT_SECRET);
+                const role = decoded.role;
+                const id = stringifyId(decoded.userId || decoded.id || decoded._id);
+                console.log(`[SOCKET] Decoded token - role: ${role}, id: ${id}`);
+                
+                if (id) {
+                    if (role === 'vendor') {
+                        registerVendorSocket(id, socket.id);
+                        socket.vendorId = id;
+                    } else if (role === 'user') {
+                        registerUserSocket(id, socket.id);
+                        socket.userId = id;
                     }
-                } catch (err) {
-                    console.log(`⚠️  Socket JWT auto-auth failed for ${socket.id}: ${err.message}`);
-                    socket.emit('auth_error', { message: 'Token expired or invalid. Please re-authenticate.', code: 'TOKEN_INVALID' });
                 }
-            })();
+            } catch (err) {
+                console.log(`⚠️  Socket JWT auto-auth failed for ${socket.id}: ${err.message}`);
+                socket.emit('auth_error', { message: 'Token expired or invalid. Please re-authenticate.', code: 'TOKEN_INVALID' });
+            }
         }
-        // ─────────────────────────────────────────────────────────────────────
+        // ──────────────────────────────────────────────────────────────────
 
-        // FIX: Manual register_vendor / register_user fallbacks now require the
-        // JWT token to be re-supplied so we never accept an unauthenticated claim.
-        socket.on('register_vendor', (data) => {
-            (async () => {
-                try {
-                    const { token: manualToken } = data || {};
-                    if (!manualToken) throw new Error('Token required for manual registration');
-                    const decoded = jwt.verify(manualToken, config.JWT_SECRET);
-                    const vId = stringifyId(decoded.userId || decoded.id || decoded._id);
-                    if (!vId) throw new Error('Invalid token payload');
-                    if (decoded.role !== 'vendor') throw new Error('Role mismatch');
-                    await registerVendorSocket(vId, socket.id, socket);
-                    socket.vendorId = vId;
-                } catch (err) {
-                    console.warn(`[SOCKET] manual register_vendor rejected: ${err.message}`);
-                    socket.emit('auth_error', { message: err.message, code: 'TOKEN_INVALID' });
-                }
-            })();
+        // Manual register_vendor (fallback for Postman / non-JWT connections)
+        socket.on('register_vendor', (vendorId) => {
+            const vId = stringifyId(vendorId);
+            console.log(`[SOCKET] Manual register_vendor request for ID: ${vId}`);
+            if (vId) {
+                registerVendorSocket(vId, socket.id);
+                socket.vendorId = vId;
+            }
         });
 
-        socket.on('register_user', (data) => {
-            try {
-                const { token: manualToken } = data || {};
-                if (!manualToken) throw new Error('Token required for manual registration');
-                const decoded = jwt.verify(manualToken, config.JWT_SECRET);
-                const uId = stringifyId(decoded.userId || decoded.id || decoded._id);
-                if (!uId) throw new Error('Invalid token payload');
-                if (decoded.role !== 'user') throw new Error('Role mismatch');
+        // Manual register_user (fallback)
+        socket.on('register_user', (userId) => {
+            const uId = stringifyId(userId);
+            console.log(`[SOCKET] Manual register_user request for ID: ${uId}`);
+            if (uId) {
                 registerUserSocket(uId, socket.id);
                 socket.userId = uId;
-            } catch (err) {
-                console.warn(`[SOCKET] manual register_user rejected: ${err.message}`);
-                socket.emit('auth_error', { message: err.message, code: 'TOKEN_INVALID' });
             }
         });
 
-        // FIX: join_diagnostics now requires an admin JWT so booking PII is not
-        // leaked to anonymous clients.
-        socket.on('join_diagnostics', (data) => {
-            try {
-                const { token: diagToken } = data || {};
-                if (!diagToken) throw new Error('Admin token required');
-                const decoded = jwt.verify(diagToken, config.JWT_SECRET);
-                if (decoded.role !== 'admin') throw new Error('Admin role required');
-                socket.join('diagnostics');
-                console.log(`[SOCKET] Admin socket ${socket.id} joined diagnostics room`);
-            } catch (err) {
-                console.warn(`[SOCKET] join_diagnostics rejected for ${socket.id}: ${err.message}`);
-                socket.emit('auth_error', { message: 'Admin access required for diagnostics', code: 'FORBIDDEN' });
-            }
+        // Register to join the global diagnostics channel
+        socket.on('join_diagnostics', () => {
+            socket.join('diagnostics');
+            console.log(`[SOCKET] Socket ${socket.id} successfully joined diagnostics room`);
         });
 
-        // ─── Mock booking simulator ───────────────────────────────────────────
+        // Simulator for testing: User triggers a mock booking that automatically notifies active vendors
         socket.on('trigger_mock_booking', (data) => {
             try {
-                const bookingId = stringifyId(data?.bookingId) || ('BK-' + Math.floor(1000 + Math.random() * 9000));
-                const userId = stringifyId(data?.userId || socket.userId || '6a0a9ac23acfd6f22281d799');
+                const bookingId = stringifyId(data?.bookingId) || ("BK-" + Math.floor(1000 + Math.random() * 9000));
+                const userId = stringifyId(data?.userId || socket.userId || "6a0a9ac23acfd6f22281d799");
                 const vendorId = stringifyId(data?.vendorId);
 
                 console.log(`[SOCKET SIMULATOR] trigger_mock_booking - bookingId: ${bookingId}, userId: ${userId}, vendorId: ${vendorId}`);
@@ -298,14 +228,14 @@ const initSocket = async (server) => {
                         phoneNumber: '9876543210',
                         photo: null
                     },
-                    category: {
+                    category: { 
                         _id: '6a0a9c3267ba064f7fde1111',
                         title: data?.category || 'AC Repair & Service',
                         name: data?.category || 'AC Repair & Service'
                     },
                     services: [
                         {
-                            service: {
+                            service: { 
                                 _id: '6a0a9c3267ba064f7fde2222',
                                 title: data?.serviceTitle || 'AC Cleaning & Deep Wash',
                                 serviceCharge: 499,
@@ -315,35 +245,44 @@ const initSocket = async (server) => {
                             finalPrice: 499
                         }
                     ],
-                    pricing: { basePrice: 499, travelCharge: 50, totalPrice: 549 },
-                    location: {
-                        address: '123 Premium Glassmorphism Blvd, Indiranagar',
-                        latitude: 12.9715987,
-                        longitude: 77.5945627
+                    pricing: { 
+                        basePrice: 499,
+                        travelCharge: 50,
+                        totalPrice: 549 
+                    },
+                    location: { 
+                        address: '123 Premium Glassmorphism Blvd, Indiranagar', 
+                        latitude: 12.9715987, 
+                        longitude: 77.5945627 
                     },
                     totalDurationMins: 45,
                     radius: 5,
                     createdAt: new Date()
                 };
 
+                // Emit new_booking_request to target vendor if provided, or to all active vendors
                 if (vendorId) {
                     const sockets = activeVendors.get(vendorId) || [];
-                    sockets.forEach(sId => io.to(sId).emit('new_booking_request', payload));
-                    console.log(`📡 [SOCKET SIMULATOR] Sent new_booking_request to Vendor ${vendorId}`);
+                    sockets.forEach(sId => {
+                        io.to(sId).emit('new_booking_request', payload);
+                    });
+                    console.log(`📡 [SOCKET SIMULATOR] Sent new_booking_request to specific Vendor ${vendorId}`);
                 } else {
                     const vendorIds = Array.from(activeVendors.keys());
                     if (vendorIds.length > 0) {
                         vendorIds.forEach(vId => {
-                            (activeVendors.get(vId) || []).forEach(sId =>
-                                io.to(sId).emit('new_booking_request', payload)
-                            );
+                            const sockets = activeVendors.get(vId) || [];
+                            sockets.forEach(sId => {
+                                io.to(sId).emit('new_booking_request', payload);
+                            });
                         });
-                        console.log(`📡 [SOCKET SIMULATOR] Broadcasted to all online vendors: ${vendorIds.join(', ')}`);
+                        console.log(`📡 [SOCKET SIMULATOR] Broadcasted new_booking_request to all online vendors: ${vendorIds.join(', ')}`);
                     } else {
-                        console.log(`⚠️ [SOCKET SIMULATOR] No vendors online.`);
+                        console.log(`⚠️ [SOCKET SIMULATOR] No vendors online in activeVendors map.`);
                     }
                 }
 
+                // Confirm back to the user client
                 socket.emit('booking_created_success', {
                     booking: payload,
                     message: 'Mock booking triggered successfully! Broadcasted to active vendors.'
@@ -354,21 +293,37 @@ const initSocket = async (server) => {
             }
         });
 
-        // ─── Vendor booking actions ───────────────────────────────────────────
-
+        // Vendor actions on bookings
         socket.on('accept_booking', async (data) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
+
+                console.log(`[SOCKET] accept_booking - vendorId: ${vendorId}, bookingId: ${bookingId}`);
+
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
+                // If this is a mock booking (not a 24-hex-character ObjectId), handle it in-memory
                 if (!/^[0-9a-fA-F]{24}$/.test(bookingId)) {
-                    socket.emit('booking_accepted_success', { success: true, bookingId, status: 'accepted', message: 'Mock booking accepted!' });
-                    io.emit('booking_status_updated', { bookingId, status: 'accepted', vendorId });
+                    console.log(`📡 [SOCKET SIMULATOR] Intercepted mock booking acceptance in memory for ID: ${bookingId}`);
+                    socket.emit('booking_accepted_success', {
+                        success: true,
+                        bookingId: bookingId,
+                        status: 'accepted',
+                        message: 'Mock booking accepted successfully!'
+                    });
+                    if (io) {
+                        io.emit('booking_status_updated', {
+                            bookingId: bookingId,
+                            status: 'accepted',
+                            vendorId: vendorId
+                        });
+                    }
                     return;
                 }
 
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.acceptBooking(vendorId, bookingId);
                 socket.emit('booking_accepted_success', result);
             } catch (error) {
@@ -381,15 +336,30 @@ const initSocket = async (server) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
+
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
+                // If this is a mock booking (not a 24-hex-character ObjectId), handle it in-memory
                 if (!/^[0-9a-fA-F]{24}$/.test(bookingId)) {
-                    socket.emit('booking_rejected_success', { success: true, bookingId, status: 'rejected', message: 'Mock booking rejected!' });
-                    io.emit('booking_status_updated', { bookingId, status: 'rejected', vendorId });
+                    console.log(`📡 [SOCKET SIMULATOR] Intercepted mock booking rejection in memory for ID: ${bookingId}`);
+                    socket.emit('booking_rejected_success', {
+                        success: true,
+                        bookingId: bookingId,
+                        status: 'rejected',
+                        message: 'Mock booking rejected successfully!'
+                    });
+                    if (io) {
+                        io.emit('booking_status_updated', {
+                            bookingId: bookingId,
+                            status: 'rejected',
+                            vendorId: vendorId
+                        });
+                    }
                     return;
                 }
 
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.rejectBooking(vendorId, bookingId);
                 socket.emit('booking_rejected_success', result);
             } catch (error) {
@@ -401,8 +371,11 @@ const initSocket = async (server) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
+
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.markBookingLater(vendorId, bookingId);
                 socket.emit('booking_later_success', result);
             } catch (error) {
@@ -414,8 +387,11 @@ const initSocket = async (server) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
+
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.markOnTheWay(vendorId, bookingId);
                 socket.emit('booking_on_the_way_success', result);
             } catch (error) {
@@ -427,8 +403,11 @@ const initSocket = async (server) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId || (typeof data === 'string' ? data : null));
+
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.markArrived(vendorId, bookingId);
                 socket.emit('booking_arrived_success', result);
             } catch (error) {
@@ -441,8 +420,11 @@ const initSocket = async (server) => {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
                 const { otp } = data || {};
+
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.startWork(vendorId, bookingId, otp);
                 socket.emit('booking_start_work_success', result);
             } catch (error) {
@@ -454,8 +436,11 @@ const initSocket = async (server) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
+
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.requestCompletionOTP(vendorId, bookingId);
                 socket.emit('booking_request_completion_otp_success', result);
             } catch (error) {
@@ -468,8 +453,11 @@ const initSocket = async (server) => {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
                 const { otp, paymentMethod } = data || {};
+
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.completeWork(vendorId, bookingId, otp, paymentMethod);
                 socket.emit('booking_complete_work_success', result);
             } catch (error) {
@@ -482,8 +470,11 @@ const initSocket = async (server) => {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
                 const { updatedServices } = data || {};
+
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.updateBookingPrice(vendorId, bookingId, updatedServices);
                 socket.emit('booking_price_proposed', result);
             } catch (error) {
@@ -495,8 +486,11 @@ const initSocket = async (server) => {
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
+
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.confirmBookingPrice(userId, bookingId);
                 socket.emit('booking_update_price_success', result);
             } catch (error) {
@@ -509,8 +503,11 @@ const initSocket = async (server) => {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
                 const { reason } = data || {};
+
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.rejectBookingPrice(userId, bookingId, reason);
                 socket.emit('booking_reject_price_success', result);
             } catch (error) {
@@ -518,7 +515,7 @@ const initSocket = async (server) => {
             }
         });
 
-        // ─── Location ─────────────────────────────────────────────────────────
+        // ── New real-time actions ──
 
         socket.on('update_location', async (data) => {
             try {
@@ -528,23 +525,38 @@ const initSocket = async (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (lat === undefined || lng === undefined) throw new Error('Latitude and Longitude are required');
 
-                // FIX: Use India-specific range check instead of the fragile lng < lat swap
-                ({ lat, lng } = normalizeIndiaCoords(lat, lng));
+                // In India, longitude is always > 60 and latitude is < 40.
+                // If they are sent swapped from the app, we auto-detect and correct them.
+                if (lng < lat) {
+                    [lng, lat] = [lat, lng];
+                }
 
+                // Filter by location accuracy (only update if accuracy is <= 50 meters)
                 if (accuracy !== undefined && accuracy > 50) {
-                    console.log(`[SOCKET] Location skipped for vendor ${vendorId}: poor accuracy ${accuracy}m`);
-                    socket.emit('location_updated_success', { lat, lng, ignored: true, reason: 'low_accuracy', timestamp: new Date() });
+                    console.log(`[SOCKET] Location update skipped for vendor ${vendorId} due to poor accuracy: ${accuracy}m`);
+                    socket.emit('location_updated_success', {
+                        lat,
+                        lng,
+                        ignored: true,
+                        reason: 'low_accuracy',
+                        timestamp: new Date()
+                    });
                     return;
                 }
 
+                const Vendor = require('./models/Vendor.model');
+                // Update location and check existence
                 const vendor = await Vendor.findByIdAndUpdate(vendorId, {
                     'liveLocation.type': 'Point',
                     'liveLocation.coordinates': [lng, lat],
                     'liveLocation.updatedAt': new Date()
                 });
 
-                if (!vendor) throw new Error('Vendor not found');
+                if (!vendor) {
+                    throw new Error('Vendor not found');
+                }
 
+                const bookingService = require('./modules/booking/booking.service');
                 if (bookingService.broadcastVendorLocation) {
                     await bookingService.broadcastVendorLocation(vendorId, lat, lng);
                 }
@@ -552,30 +564,49 @@ const initSocket = async (server) => {
                 socket.emit('location_updated_success', { lat, lng, timestamp: new Date() });
             } catch (error) {
                 console.error(`[SOCKET] update_location error: ${error.message}`);
-                // FIX: Always surface errors to the client so the app can react
-                socket.emit('location_error', { action: 'update_location', message: error.message });
+                // Only emit error if it's a critical existence failure
+                if (error.message === 'Vendor not found') {
+                    socket.emit('location_error', { action: 'update_location', message: error.message });
+                }
             }
         });
 
+        /**
+         * Check if a vendor should be actively tracking (has active bookings)
+         * Used by mobile app to save battery.
+         */
         socket.on('check_vendor_tracking_status', async (data) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 if (!vendorId) throw new Error('Vendor ID is required');
+ 
+                const bookingService = require('./modules/booking/booking.service');
                 const isTrackingActive = await bookingService.shouldTrackVendor(vendorId);
-                socket.emit('vendor_tracking_status', { vendorId, isTrackingActive, timestamp: new Date() });
+ 
+                socket.emit('vendor_tracking_status', { 
+                    vendorId, 
+                    isTrackingActive,
+                    timestamp: new Date() 
+                });
             } catch (error) {
                 socket.emit('socket_error', { action: 'check_vendor_tracking_status', message: error.message });
             }
         });
 
+        /**
+         * Explicitly pull a vendor's current location and online status.
+         * Used by Admin/Users to see where a vendor is.
+         */
         socket.on('get_vendor_location', async (data) => {
             try {
                 const vendorId = stringifyId(data?.vendorId);
                 if (!vendorId) throw new Error('Vendor ID is required');
 
+                const Vendor = require('./models/Vendor.model');
                 const vendor = await Vendor.findById(vendorId).select('liveLocation isOnline name');
                 if (!vendor) throw new Error('Vendor not found');
 
+                // Check activeVendors Map for real-time online status
                 const isOnline = activeVendors.has(vendorId.toString());
                 const coords = vendor.liveLocation?.coordinates || [0, 0];
                 const exists = coords[0] !== 0 || coords[1] !== 0;
@@ -583,7 +614,10 @@ const initSocket = async (server) => {
                 socket.emit('vendor_location_data', {
                     vendorId: vendor._id,
                     name: vendor.name,
-                    location: { lng: coords[0], lat: coords[1] },
+                    location: {
+                        lng: coords[0],
+                        lat: coords[1]
+                    },
                     isOnline,
                     exists,
                     updatedAt: vendor.liveLocation?.updatedAt || null,
@@ -594,14 +628,15 @@ const initSocket = async (server) => {
             }
         });
 
-        // ─── User actions ─────────────────────────────────────────────────────
-
         socket.on('report_vendor_no_show', async (data) => {
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
+
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.reportVendorNoShow(userId, bookingId);
                 socket.emit('booking_vendor_no_show_success', result);
             } catch (error) {
@@ -613,8 +648,11 @@ const initSocket = async (server) => {
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
+
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.gracePeriodCancel(userId, bookingId);
                 socket.emit('booking_grace_period_cancel_success', result);
             } catch (error) {
@@ -622,15 +660,16 @@ const initSocket = async (server) => {
             }
         });
 
-        // ─── Service negotiation ──────────────────────────────────────────────
-
         socket.on('add_booking_services', async (data) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
                 const { newServices } = data || {};
+
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.addServicesToBooking(vendorId, bookingId, newServices);
                 socket.emit('booking_services_proposal_sent', result);
             } catch (error) {
@@ -642,8 +681,11 @@ const initSocket = async (server) => {
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
+
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.confirmProposedServices(userId, bookingId);
                 socket.emit('booking_services_confirmed_success', result);
             } catch (error) {
@@ -656,8 +698,11 @@ const initSocket = async (server) => {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
                 const { reason } = data || {};
+
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.rejectProposedServices(userId, bookingId, reason);
                 socket.emit('booking_services_rejected_success', result);
             } catch (error) {
@@ -670,8 +715,11 @@ const initSocket = async (server) => {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
                 const { services } = data || {};
+
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.requestExtraServices(userId, bookingId, services);
                 socket.emit('extra_services_request_sent', result);
             } catch (error) {
@@ -684,8 +732,11 @@ const initSocket = async (server) => {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
                 const { services } = data || {};
+
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.vendorConfirmExtraServices(vendorId, bookingId, services);
                 socket.emit('vendor_confirm_extra_services_success', result);
             } catch (error) {
@@ -693,12 +744,16 @@ const initSocket = async (server) => {
             }
         });
 
+        // Simple accept — vendor agrees to do user's requested extra services (no price change needed)
         socket.on('vendor_accept_extra_services', async (data) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
+
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.vendorAcceptExtraServices(vendorId, bookingId);
                 socket.emit('vendor_accept_extra_services_success', result);
             } catch (error) {
@@ -711,8 +766,11 @@ const initSocket = async (server) => {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
                 const { reason } = data || {};
+
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.vendorRejectExtraServices(vendorId, bookingId, reason);
                 socket.emit('vendor_reject_extra_services_success', result);
             } catch (error) {
@@ -725,8 +783,11 @@ const initSocket = async (server) => {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
                 const { acceptedServiceIds } = data || {};
+
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.userConfirmExtraServices(userId, bookingId, acceptedServiceIds);
                 socket.emit('user_confirm_extra_services_success', result);
             } catch (error) {
@@ -739,8 +800,11 @@ const initSocket = async (server) => {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
                 const { reason } = data || {};
+
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.userRejectExtraServices(userId, bookingId, reason);
                 socket.emit('user_reject_extra_services_success', result);
             } catch (error) {
@@ -753,8 +817,11 @@ const initSocket = async (server) => {
                 const bookingId = stringifyId(data?.bookingId);
                 const role = data?.role || (socket.userId ? 'user' : 'vendor');
                 const userId = stringifyId(socket.userId || socket.vendorId);
+
                 if (!bookingId) throw new Error('Booking ID is required');
                 if (!userId) throw new Error('You must be logged in to check booking status');
+
+                const bookingService = require('./modules/booking/booking.service');
                 const result = await bookingService.getBookingDetails(bookingId, userId, role);
                 socket.emit('booking_status_response', result);
             } catch (error) {
@@ -762,17 +829,19 @@ const initSocket = async (server) => {
             }
         });
 
-        socket.on('booking_received_ack', (data) => {
-            console.log('✅ Vendor ACK RECEIVED:', data);
+        socket.on("booking_received_ack", (data) => {
+            console.log("✅ Vendor ACK RECEIVED:", data);
         });
 
-        // ─── Admin / Verification ─────────────────────────────────────────────
-
+        // Admin/Verification socket actions
         socket.on('verify_vendor_document', async (data) => {
             try {
                 const vendorId = stringifyId(data?.vendorId);
                 const { docType, status, reason } = data || {};
+
                 if (!vendorId) throw new Error('Vendor ID is required');
+
+                const vendorService = require('./modules/vendor/vendor.service');
                 const result = await vendorService.verifyDocument(vendorId, { docType, status, reason });
                 socket.emit('verify_vendor_document_success', result);
             } catch (error) {
@@ -783,7 +852,14 @@ const initSocket = async (server) => {
         socket.on('get_verification_status', async (data) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
-                if (!vendorId) throw new Error('Vendor ID is required');
+                console.log(`[SOCKET] get_verification_status request. vendorId: ${vendorId}, socket.id: ${socket.id}`);
+                
+                if (!vendorId) {
+                    console.warn(`[SOCKET] No vendorId provided for verification status request.`);
+                    throw new Error('Vendor ID is required');
+                }
+
+                const vendorService = require('./modules/vendor/vendor.service');
                 const result = await vendorService.getVerificationStatus(vendorId);
                 socket.emit('verification_status_response', result);
                 console.log(`📡 [SOCKET] Sent verification status to Vendor ${vendorId} via Socket ${socket.id}`);
@@ -797,6 +873,8 @@ const initSocket = async (server) => {
             try {
                 const vendorId = stringifyId(data?.vendorId);
                 if (!vendorId) throw new Error('Vendor ID is required');
+
+                const vendorService = require('./modules/vendor/vendor.service');
                 const result = await vendorService.verifyAllDocuments(vendorId);
                 socket.emit('verify_all_vendor_documents_success', result);
             } catch (error) {
@@ -804,73 +882,59 @@ const initSocket = async (server) => {
             }
         });
 
-        // ─── Disconnect ───────────────────────────────────────────────────────
-
         socket.on('disconnect', async (reason) => {
             console.log(`WebSocket Disconnected: ${socket.id}, reason: ${reason}, transport: ${socket.conn?.transport?.name || 'unknown'}`);
 
+            // Broadcast disconnection to diagnostics room
             emitToDiagnostics('socket_connection_event', {
                 type: 'disconnect',
                 socketId: socket.id,
                 reason,
                 transport: socket.conn?.transport?.name || 'unknown',
-                registeredAs: socket.vendorId
-                    ? `vendor:${socket.vendorId}`
-                    : (socket.userId ? `user:${socket.userId}` : 'anonymous'),
+                registeredAs: socket.vendorId ? `vendor:${socket.vendorId}` : (socket.userId ? `user:${socket.userId}` : 'anonymous'),
                 timestamp: new Date()
             });
 
-            // Remove socket from vendor map
+            // Remove socket from active list
             for (const [vendorId, sockets] of activeVendors.entries()) {
                 const index = sockets.indexOf(socket.id);
                 if (index !== -1) {
                     sockets.splice(index, 1);
                     console.log(`❌ Socket ${socket.id} removed from Vendor ${vendorId}. Remaining: ${sockets.length}`);
-
                     if (sockets.length === 0) {
-                        console.log(`   Vendor ${vendorId} has 0 active sockets. Scheduling offline in 15s.`);
-
-                        // Clear any existing pending timeout first
+                        console.log(`   Vendor ${vendorId} has 0 active sockets. Scheduling offline status update in 15 seconds.`);
+                        
+                        // Clear any existing timeout for this vendor just in case
                         if (pendingVendorDisconnects.has(vendorId)) {
-                            clearTimeout(pendingVendorDisconnects.get(vendorId).timeoutId);
+                            clearTimeout(pendingVendorDisconnects.get(vendorId));
                         }
-
-                        // FIX: Use a nonce so only the most-recent timeout can write to DB.
-                        // Earlier timeouts that fire late will detect their nonce is stale and bail.
-                        const nonce = Date.now();
+                        
                         const timeoutId = setTimeout(async () => {
-                            const pending = pendingVendorDisconnects.get(vendorId);
-
-                            // Bail if a newer timeout has taken over (nonce mismatch)
-                            if (!pending || pending.nonce !== nonce) {
-                                console.log(`   Vendor ${vendorId} timeout superseded (nonce mismatch). Skipping.`);
-                                return;
-                            }
-
                             pendingVendorDisconnects.delete(vendorId);
-
+                            
+                            // Double check if they are still at 0 sockets
                             const currentSockets = activeVendors.get(vendorId) || [];
                             if (currentSockets.length === 0) {
                                 activeVendors.delete(vendorId);
                                 console.log(`   Vendor ${vendorId} fully offline after grace period.`);
                                 try {
+                                    const Vendor = require('./models/Vendor.model');
                                     await Vendor.findByIdAndUpdate(vendorId, { isOnline: false });
                                     console.log(`🔴 Vendor ${vendorId} marked offline in DB`);
                                 } catch (err) {
-                                    console.error(`⚠️ Failed to mark vendor ${vendorId} offline:`, err.message);
+                                    console.error(`⚠️ Failed to update vendor ${vendorId} offline status:`, err.message);
                                 }
                             } else {
                                 console.log(`   Vendor ${vendorId} reconnected during grace period. Keeping online.`);
                             }
-                        }, 15000);
-
-                        pendingVendorDisconnects.set(vendorId, { timeoutId, nonce });
+                        }, 15000); // 15 seconds grace period
+                        
+                        pendingVendorDisconnects.set(vendorId, timeoutId);
                     }
                     break;
                 }
             }
 
-            // Remove socket from user map
             for (const [userId, sockets] of activeUsers.entries()) {
                 const index = sockets.indexOf(socket.id);
                 if (index !== -1) {
@@ -886,34 +950,20 @@ const initSocket = async (server) => {
         });
     });
 
-    // FIX: Clear all pending disconnect timers on graceful shutdown so the
-    // Node.js event loop can exit cleanly.
-    const cleanup = () => {
-        console.log('[SOCKET] Cleaning up pending disconnect timers...');
-        for (const { timeoutId } of pendingVendorDisconnects.values()) {
-            clearTimeout(timeoutId);
-        }
-        pendingVendorDisconnects.clear();
-    };
-    process.once('SIGTERM', cleanup);
-    process.once('SIGINT', cleanup);
-
     return io;
 };
-
-// ─── Exported helpers ─────────────────────────────────────────────────────────
 
 const getIo = () => {
-    if (!io) throw new Error('Socket.io not initialized');
+    if (!io) {
+        throw new Error('Socket.io not initialized');
+    }
     return io;
 };
 
-const DIAGNOSTICS_EVENTS = new Set([
-    'new_booking_request', 'booking_status_updated', 'booking_accepted_success',
-    'booking_rejected_success', 'booking_created_success', 'service_approval_response',
-    'service_approval_update', 'extra_service_approval_update'
-]);
-
+/**
+ * Emit an event to all socket connections of a given vendor.
+ * Safe to call even if the vendor is not connected (no-op).
+ */
 const emitToVendor = (vendorId, event, data) => {
     if (!io) {
         console.warn(`[SOCKET] emitToVendor: Socket.io not initialized. Cannot emit '${event}'.`);
@@ -922,11 +972,12 @@ const emitToVendor = (vendorId, event, data) => {
     const vIdStr = vendorId.toString();
     const sockets = activeVendors.get(vIdStr) || [];
 
-    console.log(`[SOCKET DEBUG] emitToVendor: event='${event}', vendorId='${vIdStr}', sockets=${sockets.length}, allVendors=[${[...activeVendors.keys()].join(', ')}]`);
+    console.log(`[SOCKET DEBUG] emitToVendor called: event='${event}', vendorId='${vIdStr}', matchedSockets=${sockets.length}, allRegisteredVendors=[${[...activeVendors.keys()].join(', ')}]`);
 
-    if (DIAGNOSTICS_EVENTS.has(event)) {
+    // Copy to diagnostics room so the Socket Simulator page captures all system booking actions in real time
+    if (['new_booking_request', 'booking_status_updated', 'booking_accepted_success', 'booking_rejected_success', 'booking_created_success', 'service_approval_response', 'service_approval_update', 'extra_service_approval_update'].includes(event)) {
         io.to('diagnostics').emit(event, data);
-        console.log(`📡 [DIAGNOSTICS] Forwarded '${event}' to diagnostics room`);
+        console.log(`📡 [DIAGNOSTICS] Forwarded copy of '${event}' to diagnostics room`);
     }
 
     if (sockets.length === 0) {
@@ -934,10 +985,16 @@ const emitToVendor = (vendorId, event, data) => {
         return;
     }
 
-    sockets.forEach(socketId => io.to(socketId).emit(event, data));
+    sockets.forEach(socketId => {
+        io.to(socketId).emit(event, data);
+    });
     console.log(`📡 Emitted '${event}' to Vendor ${vIdStr} on ${sockets.length} socket(s)`);
 };
 
+/**
+ * Emit an event to all socket connections of a given user.
+ * Safe to call even if the user is not connected (no-op).
+ */
 const emitToUser = (userId, event, data) => {
     if (!io) {
         console.warn(`[SOCKET] Cannot emit to user ${userId}: Socket.io not initialized`);
@@ -946,32 +1003,43 @@ const emitToUser = (userId, event, data) => {
     const userIdStr = userId.toString();
     const sockets = activeUsers.get(userIdStr) || [];
 
-    if (DIAGNOSTICS_EVENTS.has(event)) {
+    // Copy to diagnostics room so the Socket Simulator page captures all system booking actions in real time
+    if (['new_booking_request', 'booking_status_updated', 'booking_accepted_success', 'booking_rejected_success', 'booking_created_success', 'service_approval_response', 'service_approval_update', 'extra_service_approval_update'].includes(event)) {
         io.to('diagnostics').emit(event, data);
-        console.log(`📡 [DIAGNOSTICS] Forwarded '${event}' to diagnostics room`);
+        console.log(`📡 [DIAGNOSTICS] Forwarded copy of '${event}' to diagnostics room`);
     }
-
+    
     if (sockets.length === 0) {
-        console.warn(`[SOCKET] No active sockets for User ${userIdStr}. FAILED to emit '${event}'.`);
+        console.log(`[SOCKET] No active sockets found for User ${userIdStr}. FAILED to emit '${event}'.`);
     } else {
-        sockets.forEach(socketId => io.to(socketId).emit(event, data));
+        sockets.forEach(socketId => {
+            io.to(socketId).emit(event, data);
+        });
         console.log(`📡 Emitted '${event}' to User ${userIdStr} on ${sockets.length} socket(s)`);
     }
 };
 
+// Helper to check if a specific vendor is online
 const isVendorOnline = (vendorId) => {
     const sockets = activeVendors.get(vendorId.toString());
     return !!(sockets && sockets.length > 0);
 };
 
-const getVendorSockets = (vendorId) => activeVendors.get(vendorId.toString()) || [];
-
-const isUserOnline = (userId) => {
-    const sockets = activeUsers.get(userId.toString());
-    return !!(sockets && sockets.length > 0);
+// Helper to get a vendor's socket IDs
+const getVendorSockets = (vendorId) => {
+    return activeVendors.get(vendorId.toString()) || [];
 };
 
-const getUserSockets = (userId) => activeUsers.get(userId.toString()) || [];
+// Helper to check if a specific user is online
+const isUserOnline = (userId) => {
+    const sockets = activeUsers.get(userId.toString());
+    return sockets && sockets.length > 0;
+};
+
+// Helper to get a user's socket IDs
+const getUserSockets = (userId) => {
+    return activeUsers.get(userId.toString()) || [];
+};
 
 module.exports = {
     initSocket,
