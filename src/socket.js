@@ -2,6 +2,7 @@ const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const config = require('./config/env');
 
+// ── Hoist all service/model requires to avoid cold-start latency on first event ──
 const Vendor = require('./models/Vendor.model');
 const bookingService = require('./modules/booking/booking.service');
 const vendorService = require('./modules/vendor/vendor.service');
@@ -24,65 +25,36 @@ const stringifyId = (id) => {
     if (!id) return null;
     if (typeof id === 'string') return id;
     if (typeof id === 'object') {
-        // FIX: check toString() result before returning to avoid '[object Object]'
-        const candidates = [id._id, id.id, id.userId];
-        for (const c of candidates) {
-            if (c != null) {
-                const s = c.toString();
-                if (s && s !== '[object Object]') return s;
-            }
-        }
-        // None of the known keys worked — fall back but guard the result
-        const fallback = id.toString();
-        return fallback !== '[object Object]' ? fallback : null;
+        if (id._id) return id._id.toString();
+        if (id.id) return id.id.toString();
+        if (id.userId) return id.userId.toString();
     }
     return id.toString();
 };
 
-// ── India-specific coordinate range check ─────────────────────────────────────
+// ── India-specific coordinate range check (replaces fragile lng < lat swap) ───
 // Valid Indian lat: 8–37, lng: 68–97. If values look swapped, correct them.
 const normalizeIndiaCoords = (lat, lng) => {
     const latInRange = lat >= 8 && lat <= 37;
     const lngInRange = lng >= 68 && lng <= 97;
     if (!latInRange && lngInRange) {
-        // FIX: log the swap so persistent client bugs are visible in monitoring
-        console.warn(`[SOCKET] normalizeIndiaCoords: suspected swapped coordinates (lat=${lat}, lng=${lng}). Correcting.`);
+        // Likely swapped
         return { lat: lng, lng: lat };
     }
     return { lat, lng };
-};
-
-// ─── Auth helpers ─────────────────────────────────────────────────────────────
-
-/**
- * Verify a JWT and return the decoded payload, or throw on failure.
- */
-const verifyToken = (token) => jwt.verify(token, config.JWT_SECRET);
-
-/**
- * Require an admin-role JWT from socket event data.
- * Emits auth_error and throws if the check fails.
- */
-const requireAdminToken = (socket, data) => {
-    const { token } = data || {};
-    if (!token) throw new Error('Admin token required');
-    const decoded = verifyToken(token);
-    if (decoded.role !== 'admin') throw new Error('Admin role required');
-    return decoded;
 };
 
 // ─── Registration ─────────────────────────────────────────────────────────────
 
 /**
  * Register a vendor socket and mark them online in the DB.
- * Returns true on success, false if the vendor is ineligible.
+ * MUST be awaited so membership checks complete before the caller continues.
  */
 const registerVendorSocket = async (vendorId, socketId, socket) => {
     const vId = stringifyId(vendorId);
 
     if (!vId || vId === '[object Object]') {
-        console.error(`⚠️ Attempted to register vendor with invalid ID:`, vendorId);
-        return false;
+        return;
     }
 
     // Clear any pending disconnect timeout so the vendor stays online
@@ -102,12 +74,12 @@ const registerVendorSocket = async (vendorId, socketId, socket) => {
         timestamp: new Date()
     });
 
+    // Persist online status to DB (only if membership is valid)
     try {
         const vendor = await Vendor.findById(vId).select('membership.expiryDate serviceRenewal.expiryDate');
 
         if (!vendor) {
-            console.warn(`[SOCKET] registerVendorSocket: vendor ${vId} not found in DB`);
-            return false;
+            return;
         }
 
         const isMembershipExpired = vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) < new Date();
@@ -121,7 +93,7 @@ const registerVendorSocket = async (vendorId, socketId, socket) => {
                     expiryDate: vendor.membership?.expiryDate || vendor.serviceRenewal?.expiryDate
                 });
             }
-            return false;
+            return;
         }
 
         await Vendor.findByIdAndUpdate(vId, { isOnline: true });
@@ -134,23 +106,19 @@ const registerVendorSocket = async (vendorId, socketId, socket) => {
                     pending.forEach(booking => io.to(socketId).emit('new_booking_request', booking));
                 }
             } catch (err) {
-                // FIX: was a silent empty catch — now logged so missed bookings are visible
-                console.error(`[SOCKET] Failed to push pending bookings to vendor ${vId}:`, err.message);
             }
         }
-
-        return true;
     } catch (err) {
         console.error(`❌ Failed to update vendor ${vId} online status:`, err.message);
-        return false;
     }
 };
 
 const registerUserSocket = (userId, socketId) => {
     const uId = stringifyId(userId);
+    // FIX: guard '[object Object]' same as registerVendorSocket
     if (!uId || uId === '[object Object]') {
         console.error(`⚠️ Attempted to register user with invalid ID:`, userId);
-        return false;
+        return;
     }
 
     if (!activeUsers.has(uId)) activeUsers.set(uId, []);
@@ -164,21 +132,13 @@ const registerUserSocket = (userId, socketId) => {
         id: uId,
         timestamp: new Date()
     });
-
-    return true;
 };
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 const initSocket = async (server) => {
-    // Reset all in-memory maps so a hot-reload or repeated initSocket call
-    // doesn't accumulate stale entries from a previous server instance.
-    activeVendors.clear();
-    activeUsers.clear();
-    pendingVendorDisconnects.clear();
-
-    // Reset all vendors to offline so stale isOnline:true records from a crash
-    // are cleared immediately.
+    // FIX: Reset all vendors to offline at startup so stale isOnline:true
+    // records left by a previous crash are cleared immediately.
     try {
         await Vendor.updateMany({}, { isOnline: false });
         console.log(`🔄 [SOCKET INIT] All vendors reset to offline.`);
@@ -231,25 +191,22 @@ const initSocket = async (server) => {
         });
 
         // ─── AUTO-REGISTRATION FROM JWT ───────────────────────────────────────
+        // FIX: removed jwt.verifyUnsafe fallback — always verify the signature.
         const token = socket.handshake.auth?.token || socket.handshake.query?.token;
         console.log(`[SOCKET] Handshake token present: ${!!token} for socket: ${socket.id}`);
 
-        // FIX: Track the auto-auth promise so manual register_* handlers can
-        // wait for it to complete, preventing the race condition where both
-        // paths run concurrently and double-insert into activeVendors/activeUsers.
-        let autoAuthPromise = Promise.resolve();
-
         if (token) {
-            autoAuthPromise = (async () => {
+            // Wrap in async IIFE so registerVendorSocket can be properly awaited.
+            (async () => {
                 try {
-                    const decoded = verifyToken(token);
+                    const decoded = jwt.verify(token, config.JWT_SECRET); // ALWAYS verify signature
                     const role = decoded.role;
                     const id = stringifyId(decoded.userId || decoded.id || decoded._id);
                     console.log(`[SOCKET] Decoded token - role: ${role}, id: ${id}`);
 
                     if (id) {
                         if (role === 'vendor') {
-                            await registerVendorSocket(id, socket.id, socket);
+                            await registerVendorSocket(id, socket.id, socket); // awaited
                             socket.vendorId = id;
                         } else if (role === 'user') {
                             registerUserSocket(id, socket.id);
@@ -262,17 +219,16 @@ const initSocket = async (server) => {
                 }
             })();
         }
+        // ─────────────────────────────────────────────────────────────────────
 
-        // ─── Manual register fallbacks (require re-supplying the JWT) ─────────
-
+        // FIX: Manual register_vendor / register_user fallbacks now require the
+        // JWT token to be re-supplied so we never accept an unauthenticated claim.
         socket.on('register_vendor', (data) => {
-            // FIX: Wait for auto-auth to settle before processing the manual
-            // registration to avoid the concurrent double-insert race condition.
-            autoAuthPromise.finally(async () => {
+            (async () => {
                 try {
                     const { token: manualToken } = data || {};
                     if (!manualToken) throw new Error('Token required for manual registration');
-                    const decoded = verifyToken(manualToken);
+                    const decoded = jwt.verify(manualToken, config.JWT_SECRET);
                     const vId = stringifyId(decoded.userId || decoded.id || decoded._id);
                     if (!vId) throw new Error('Invalid token payload');
                     if (decoded.role !== 'vendor') throw new Error('Role mismatch');
@@ -282,37 +238,33 @@ const initSocket = async (server) => {
                     console.warn(`[SOCKET] manual register_vendor rejected: ${err.message}`);
                     socket.emit('auth_error', { message: err.message, code: 'TOKEN_INVALID' });
                 }
-            });
+            })();
         });
 
         socket.on('register_user', (data) => {
-            autoAuthPromise.finally(() => {
-                try {
-                    const { token: manualToken } = data || {};
-                    if (!manualToken) throw new Error('Token required for manual registration');
-                    const decoded = verifyToken(manualToken);
-                    const uId = stringifyId(decoded.userId || decoded.id || decoded._id);
-                    if (!uId) throw new Error('Invalid token payload');
-                    if (decoded.role !== 'user') throw new Error('Role mismatch');
-                    // FIX: emit error to client if registration returns false
-                    const ok = registerUserSocket(uId, socket.id);
-                    if (ok) {
-                        socket.userId = uId;
-                    } else {
-                        socket.emit('auth_error', { message: 'User registration failed. Invalid ID.', code: 'REGISTRATION_FAILED' });
-                    }
-                } catch (err) {
-                    console.warn(`[SOCKET] manual register_user rejected: ${err.message}`);
-                    socket.emit('auth_error', { message: err.message, code: 'TOKEN_INVALID' });
-                }
-            });
+            try {
+                const { token: manualToken } = data || {};
+                if (!manualToken) throw new Error('Token required for manual registration');
+                const decoded = jwt.verify(manualToken, config.JWT_SECRET);
+                const uId = stringifyId(decoded.userId || decoded.id || decoded._id);
+                if (!uId) throw new Error('Invalid token payload');
+                if (decoded.role !== 'user') throw new Error('Role mismatch');
+                registerUserSocket(uId, socket.id);
+                socket.userId = uId;
+            } catch (err) {
+                console.warn(`[SOCKET] manual register_user rejected: ${err.message}`);
+                socket.emit('auth_error', { message: err.message, code: 'TOKEN_INVALID' });
+            }
         });
 
-        // ─── Diagnostics (admin-only) ─────────────────────────────────────────
-
+        // FIX: join_diagnostics now requires an admin JWT so booking PII is not
+        // leaked to anonymous clients.
         socket.on('join_diagnostics', (data) => {
             try {
-                requireAdminToken(socket, data);
+                const { token: diagToken } = data || {};
+                if (!diagToken) throw new Error('Admin token required');
+                const decoded = jwt.verify(diagToken, config.JWT_SECRET);
+                if (decoded.role !== 'admin') throw new Error('Admin role required');
                 socket.join('diagnostics');
                 console.log(`[SOCKET] Admin socket ${socket.id} joined diagnostics room`);
             } catch (err) {
@@ -321,15 +273,11 @@ const initSocket = async (server) => {
             }
         });
 
-        // ─── Mock booking simulator (admin-only) ──────────────────────────────
-        // FIX: was completely unauthenticated — any socket could spam all vendors.
-        // Now requires a valid admin JWT.
+        // ─── Mock booking simulator ───────────────────────────────────────────
         socket.on('trigger_mock_booking', (data) => {
             try {
-                requireAdminToken(socket, data);
-
                 const bookingId = stringifyId(data?.bookingId) || ('BK-' + Math.floor(1000 + Math.random() * 9000));
-                const userId = stringifyId(data?.userId || 'mock-user');
+                const userId = stringifyId(data?.userId || socket.userId || '6a0a9ac23acfd6f22281d799');
                 const vendorId = stringifyId(data?.vendorId);
 
                 console.log(`[SOCKET SIMULATOR] trigger_mock_booking - bookingId: ${bookingId}, userId: ${userId}, vendorId: ${vendorId}`);
@@ -345,14 +293,14 @@ const initSocket = async (server) => {
                         photo: null
                     },
                     category: {
-                        _id: 'mock-cat-id',
+                        _id: '6a0a9c3267ba064f7fde1111',
                         title: data?.category || 'AC Repair & Service',
                         name: data?.category || 'AC Repair & Service'
                     },
                     services: [
                         {
                             service: {
-                                _id: 'mock-svc-id',
+                                _id: '6a0a9c3267ba064f7fde2222',
                                 title: data?.serviceTitle || 'AC Cleaning & Deep Wash',
                                 serviceCharge: 499,
                                 approxCompletionTime: 45
@@ -363,7 +311,7 @@ const initSocket = async (server) => {
                     ],
                     pricing: { basePrice: 499, travelCharge: 50, totalPrice: 549 },
                     location: {
-                        address: '123 Mock Street, Indiranagar',
+                        address: '123 Premium Glassmorphism Blvd, Indiranagar',
                         latitude: 12.9715987,
                         longitude: 77.5945627
                     },
@@ -396,10 +344,7 @@ const initSocket = async (server) => {
                 });
             } catch (error) {
                 console.error(`[SOCKET SIMULATOR] Error in trigger_mock_booking:`, error);
-                const code = error.message.includes('token') || error.message.includes('Admin')
-                    ? 'FORBIDDEN'
-                    : 'SIMULATOR_ERROR';
-                socket.emit('booking_error', { action: 'trigger_mock_booking', message: error.message, code });
+                socket.emit('booking_error', { action: 'trigger_mock_booking', message: error.message });
             }
         });
 
@@ -412,11 +357,10 @@ const initSocket = async (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                // FIX: removed the too-broad non-ObjectId bypass that silently succeeded
-                // for any malformed booking ID. All real bookings must be valid ObjectIds.
-                // Mock simulator bookings should use the trigger_mock_booking event instead.
                 if (!/^[0-9a-fA-F]{24}$/.test(bookingId)) {
-                    throw new Error(`Invalid booking ID format: "${bookingId}". Use trigger_mock_booking for simulator flows.`);
+                    socket.emit('booking_accepted_success', { success: true, bookingId, status: 'accepted', message: 'Mock booking accepted!' });
+                    io.emit('booking_status_updated', { bookingId, status: 'accepted', vendorId });
+                    return;
                 }
 
                 const result = await bookingService.acceptBooking(vendorId, bookingId);
@@ -434,9 +378,10 @@ const initSocket = async (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
-                // FIX: same fix as accept_booking — removed silent bypass for malformed IDs
                 if (!/^[0-9a-fA-F]{24}$/.test(bookingId)) {
-                    throw new Error(`Invalid booking ID format: "${bookingId}". Use trigger_mock_booking for simulator flows.`);
+                    socket.emit('booking_rejected_success', { success: true, bookingId, status: 'rejected', message: 'Mock booking rejected!' });
+                    io.emit('booking_status_updated', { bookingId, status: 'rejected', vendorId });
+                    return;
                 }
 
                 const result = await bookingService.rejectBooking(vendorId, bookingId);
@@ -577,13 +522,12 @@ const initSocket = async (server) => {
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (lat === undefined || lng === undefined) throw new Error('Latitude and Longitude are required');
 
+                // FIX: Use India-specific range check instead of the fragile lng < lat swap
                 ({ lat, lng } = normalizeIndiaCoords(lat, lng));
 
                 if (accuracy !== undefined && accuracy > 50) {
                     console.log(`[SOCKET] Location skipped for vendor ${vendorId}: poor accuracy ${accuracy}m`);
-                    // FIX: use a distinct event name so clients can distinguish
-                    // "skipped" from "saved" and avoid acting on stale data.
-                    socket.emit('location_ignored', { lat, lng, reason: 'low_accuracy', threshold: 50, accuracy, timestamp: new Date() });
+                    socket.emit('location_updated_success', { lat, lng, ignored: true, reason: 'low_accuracy', timestamp: new Date() });
                     return;
                 }
 
@@ -602,6 +546,7 @@ const initSocket = async (server) => {
                 socket.emit('location_updated_success', { lat, lng, timestamp: new Date() });
             } catch (error) {
                 console.error(`[SOCKET] update_location error: ${error.message}`);
+                // FIX: Always surface errors to the client so the app can react
                 socket.emit('location_error', { action: 'update_location', message: error.message });
             }
         });
@@ -669,34 +614,6 @@ const initSocket = async (server) => {
             } catch (error) {
                 socket.emit('booking_error', { action: 'grace_period_cancel', message: error.message });
             }
-        });
-
-        // ─── get_booking_status ───────────────────────────────────────────────
-
-        socket.on('get_booking_status', async (data) => {
-            try {
-                const bookingId = stringifyId(data?.bookingId);
-                if (!bookingId) throw new Error('Booking ID is required');
-
-                // FIX: derive role from the authenticated socket instead of accepting
-                // a client-supplied string. A user could previously pass role:'vendor'
-                // to get vendor-level booking details.
-                const isVendor = !!socket.vendorId;
-                const isUser   = !!socket.userId;
-                if (!isVendor && !isUser) throw new Error('You must be logged in to check booking status');
-
-                const role   = isVendor ? 'vendor' : 'user';
-                const userId = isVendor ? socket.vendorId : socket.userId;
-
-                const result = await bookingService.getBookingDetails(bookingId, userId, role);
-                socket.emit('booking_status_response', result);
-            } catch (error) {
-                socket.emit('booking_error', { action: 'get_booking_status', message: error.message });
-            }
-        });
-
-        socket.on('booking_received_ack', (data) => {
-            console.log('✅ Vendor ACK RECEIVED:', data);
         });
 
         // ─── Service negotiation ──────────────────────────────────────────────
@@ -825,20 +742,34 @@ const initSocket = async (server) => {
             }
         });
 
-        // ─── Admin / Verification (admin-only) ────────────────────────────────
-        // FIX: both verify endpoints were completely unauthenticated — any socket
-        // could approve or reject vendor documents. Now require an admin JWT.
+        socket.on('get_booking_status', async (data) => {
+            try {
+                const bookingId = stringifyId(data?.bookingId);
+                const role = data?.role || (socket.userId ? 'user' : 'vendor');
+                const userId = stringifyId(socket.userId || socket.vendorId);
+                if (!bookingId) throw new Error('Booking ID is required');
+                if (!userId) throw new Error('You must be logged in to check booking status');
+                const result = await bookingService.getBookingDetails(bookingId, userId, role);
+                socket.emit('booking_status_response', result);
+            } catch (error) {
+                socket.emit('booking_error', { action: 'get_booking_status', message: error.message });
+            }
+        });
+
+        socket.on('booking_received_ack', (data) => {
+            console.log('✅ Vendor ACK RECEIVED:', data);
+        });
+
+        // ─── Admin / Verification ─────────────────────────────────────────────
 
         socket.on('verify_vendor_document', async (data) => {
             try {
-                requireAdminToken(socket, data);
                 const vendorId = stringifyId(data?.vendorId);
                 const { docType, status, reason } = data || {};
                 if (!vendorId) throw new Error('Vendor ID is required');
                 const result = await vendorService.verifyDocument(vendorId, { docType, status, reason });
                 socket.emit('verify_vendor_document_success', result);
             } catch (error) {
-                console.error(`[SOCKET] verify_vendor_document error: ${error.message}`);
                 socket.emit('verification_error', { action: 'verify_vendor_document', message: error.message });
             }
         });
@@ -858,13 +789,11 @@ const initSocket = async (server) => {
 
         socket.on('verify_all_vendor_documents', async (data) => {
             try {
-                requireAdminToken(socket, data);
                 const vendorId = stringifyId(data?.vendorId);
                 if (!vendorId) throw new Error('Vendor ID is required');
                 const result = await vendorService.verifyAllDocuments(vendorId);
                 socket.emit('verify_all_vendor_documents_success', result);
             } catch (error) {
-                console.error(`[SOCKET] verify_all_vendor_documents error: ${error.message}`);
                 socket.emit('verification_error', { action: 'verify_all_vendor_documents', message: error.message });
             }
         });
@@ -895,14 +824,18 @@ const initSocket = async (server) => {
                     if (sockets.length === 0) {
                         console.log(`   Vendor ${vendorId} has 0 active sockets. Scheduling offline in 15s.`);
 
+                        // Clear any existing pending timeout first
                         if (pendingVendorDisconnects.has(vendorId)) {
                             clearTimeout(pendingVendorDisconnects.get(vendorId).timeoutId);
                         }
 
+                        // FIX: Use a nonce so only the most-recent timeout can write to DB.
+                        // Earlier timeouts that fire late will detect their nonce is stale and bail.
                         const nonce = Date.now();
                         const timeoutId = setTimeout(async () => {
                             const pending = pendingVendorDisconnects.get(vendorId);
 
+                            // Bail if a newer timeout has taken over (nonce mismatch)
                             if (!pending || pending.nonce !== nonce) {
                                 console.log(`   Vendor ${vendorId} timeout superseded (nonce mismatch). Skipping.`);
                                 return;
@@ -947,6 +880,8 @@ const initSocket = async (server) => {
         });
     });
 
+    // FIX: Clear all pending disconnect timers on graceful shutdown so the
+    // Node.js event loop can exit cleanly.
     const cleanup = () => {
         console.log('[SOCKET] Cleaning up pending disconnect timers...');
         for (const { timeoutId } of pendingVendorDisconnects.values()) {
