@@ -2098,11 +2098,9 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    // Accept planId as an alias for membershipId (app may send either field)
-    let resolvedMembershipId = membershipId || planId || vendor.membership?.membershipId || null;
-    if (!resolvedMembershipId && paymentRecord) {
-        resolvedMembershipId = paymentRecord.planId || paymentRecord.metadata?.membershipId || null;
-    }
+    // Prefer the membership plan that was saved with the order itself.
+    const paymentPlanId = paymentRecord?.planId?.toString() || paymentRecord?.metadata?.membershipId || null;
+    let resolvedMembershipId = paymentPlanId || membershipId || planId || vendor.membership?.membershipId || null;
 
     if (resolvedMembershipId) {
         vendor.membership = vendor.membership || {};
@@ -2176,7 +2174,7 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     // Ensure membership metadata is populated if missing
     if (!vendor.membership.totalAmount || !vendor.membership.category) {
         try {
-            const memDetails = await getVendorMembershipDetails(vendor._id, { membershipId });
+            const memDetails = await getVendorMembershipDetails(vendor._id, { membershipId: resolvedMembershipId });
             if (!vendor.membership.membershipFee) vendor.membership.membershipFee = memDetails.basePlanFee;
             if (!vendor.membership.serviceFee) vendor.membership.serviceFee = memDetails.serviceSelectionsTotal;
             if (!vendor.membership.gstAmount) vendor.membership.gstAmount = memDetails.gstAmount;
