@@ -881,27 +881,36 @@ const approveVendorServices = async (vendorId, serviceData) => {
     // Auto-derive parent hierarchy
     await _deriveVendorHierarchy(vendor);
 
-    // Recalculate membership fee based on the new final list
-    const calc = await _calculateMembershipAmounts({
-        vendorId,
-        durationMonths,
-        categoryId,
-        subcategoryIds,
-        serviceTypeIds,
-        serviceIds: newServiceIds
-    });
+    // ── Guard: skip membership fee recalculation for already-paid vendors ──
+    // If vendor has already paid (COMPLETED / MEMBERSHIP_PAID / PLAN_PAID), we must
+    // NOT overwrite their stored membership fees. Recalculating without the correct
+    // membershipId causes the fee to fall back to the Basic plan default (e.g. ₹20).
+    const PAID_STEPS = ['COMPLETED', 'MEMBERSHIP_PAID', 'PLAN_PAID', 'SIGNUP_COMPLETED'];
+    const vendorAlreadyPaid = PAID_STEPS.includes(vendor.registrationStep) || vendor.isVerified;
 
-    // Update vendor with calculation result
-    vendor.membership.membershipFee = calc.membershipTotal;
-    vendor.membership.serviceFee = calc.servicesSubtotal;
-    vendor.membership.gstAmount = calc.finalGst;
-    vendor.membership.totalAmount = calc.grandTotal;
-    vendor.membership.subtotal = calc.combinedSubtotal;
-    vendor.membership.fee = calc.grandTotal; // Keep for legacy compatibility
-    vendor.membership.durationMonths = durationMonths;
+    if (!vendorAlreadyPaid) {
+        // First-time approval flow: recalculate and persist membership fee
+        const calc = await _calculateMembershipAmounts({
+            vendorId,
+            durationMonths,
+            categoryId,
+            subcategoryIds,
+            serviceTypeIds,
+            serviceIds: newServiceIds
+        });
+
+        vendor.membership.membershipFee = calc.membershipTotal;
+        vendor.membership.serviceFee = calc.servicesSubtotal;
+        vendor.membership.gstAmount = calc.finalGst;
+        vendor.membership.totalAmount = calc.grandTotal;
+        vendor.membership.subtotal = calc.combinedSubtotal;
+        vendor.membership.fee = calc.grandTotal; // Keep for legacy compatibility
+        vendor.membership.durationMonths = durationMonths;
+        vendor.registrationStep = 'SERVICES_APPROVED';
+    }
+    // For already-paid vendors we only update service lists (done above) and approval status.
 
     vendor.serviceApprovalStatus = 'approved';
-    vendor.registrationStep = 'SERVICES_APPROVED';
 
     await vendor.save();
 
@@ -927,13 +936,16 @@ const approveVendorServices = async (vendorId, serviceData) => {
         }
     }
 
+    // Resolve the definitive membership total (already-paid vendors keep their stored fee)
+    const membershipAmount = vendor.membership?.totalAmount || vendor.membership?.fee || 0;
+
     // Construct Socket payload
     const payload = {
         approvedServices,
         notApprovedServices,
         serviceApprovalStatus: vendor.serviceApprovalStatus || 'pending',
-        amount: calc.grandTotal,
-        registrationStep: 'SERVICES_APPROVED',
+        amount: membershipAmount,
+        registrationStep: vendor.registrationStep,
         isServiceVerified: vendor.serviceApprovalStatus === 'approved',
         updatedAt: new Date()
     };
@@ -950,7 +962,7 @@ const approveVendorServices = async (vendorId, serviceData) => {
             'service_approval',
             'Services Approved',
             'Your services have been approved by the administrator. Please proceed to payment.',
-            { registrationStep: 'SERVICES_APPROVED', amount: String(calc.grandTotal) }
+            { registrationStep: vendor.registrationStep, amount: String(membershipAmount) }
         );
     } catch (pushError) {
         console.error('Error sending service approval push notification:', pushError);
@@ -960,7 +972,7 @@ const approveVendorServices = async (vendorId, serviceData) => {
         vendor,
         approvedServices,
         notApprovedServices,
-        amount: calc.grandTotal,
+        amount: membershipAmount,
         isServiceVerified: vendor.serviceApprovalStatus === 'approved'
     };
 };
