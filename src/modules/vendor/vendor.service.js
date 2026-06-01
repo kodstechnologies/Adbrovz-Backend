@@ -649,7 +649,15 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount, members
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    if (vendor.registrationStep !== 'SERVICES_APPROVED' && vendor.registrationStep !== 'PENDING' && vendor.registrationStep !== 'MEMBERSHIP_PAID' && vendor.registrationStep !== 'PLAN_PAID' && vendor.registrationStep !== 'COMPLETED') {
+    // Allow payment if:
+    //  • registrationStep is one of the approved/active steps, OR
+    //  • admin has explicitly set serviceApprovalStatus to 'approved'
+    //    (covers SERVICES_SELECTED step which is set after service selection but before payment)
+    const ALLOWED_STEPS = ['SERVICES_APPROVED', 'PENDING', 'MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED', 'SIGNUP_COMPLETED'];
+    const isStepAllowed = ALLOWED_STEPS.includes(vendor.registrationStep);
+    const isAdminApproved = vendor.serviceApprovalStatus === 'approved';
+
+    if (!isStepAllowed && !isAdminApproved) {
         throw new ApiError(400, 'Please wait for admin service approval before purchasing membership');
     }
 
