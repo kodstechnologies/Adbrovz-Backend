@@ -1140,7 +1140,8 @@ const _getHierarchicalPricing = async (serviceId) => {
  * Create booking (full flow)
  */
 const createBooking = async (userId, bookingData) => {
-    console.log("createBooking CALLED. userId:", userId);
+    console.log("[TRACKING-FLOW] [STEP 1] createBooking CALLED. userId:", userId);
+    console.log("[TRACKING-FLOW] [STEP 1.1] Input Booking Data:", JSON.stringify(bookingData, null, 2));
     
     // ── Idempotency Check: Prevent duplicate bookings in a short window ──
     const recentBooking = await Booking.findOne({
@@ -1149,7 +1150,7 @@ const createBooking = async (userId, bookingData) => {
         createdAt: { $gt: new Date(Date.now() - 30 * 1000) } // 30 seconds window
     });
     if (recentBooking) {
-        console.log(`[IDEMPOTENCY] Found recent pending booking ${recentBooking._id} for user ${userId}. Returning existing.`);
+        console.log(`[TRACKING-FLOW] [STEP 1.2] [IDEMPOTENCY] Found recent pending booking ${recentBooking._id} for user ${userId}. Returning existing.`);
         return {
             booking: _formatBooking(recentBooking, 'user'),
             message: 'Your booking is already being processed. Please wait.'
@@ -1159,7 +1160,8 @@ const createBooking = async (userId, bookingData) => {
     // ── Auto-Cancel Previous Pending Bookings ──
     // To prevent multiple overlapping search broadcasts for the same user, 
     // we cancel any existing bookings that are still pending acceptance.
-    await Booking.updateMany(
+    console.log("[TRACKING-FLOW] [STEP 1.3] Auto-cancelling previous pending bookings for user:", userId);
+    const cancelResult = await Booking.updateMany(
         { user: userId, status: 'pending_acceptance' },
         { 
             $set: { 
@@ -1178,6 +1180,7 @@ const createBooking = async (userId, bookingData) => {
             }
         }
     );
+    console.log(`[TRACKING-FLOW] [STEP 1.4] Auto-cancel query completed. Modified count: ${cancelResult.modifiedCount}`);
 
     const {
         services,
@@ -1193,19 +1196,23 @@ const createBooking = async (userId, bookingData) => {
     } = bookingData;
 
     if (!services || services.length === 0) {
+        console.error("[TRACKING-FLOW] [ERROR] At least one service is required");
         throw new ApiError(400, 'At least one service is required');
     }
 
     if (!latitude || !longitude) {
+        console.error("[TRACKING-FLOW] [ERROR] Coordinates (Latitude and Longitude) are required for vendor discovery");
         throw new ApiError(400, 'Coordinates (Latitude and Longitude) are required for vendor discovery');
     }
 
     const user = await User.findById(userId);
     if (!user) {
+        console.error("[TRACKING-FLOW] [ERROR] User not found in DB");
         throw new ApiError(404, 'User not found. Please log in again.');
     }
     
     if (user.bannedUntil && user.bannedUntil > new Date()) {
+        console.error(`[TRACKING-FLOW] [ERROR] User is banned until ${user.bannedUntil}`);
         throw new ApiError(403, `You are temporarily banned from making bookings until ${user.bannedUntil.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} due to multiple cancellations.`);
     }
 
@@ -1215,16 +1222,21 @@ const createBooking = async (userId, bookingData) => {
         // Construct date in IST
         const slotDate = new Date(`${new Date(date).toISOString().split('T')[0]}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+05:30`);
         
+        console.log(`[TRACKING-FLOW] [STEP 1.5] Scheduled time slot constructed: ${slotDate.toISOString()}, Local Now: ${new Date().toISOString()}`);
         if ((slotDate.getTime() - Date.now()) < 30 * 60000) {
+            console.error("[TRACKING-FLOW] [ERROR] Booking scheduled less than 30 minutes in advance");
             throw new ApiError(400, 'Bookings must be scheduled at least 30 minutes in advance');
         }
     }
 
     const existingBookingsCount = await Booking.countDocuments({ user: userId });
+    console.log(`[TRACKING-FLOW] [STEP 1.6] User's existing bookings count: ${existingBookingsCount}`);
 
     // First booking OTP requirement
     if (existingBookingsCount === 0) {
+        console.log(`[TRACKING-FLOW] [STEP 1.7] First booking. Verification OTP provided: ${otp}`);
         if (!otp || otp.toString() !== '1234') {
+            console.error("[TRACKING-FLOW] [ERROR] FIRST_BOOKING_OTP_REQUIRED");
             throw new ApiError(400, 'FIRST_BOOKING_OTP_REQUIRED');
         }
     }
@@ -1233,6 +1245,7 @@ const createBooking = async (userId, bookingData) => {
     const processedServices = [];
     let leadCategory = null;
 
+    console.log(`[TRACKING-FLOW] [STEP 1.8] Processing services... count: ${services.length}`);
     for (let i = 0; i < services.length; i++) {
         const item = services[i];
         // Fetch hierarchical pricing (Service -> ServiceType -> Subcategory -> Category)
@@ -1241,27 +1254,27 @@ const createBooking = async (userId, bookingData) => {
         
         if (i === 0 && serviceData) {
             leadCategory = serviceData.category?._id;
+            console.log(`[TRACKING-FLOW] [STEP 1.9] Resolved Lead Category ID: ${leadCategory}`);
         }
 
         // ── Time Slot Validation ──
         if (serviceData?.timeSlots && serviceData.timeSlots.length > 0) {
             const activeSlots = serviceData.timeSlots.filter(s => s.isActive);
             if (activeSlots.length > 0) {
-                // Ensure the selected time matches at least one startTime
-                // Normalizing time format (taking HH:mm)
                 const normalizedTime = String(time || '').slice(0, 5); 
                 const isValid = activeSlots.some(s => s.startTime.slice(0, 5) === normalizedTime);
+                console.log(`[TRACKING-FLOW] [STEP 1.10] Service ${item.serviceId} time slot check: normalized=${normalizedTime}, valid=${isValid}`);
                 
                 if (!isValid) {
                     const slotLabels = activeSlots.map(s => s.label || s.startTime).join(', ');
+                    console.error(`[TRACKING-FLOW] [ERROR] Time slot ${normalizedTime} is invalid for ${serviceData.title}`);
                     throw new ApiError(400, `The selected time ${normalizedTime} is not valid for "${serviceData.title}". Please choose from: ${slotLabels}`);
                 }
             }
         }
 
         if (adminPrice === 0) {
-            // Log a warning or handle as unpriced
-            console.log(`[WARNING] Service ${item.serviceId} has 0 adminPrice across hierarchy`);
+            console.log(`[TRACKING-FLOW] [WARNING] Service ${item.serviceId} has 0 adminPrice across hierarchy`);
         }
 
         processedServices.push({
@@ -1288,6 +1301,7 @@ const createBooking = async (userId, bookingData) => {
     const calculatedTotalPrice = calculatedBasePrice + calculatedTravelCharge;
 
     const bookingID = generateBookingID();
+    console.log(`[TRACKING-FLOW] [STEP 1.11] Creating booking object in Database... bookingID: ${bookingID}`);
     const booking = await Booking.create({
         bookingID: bookingID,
         user: userId,
@@ -1305,25 +1319,33 @@ const createBooking = async (userId, bookingData) => {
         searchId: require('crypto').randomUUID()
     });
 
+    console.log(`[TRACKING-FLOW] [STEP 1.12] Booking DB record created successfully. _id: ${booking._id}`);
+    
     // Apply GST calculation
+    console.log(`[TRACKING-FLOW] [STEP 1.13] Recalculating GST and final pricing...`);
     await recalculateBookingPrice(booking);
     await booking.save();
+    console.log(`[TRACKING-FLOW] [STEP 1.14] Recalculation complete. Saved pricing details:`, JSON.stringify(booking.pricing, null, 2));
 
     // Trigger broadcast (Removed duplicate call)
-    searchVendors(booking, true).catch(err => console.error('[BROADCAST ERROR] initial searchVendors failed:', err.message));
+    console.log(`[TRACKING-FLOW] [STEP 1.15] Triggering searchVendors broadcast asynchronously...`);
+    searchVendors(booking, true).catch(err => {
+        console.error('[TRACKING-FLOW] [BROADCAST ERROR] initial searchVendors failed:', err.message);
+    });
 
     const populatedBooking = await Booking.findById(booking._id).populate('category');
     const formattedBooking = _formatBooking(populatedBooking, 'user');
 
     // ── Emit Success Response via Socket ──
     try {
+        console.log(`[TRACKING-FLOW] [STEP 1.16] Emitting booking_created_success to user: ${userId}`);
         const { emitToUser } = require('../../socket');
         emitToUser(userId, 'booking_created_success', {
             booking: formattedBooking,
             message: 'Booking request placed successfully. Searching for vendors...'
         });
     } catch (socketErr) {
-        console.error('[SOCKET ERROR] Failed to emit booking_created_success:', socketErr.message);
+        console.error('[TRACKING-FLOW] [SOCKET ERROR] Failed to emit booking_created_success:', socketErr.message);
     }
 
     return {
@@ -1333,15 +1355,20 @@ const createBooking = async (userId, bookingData) => {
 };
 
 const searchVendors = async (booking, broadcast = false) => {
+    console.log(`[TRACKING-FLOW] [STEP 2] searchVendors CALLED for booking ID: ${booking._id}, broadcast: ${broadcast}`);
+    
     let currentSearchId = booking.searchId;
     if (!currentSearchId) {
         currentSearchId = require('crypto').randomUUID();
         booking.searchId = currentSearchId;
         await booking.save();
+        console.log(`[TRACKING-FLOW] [STEP 2.1] Generated new searchId: ${currentSearchId}`);
+    } else {
+        console.log(`[TRACKING-FLOW] [STEP 2.1] Using existing searchId: ${currentSearchId}`);
     }
 
     if (!booking.location?.latitude || !booking.location?.longitude) {
-        console.error(`[ERROR] searchVendors: Missing coordinates for ${booking._id}. Search aborted.`);
+        console.error(`[TRACKING-FLOW] [ERROR] searchVendors: Missing coordinates for ${booking._id}. Search aborted.`);
         if (broadcast) {
             const { emitToUser } = require('../../socket');
             emitToUser(booking.user, 'booking_search_update', {
@@ -1352,9 +1379,11 @@ const searchVendors = async (booking, broadcast = false) => {
         }
         return [];
     }
+    console.log(`[TRACKING-FLOW] [STEP 2.2] Location coordinates resolved: lat=${booking.location.latitude}, lng=${booking.location.longitude}`);
 
     // 1. Determine Dynamic Radius and Waves
     const retryCount = booking.retryCount || 0;
+    console.log(`[TRACKING-FLOW] [STEP 2.3] Current retryCount (Wave index): ${retryCount}`);
     
     // Fetch settings for all rows
     const [r1_km, r1_min, r2_km, r2_min, r3_km, r3_min] = await Promise.all([
@@ -1365,6 +1394,7 @@ const searchVendors = async (booking, broadcast = false) => {
         adminService.getSetting('notifications.radius_row3_km'),
         adminService.getSetting('notifications.radius_row3_mins')
     ]);
+    console.log(`[TRACKING-FLOW] [STEP 2.4] Admin settings loaded: Row1=${r1_km}km/${r1_min}m, Row2=${r2_km}km/${r2_min}m, Row3=${r3_km}km/${r3_min}m`);
 
     const waves = [
         { km: Number(r1_km) || 2, mins: Number(r1_min) || 5 },
@@ -1375,6 +1405,7 @@ const searchVendors = async (booking, broadcast = false) => {
     const totalSearchTimeMins = waves.reduce((sum, wave) => sum + wave.mins, 0);
     const currentWave = waves[Math.min(retryCount, waves.length - 1)];
     const radiusInKm = currentWave.km;
+    console.log(`[TRACKING-FLOW] [STEP 2.5] Active wave details: Radius=${radiusInKm}km, duration=${currentWave.mins} mins, totalSearchTimeMins=${totalSearchTimeMins}`);
     
     let categoryIds = [];
     if (booking.category) {
@@ -1384,12 +1415,14 @@ const searchVendors = async (booking, broadcast = false) => {
         const services = await Service.find({ _id: { $in: serviceIds } }).select('category');
         categoryIds = [...new Set(services.map(s => s.category.toString()))];
     }
+    console.log(`[TRACKING-FLOW] [STEP 2.6] Target Category IDs for vendor discovery:`, categoryIds);
 
     const ignoredVendors = [
         ...(booking.rejectedVendors || []),
         ...(booking.laterVendors || []),
         ...(booking.notifiedVendors || []) // Exclude already notified vendors to prevent spamming
     ].map(id => id.toString());
+    console.log(`[TRACKING-FLOW] [STEP 2.7] Ignored/excluded vendor IDs (rejected/later/already-notified):`, ignoredVendors);
 
     // ── Vendors can receive new requests even if they have ongoing bookings (Allow concurrent orders) ──
     const busyVendorIds = []; // Initialized as empty to allow concurrent orders by default
@@ -1397,7 +1430,7 @@ const searchVendors = async (booking, broadcast = false) => {
     // ── Find services belonging to the booking's categories so we can match vendors by selectedServices too ──
     const servicesInCategories = await Service.find({ category: { $in: categoryIds } }).select('_id');
     const serviceIdsInCategories = servicesInCategories.map(s => s._id);
-    console.log(`[SEARCH] Found ${serviceIdsInCategories.length} services in categoryIds [${categoryIds}] for cross-matching`);
+    console.log(`[TRACKING-FLOW] [STEP 2.8] Found ${serviceIdsInCategories.length} services in categoryIds [${categoryIds}] for cross-matching`);
 
     // ── Geospatial Query ──
     const serviceIds = (booking.services || []).map(s => s.service);
@@ -1412,6 +1445,7 @@ const searchVendors = async (booking, broadcast = false) => {
         categoryOrServiceFilter = [
             { selectedServices: { $all: serviceObjectIds } }
         ];
+        console.log(`[TRACKING-FLOW] [STEP 2.9] Applied STRICT Service Filter (ALL serviceIds must match):`, serviceIds);
     } else {
         categoryOrServiceFilter = [
             { selectedCategories: { $in: categoryIds } }
@@ -1419,13 +1453,13 @@ const searchVendors = async (booking, broadcast = false) => {
         if (serviceIdsInCategories.length > 0) {
             categoryOrServiceFilter.push({ selectedServices: { $in: serviceIdsInCategories } });
         }
+        console.log(`[TRACKING-FLOW] [STEP 2.9] Applied Category/Service fallback filter`);
     }
 
-        const geoQuery = {
+    const geoQuery = {
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
-        // isOnline: true, // Removed strict online requirement to allow Push notifications for offline vendors
         registrationStep: 'COMPLETED',
         deletedAt: null,
         $and: [
@@ -1461,19 +1495,22 @@ const searchVendors = async (booking, broadcast = false) => {
         geoQuery._id = { $nin: nins };
     }
 
-    console.log(`[SEARCH] Searching for vendors for booking ${booking._id} in categoryIds:`, categoryIds);
+    console.log(`[TRACKING-FLOW] [STEP 2.10] Final Geospatial Query generated:`, JSON.stringify(geoQuery, null, 2));
 
-    let vendors = await Vendor.find(geoQuery).select('_id fcmToken categorySubscriptions membership');
+    let vendors = await Vendor.find(geoQuery).select('_id name fcmToken categorySubscriptions membership');
+    console.log(`[TRACKING-FLOW] [STEP 2.11] MongoDB geoQuery returned raw matched vendors count: ${vendors.length}`);
     
     // Filter out vendors whose matched category is expired
     vendors = vendors.filter(vendor => {
         const primaryCatId = vendor.membership?.category?.toString();
+        const vendorNameStr = vendor.name || 'Unknown';
         
         const hasActiveCategory = categoryIds.some(catId => {
             const catIdStr = catId.toString();
             
             // Primary category check
             if (primaryCatId === catIdStr) {
+                console.log(`[TRACKING-FLOW] [STEP 2.12] Vendor ${vendorNameStr} (${vendor._id}) matched primary category: ${catIdStr}`);
                 return true; 
             }
             
@@ -1484,22 +1521,27 @@ const searchVendors = async (booking, broadcast = false) => {
             if (catSub) {
                 const subExp = catSub.expiryDate ? new Date(catSub.expiryDate) : null;
                 const isSubActive = subExp ? subExp > new Date() : false;
+                console.log(`[TRACKING-FLOW] [STEP 2.12] Vendor ${vendorNameStr} (${vendor._id}) categorySubscription check for ${catIdStr}: active=${isSubActive}, status=${catSub.status}`);
                 return isSubActive && catSub.status === 'ACTIVE';
             }
             return false;
         });
         
+        if (!hasActiveCategory) {
+            console.log(`[TRACKING-FLOW] [STEP 2.12] Vendor ${vendorNameStr} (${vendor._id}) EXCLUDED because no active/non-expired subscription matches target categories.`);
+        }
         return hasActiveCategory;
     });
 
-    console.log(`[DEBUG] searchVendors - Geo query and category expiry filtering found ${vendors.length} vendors within ${radiusInKm}km radius`);
+    console.log(`[TRACKING-FLOW] [STEP 2.13] After category expiry filtering, total eligible vendors: ${vendors.length}`);
 
     if (vendors.length === 0) {
-        console.log('[SEARCH] No eligible vendors matched current search filters; not broadcasting fallback to all active vendors.');
+        console.warn('[TRACKING-FLOW] [WARNING] No eligible vendors matched current search filters.');
     }
 
     if (broadcast) {
         try {
+            console.log(`[TRACKING-FLOW] [STEP 2.14] Initiating socket/push broadcast...`);
             const { getVendorSockets, getIo } = require('../../socket');
             const io = getIo();
             let broadcastCount = 0;
@@ -1510,7 +1552,10 @@ const searchVendors = async (booking, broadcast = false) => {
                 .populate('category', 'title name')
                 .populate('user', 'name phoneNumber photo');
 
-            if (!populatedBooking) return [];
+            if (!populatedBooking) {
+                console.error(`[TRACKING-FLOW] [ERROR] Populated booking not found inside searchVendors for ID: ${booking._id}`);
+                return [];
+            }
 
             let totalDurationMins = 0;
             if (populatedBooking.services && populatedBooking.services.length > 0) {
@@ -1533,7 +1578,6 @@ const searchVendors = async (booking, broadcast = false) => {
             }
             if (payload.location) {
                 payload.location.address = 'Location visible after acceptance';
-                // We keep lat/long for map display but hide exact address string
             }
 
             // Explicitly expose user logic for the socket broadcast
@@ -1542,7 +1586,7 @@ const searchVendors = async (booking, broadcast = false) => {
                 payload.user.longitude = payload.location.longitude;
             }
 
-            const { emitToVendor, isVendorOnline } = require('../../socket');
+            const { emitToVendor, isVendorOnline, activeVendors } = require('../../socket');
             const notificationService = require('../notification/notification.service');
 
             // Build a Set of already-notified vendor IDs for O(1) dedup lookup
@@ -1552,29 +1596,34 @@ const searchVendors = async (booking, broadcast = false) => {
 
             const notificationPromises = vendors.map(async (v) => {
                 const vendorIdStr = v._id.toString();
+                const vendorNameStr = v.name || 'Unknown';
 
                 // ── Deduplication guard ──
-                // notifiedVendors is already excluded from the geo-query, but guard here
-                // too in case of race conditions or fallback path.
                 if (alreadyNotifiedSet.has(vendorIdStr)) {
-                    console.log(`[SEARCH] Skipping Vendor ${vendorIdStr} — already notified for Booking ${booking._id}`);
+                    console.log(`[TRACKING-FLOW] [STEP 2.15] Skipping Vendor ${vendorNameStr} (${vendorIdStr}) — already notified previously for Booking ${booking._id}`);
                     return null;
                 }
 
                 const online = isVendorOnline(vendorIdStr);
+                const matchedSockets = activeVendors.get(vendorIdStr) || [];
                 
-                console.log(`[DEBUG] searchVendors notifying Vendor ${vendorIdStr} - Online: ${online}, Has Token: ${!!v.fcmToken}`);
+                console.log(`[TRACKING-FLOW] [STEP 2.16] Broadcast vendor evaluation: ID=${vendorIdStr}, Name=${vendorNameStr}, Socket Online=${online}, Socket SocketsCount=${matchedSockets.length}, FCM Token Present=${!!v.fcmToken}`);
+                
                 try {
-                    require('fs').appendFileSync(require('path').join(__dirname, '../../../scratch/notify_debug.txt'), `[DEBUG] ${new Date().toISOString()} | Booking: ${booking._id} | Vendor: ${vendorIdStr} | Socket Online: ${online} | FCM Token Present: ${!!v.fcmToken}\n`);
+                    require('fs').appendFileSync(require('path').join(__dirname, '../../../scratch/notify_debug.txt'), `[DEBUG] ${new Date().toISOString()} | Booking: ${booking._id} | Vendor: ${vendorIdStr} | Socket Online: ${online} | Sockets: ${matchedSockets.join(',')} | FCM Token Present: ${!!v.fcmToken}\n`);
                 } catch(e) {}
                 
                 // 1. Socket Notification (Real-time)
                 if (online) {
+                    console.log(`[TRACKING-FLOW] [STEP 2.17] Emitting 'new_booking_request' via sockets: ${matchedSockets.join(', ')} to Vendor ${vendorNameStr}`);
                     emitToVendor(vendorIdStr, 'new_booking_request', payload);
                     broadcastCount++;
+                } else {
+                    console.warn(`[TRACKING-FLOW] [WARNING] Vendor ${vendorNameStr} is offline (0 active sockets). Socket emission bypassed.`);
                 }
 
                 // 2. Push Notification (Always or Fallback)
+                console.log(`[TRACKING-FLOW] [STEP 2.18] Creating/Sending Push Notification to Vendor ${vendorNameStr}...`);
                 await notificationService.createNotification({
                     user: v._id,
                     userModel: 'Vendor',
@@ -1588,7 +1637,11 @@ const searchVendors = async (booking, broadcast = false) => {
                     },
                     sendPush: true,
                     fcmToken: v.fcmToken
-                }).catch(err => console.error(`[NOTIFICATION ERROR] Failed to send push to vendor ${vendorIdStr}:`, err.message));
+                }).then(() => {
+                    console.log(`[TRACKING-FLOW] [STEP 2.19] Push Notification dispatched successfully to Vendor ${vendorNameStr}`);
+                }).catch(err => {
+                    console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send push to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
+                });
 
                 return v._id;
             });
@@ -1600,10 +1653,11 @@ const searchVendors = async (booking, broadcast = false) => {
                 await Booking.findByIdAndUpdate(booking._id, {
                     $addToSet: { notifiedVendors: { $each: notifiedIds } }
                 });
-                console.log(`[DEBUG] Persisted ${notifiedIds.length} notified vendor IDs to database for Booking ${booking._id}`);
+                console.log(`[TRACKING-FLOW] [STEP 2.20] Persisted ${notifiedIds.length} newly notified vendor IDs to DB for Booking ${booking._id}`);
             }
 
             const { emitToUser } = require('../../socket');
+            console.log(`[TRACKING-FLOW] [STEP 2.21] Emitting booking_search_update to user: ${booking.user}. notifiedCount: ${broadcastCount}`);
             emitToUser(booking.user, 'booking_search_update', {
                 bookingId: booking._id,
                 bookingID: booking.bookingID,
@@ -1623,31 +1677,34 @@ const searchVendors = async (booking, broadcast = false) => {
 
             // ── Schedule Search Expansion (Dynamic Waves) ──
             if (retryCount < waves.length - 1) {
-                // Use the current wave's mins as the duration to wait before starting the next wave
                 const delayMins = waves[retryCount].mins > 0 ? waves[retryCount].mins : 5;
                 
-                console.log(`[SEARCH] Scheduling Wave ${retryCount + 1} (Radius: ${waves[retryCount+1].km}km) in ${delayMins} minutes`);
+                console.log(`[TRACKING-FLOW] [STEP 2.22] Scheduling Wave ${retryCount + 1} (Radius: ${waves[retryCount+1].km}km) in ${delayMins} minutes`);
 
                 setTimeout(async () => {
+                    console.log(`[TRACKING-FLOW] [STEP 3] Wave timer fired! Checking eligibility of booking ${booking._id}...`);
                     const current = await Booking.findById(booking._id);
                     if (current && current.status === 'pending_acceptance' && current.searchId === currentSearchId) {
                         current.retryCount = (current.retryCount || 0) + 1;
                         await current.save();
+                        console.log(`[TRACKING-FLOW] [STEP 3.1] Triggering next wave retry search... retryCount: ${current.retryCount}`);
                         searchVendors(current, true).catch(console.error);
                     } else {
-                        console.log(`[SEARCH] Wave ${retryCount + 1} cancelled/ignored for booking ${booking._id} because searchId changed or status is not pending_acceptance.`);
+                        console.log(`[TRACKING-FLOW] [STEP 3.2] Wave ${retryCount + 1} skipped. Reason: status changed from pending_acceptance or searchId rotated.`);
                     }
                 }, delayMins * 60 * 1000);
             } else if (retryCount === waves.length - 1) {
                 // Hard-Stop: After the final tier
-                // Wait for the final wave duration before stopping
                 const finalWaitMins = waves[retryCount].mins > 0 ? waves[retryCount].mins : 2; 
+                console.log(`[TRACKING-FLOW] [STEP 2.22] Final wave reached. Scheduling Hard-Stop in ${finalWaitMins} minutes`);
 
                 setTimeout(async () => {
+                    console.log(`[TRACKING-FLOW] [STEP 4] Hard-Stop timer fired! Evaluating booking ${booking._id}...`);
                     const current = await Booking.findById(booking._id);
                     if (current && current.status === 'pending_acceptance' && current.searchId === currentSearchId) {
                         current.status = 'no_vendors_available';
                         await current.save();
+                        console.warn(`[TRACKING-FLOW] [STEP 4.1] Hard-Stop completed. Marked booking ${booking._id} status as 'no_vendors_available'.`);
                         
                         emitToUser(booking.user, 'booking_search_update', {
                             bookingId: booking._id,
@@ -1664,13 +1721,13 @@ const searchVendors = async (booking, broadcast = false) => {
                             remainingSearchTimeMins: 0
                         });
                     } else {
-                        console.log(`[SEARCH] Hard-stop check ignored/cancelled for booking ${booking._id} because searchId changed or status is not pending_acceptance.`);
+                        console.log(`[TRACKING-FLOW] [STEP 4.2] Hard-Stop ignored. Reason: status changed or searchId rotated.`);
                     }
                 }, finalWaitMins * 60 * 1000);
             }
             
         } catch (error) {
-            console.error('Socket.io error during broadcast:', error.message);
+            console.error('[TRACKING-FLOW] [SOCKET/BROADCAST ERROR] Socket.io error during broadcast:', error.message);
         }
     }
 
