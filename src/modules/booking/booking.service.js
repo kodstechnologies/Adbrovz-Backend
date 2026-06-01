@@ -1501,7 +1501,9 @@ const searchVendors = async (booking, broadcast = false) => {
     let vendors = await Vendor.find(geoQuery).select('_id name fcmToken categorySubscriptions membership');
     console.log(`[TRACKING-FLOW] [STEP 2.11] MongoDB geoQuery returned raw matched vendors count: ${vendors.length}`);
     
+    /* 
     // Filter out vendors whose matched category is expired
+    // (Commented out because DB query already filters by selectedServices, membership.expiryDate, and serviceRenewal.expiryDate.)
     vendors = vendors.filter(vendor => {
         const primaryCatId = vendor.membership?.category?.toString();
         const vendorNameStr = vendor.name || 'Unknown';
@@ -1535,6 +1537,8 @@ const searchVendors = async (booking, broadcast = false) => {
     });
 
     console.log(`[TRACKING-FLOW] [STEP 2.13] After category expiry filtering, total eligible vendors: ${vendors.length}`);
+    */
+    console.log(`[TRACKING-FLOW] [STEP 2.13] After database filtering, total eligible vendors: ${vendors.length}`);
 
     if (vendors.length === 0) {
         console.warn('[TRACKING-FLOW] [WARNING] No eligible vendors matched current search filters.');
