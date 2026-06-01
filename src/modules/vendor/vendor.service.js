@@ -7,14 +7,8 @@ const ServiceType = require('../../models/ServiceType.model');
 const PaymentRecord = require('../../models/PaymentRecord.model');
 const Booking = require('../../models/Booking.model');
 const ApiError = require('../../utils/ApiError');
-const Subcategory = require('../../src/models/Subcategory.model');
-const Category = require('../../src/models/Category.model');
-const CreditPlan = require('../../src/models/CreditPlan.model');
-const Service = require('../../src/models/Service.model');
-const ServiceType = require('../../src/models/ServiceType.model');
-const PaymentRecord = require('../../src/models/PaymentRecord.model');
-const Booking = require('../../src/models/Booking.model');
-const ApiError = require('../../src/utils/ApiError');
+
+
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
