@@ -1911,7 +1911,8 @@ const verifyAllDocuments = async (vendorId, adminId, payload = {}) => {
     await _processApprovedExtraServices(vendor, payload, adminId);
 
     // Set registrationStep and startDate IF already paid or moved past selection
-    const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID'].includes(vendor.registrationStep)    if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
+    const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID'].includes(vendor.registrationStep);
+if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
         const startDate = new Date();
         const durationMonths = vendor.membership.durationMonths || 3;
         const plan = await getPlanByDuration(durationMonths);
@@ -1955,8 +1956,8 @@ const verifyAllDocuments = async (vendorId, adminId, payload = {}) => {
         }
 
         vendor.registrationStep = 'COMPLETED';
-    }registrationStep = 'COMPLETED';
     }
+
 
     await vendor.save();
 
