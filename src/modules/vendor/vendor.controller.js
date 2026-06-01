@@ -97,31 +97,49 @@ const getSelectedServices = asyncHandler(async (req, res) => {
     }
 
     const result = await vendorService.getVendorMembershipDetails(vendorId, overrides);
+
+    // Vendor-level approval status applies ONLY to primary (selectedServices) services.
+    // Extra service requests each carry their own independent approvalStatus.
     const rawStatus = String(result?.serviceApprovalStatus || '').toLowerCase();
-    const approvalStatus = rawStatus === 'approved'
+    const primaryApprovalStatus = rawStatus === 'approved'
         ? 'approved'
         : (rawStatus === 'rejected' || rawStatus === 'disapproved' ? 'disapproved' : 'pending');
-    
+
+    // Primary services — all share the vendor-level approval status
     const services = (result?.selectedServices || []).map((service) => ({
         id: service.id,
         title: service.title,
-        approvalStatus
+        approvalStatus: primaryApprovalStatus,
+        isExtraService: false
     }));
 
-    // Fetch vendor and populate extraServiceRequests
+    // Fetch vendor to access extraServiceRequests with their OWN per-request approvalStatus
     const Vendor = require('../../models/Vendor.model');
     const vendor = await Vendor.findById(vendorId)
         .populate('extraServiceRequests.services', 'title');
 
     if (vendor && vendor.extraServiceRequests) {
+        // Build set of service IDs already in primary selectedServices to avoid duplicates
+        const primaryServiceIds = new Set(
+            (result?.selectedServices || []).map(s => String(s.id))
+        );
+
         vendor.extraServiceRequests.forEach(request => {
             if (request.services && request.services.length > 0) {
+                // Each request has its own independent approvalStatus
+                const reqApprovalStatus = request.approvalStatus || 'pending';
+
                 request.services.forEach(svc => {
-                    if (svc) {
+                    if (!svc) return;
+                    const svcId = svc._id ? svc._id.toString() : String(svc.id || svc);
+
+                    // Only include extra-service entries that are NOT already in primary selectedServices
+                    // (approved extra services that got merged into selectedServices don't show twice)
+                    if (!primaryServiceIds.has(svcId)) {
                         services.push({
-                            id: svc._id ? svc._id.toString() : svc.id,
+                            id: svcId,
                             title: `${svc.title} (Extra Service)`,
-                            approvalStatus: request.approvalStatus || 'pending',
+                            approvalStatus: reqApprovalStatus,
                             isExtraService: true,
                             requestId: request._id ? request._id.toString() : undefined
                         });
@@ -133,7 +151,7 @@ const getSelectedServices = asyncHandler(async (req, res) => {
 
     const responseData = {
         vendorId: result?.vendorId || vendorId,
-        isserviceapproval: approvalStatus === 'approved',
+        isserviceapproval: primaryApprovalStatus === 'approved',
         services
     };
 
@@ -141,6 +159,7 @@ const getSelectedServices = asyncHandler(async (req, res) => {
         new ApiResponse(200, responseData, 'Vendor selected services retrieved successfully')
     );
 });
+
 
 /**
  * Get Service Approval Status

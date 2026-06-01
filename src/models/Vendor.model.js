@@ -77,6 +77,10 @@ const vendorSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Service',
     }],
+    approvedServices: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Service',
+    }],
     registrationStep: {
       type: String,
       enum: ['SIGNUP', 'PIN_PENDING', 'SERVICES_SELECTED', 'SERVICES_APPROVED', 'MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED', 'PENDING', 'SIGNUP_COMPLETED'],

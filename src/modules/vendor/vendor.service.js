@@ -889,60 +889,11 @@ const approveVendorServices = async (vendorId, serviceData) => {
             const existingServices = vendor.selectedServices.map(id => id.toString());
             const newServices = parseArrayInput(serviceIds).map(id => id.toString());
             vendor.selectedServices = Array.from(new Set([...existingServices, ...newServices])).map(id => new mongoose.Types.ObjectId(id));
-
-            // 2. Identify which newly approved serviceIds correspond to pending extra service requests and mark them as 'approved'
-            const activeServiceIdsSet = new Set(vendor.selectedServices.map(id => id.toString()));
-            let hasExtraServiceChanges = false;
-            
-            for (const request of vendor.extraServiceRequests || []) {
-                if (request.approvalStatus === 'pending') {
-                    const requestServiceIds = (request.services || []).map(id => id.toString());
-                    const anyServiceApproved = requestServiceIds.some(id => newServiceIds.includes(id));
-                    
-                    if (anyServiceApproved) {
-                        request.approvalStatus = 'approved';
-                        request.reviewedAt = new Date();
-                        hasExtraServiceChanges = true;
-
-                        // Emit socket event and send push notification for extra service request approval
-                        const payload = {
-                            vendorId: vendor._id,
-                            requestId: request._id,
-                            requestedBy: request.requestedBy || vendor._id,
-                            approvalStatus: request.approvalStatus,
-                            adminRemark: request.adminRemark || 'Approved during service verification',
-                            reviewedAt: request.reviewedAt,
-                            serviceIds: requestServiceIds,
-                            disapprovedServiceIds: []
-                        };
-                        emitToVendor(vendor._id, 'extra_service_approval_update', payload);
-                        try {
-                            await sendPush(
-                                vendor._id,
-                                'Vendor',
-                                'extra_service_approval',
-                                'Extra Service Approval Updated',
-                                `Your extra service request is approved.`,
-                                payload
-                            );
-                        } catch (err) {
-                            console.error('Error sending push notification for extra service:', err);
-                        }
-                    }
-                }
-            }
-
-            if (hasExtraServiceChanges) {
-                vendor.markModified('extraServiceRequests');
-            }
-
-            // 3. Clean up extraServiceRequests - remove any requests whose services are now fully active inside selectedServices
-            vendor.extraServiceRequests = (vendor.extraServiceRequests || []).filter(request => {
-                const requestServiceIds = (request.services || []).map(id => id.toString());
-                const allServicesActive = requestServiceIds.length > 0 && requestServiceIds.every(id => activeServiceIdsSet.has(id));
-                return !allServicesActive;
-            });
-            vendor.markModified('extraServiceRequests');
+            // NOTE: extraServiceRequests are intentionally NOT modified here.
+            // Each extra service request has its own independent approvalStatus
+            // managed exclusively by reviewExtraServiceApprovalRequest.
+            // Mixing primary service approval with extra request lifecycle
+            // caused stale/incorrect statuses on unrelated requests.
         }
     } else {
         // First-time registration approval flow:
@@ -3787,6 +3738,29 @@ const requestExtraServiceApproval = async (vendorId, { categoryId, subcategoryId
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     vendor.extraServiceRequests = vendor.extraServiceRequests || [];
+
+    // Guard: prevent duplicate pending requests for the exact same set of service IDs.
+    // Each unique combination of services gets its own request, but the same combo
+    // should not stack up with multiple pending entries.
+    const normalizedNewIds = parseArrayInput(serviceIds).map(id => String(id)).sort();
+    const existingPending = vendor.extraServiceRequests.find(req => {
+        if (req.approvalStatus !== 'pending') return false;
+        const reqIds = (req.services || []).map(id => String(id)).sort();
+        if (reqIds.length !== normalizedNewIds.length) return false;
+        return reqIds.every((id, i) => id === normalizedNewIds[i]);
+    });
+
+    if (existingPending) {
+        // A pending request for these exact services already exists; return it instead of duplicating
+        return {
+            requestId: existingPending._id,
+            requestedBy: existingPending.requestedBy || vendor._id,
+            approvalStatus: existingPending.approvalStatus,
+            requestedAt: existingPending.requestedAt,
+            message: 'Extra service approval request already pending'
+        };
+    }
+
     vendor.extraServiceRequests.push({
         requestedBy: vendor._id,
         category: categoryId || undefined,
