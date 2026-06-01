@@ -2276,15 +2276,19 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         // Populate membership metadata directly from calculated details
         try {
             const memDetails = await getVendorMembershipDetails(vendor._id, { membershipId: resolvedMembershipId });
-                amount: memDetails.subtotal,
-                gstAmount: memDetails.gstAmount,
-                totalAmount: memDetails.totalFee,
-                planId: resolvedMembershipId,
-                validityDays: validityDays,
-                status: 'COMPLETED',
-                ...(expiryDate && { newExpiryDate: expiryDate }),
-                metadata: memDetails.services
-            });
+    await PaymentRecord.create({
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        vendorId: vendor._id,
+        amount: memDetails.subtotal,
+        gstAmount: memDetails.gstAmount,
+        totalAmount: memDetails.totalFee,
+        planId: resolvedMembershipId,
+        validityDays: validityDays,
+        status: 'COMPLETED',
+        ...(expiryDate && { newExpiryDate: expiryDate }),
+        metadata: memDetails.services
+    });
         } catch (createErr) {
             console.error('Failed to create fallback PaymentRecord:', createErr.message);
         }
