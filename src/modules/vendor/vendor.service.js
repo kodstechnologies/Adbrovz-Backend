@@ -826,6 +826,7 @@ const selectServices = async (vendorId, body) => {
     vendor.membership.fee = calc.grandTotal; // Keep for legacy compatibility
     vendor.membership.durationMonths = durationMonths;
     vendor.registrationStep = 'SERVICES_SELECTED';
+    vendor.serviceApprovalStatus = 'pending';
 
     await vendor.save();
 
@@ -857,39 +858,119 @@ const approveVendorServices = async (vendorId, serviceData) => {
     const newServiceIds = parseArrayInput(serviceIds);
 
     // Save Selections to Vendor
-    if (categoryId) {
-        const category = await Category.findById(categoryId);
-        if (category) {
-            vendor.membership.category = category._id;
-            const catIdStr = String(category._id);
-            if (!vendor.selectedCategories.map(id => String(id)).includes(catIdStr)) {
-                vendor.selectedCategories.push(category._id);
-            }
-        }
-    }
-
-    if (subcategoryIds) {
-        vendor.selectedSubcategories = parseArrayInput(subcategoryIds);
-    }
-    if (serviceTypeIds) {
-        vendor.selectedServiceTypes = parseArrayInput(serviceTypeIds);
-    }
-    if (serviceIds) {
-        vendor.selectedServices = newServiceIds;
-    }
-
-    // Auto-derive parent hierarchy
-    await _deriveVendorHierarchy(vendor);
-
-    // ── Guard: skip membership fee recalculation for already-paid vendors ──
-    // If vendor has already paid (COMPLETED / MEMBERSHIP_PAID / PLAN_PAID), we must
-    // NOT overwrite their stored membership fees. Recalculating without the correct
-    // membershipId causes the fee to fall back to the Basic plan default (e.g. ₹20).
     const PAID_STEPS = ['COMPLETED', 'MEMBERSHIP_PAID', 'PLAN_PAID', 'SIGNUP_COMPLETED'];
     const vendorAlreadyPaid = PAID_STEPS.includes(vendor.registrationStep) || vendor.isVerified;
 
-    if (!vendorAlreadyPaid) {
-        // First-time approval flow: recalculate and persist membership fee
+    if (vendorAlreadyPaid) {
+        // Already paid or verified vendor flow:
+        // 1. Merge selections instead of overwriting to keep existing approved/active services
+        if (categoryId) {
+            const category = await Category.findById(categoryId);
+            if (category) {
+                vendor.membership.category = category._id;
+                const catIdStr = String(category._id);
+                if (!vendor.selectedCategories.map(id => String(id)).includes(catIdStr)) {
+                    vendor.selectedCategories.push(category._id);
+                }
+            }
+        }
+
+        if (subcategoryIds) {
+            const existingSub = vendor.selectedSubcategories.map(id => id.toString());
+            const newSub = parseArrayInput(subcategoryIds).map(id => id.toString());
+            vendor.selectedSubcategories = Array.from(new Set([...existingSub, ...newSub])).map(id => new mongoose.Types.ObjectId(id));
+        }
+        if (serviceTypeIds) {
+            const existingTypes = vendor.selectedServiceTypes.map(id => id.toString());
+            const newTypes = parseArrayInput(serviceTypeIds).map(id => id.toString());
+            vendor.selectedServiceTypes = Array.from(new Set([...existingTypes, ...newTypes])).map(id => new mongoose.Types.ObjectId(id));
+        }
+        if (serviceIds) {
+            const existingServices = vendor.selectedServices.map(id => id.toString());
+            const newServices = parseArrayInput(serviceIds).map(id => id.toString());
+            vendor.selectedServices = Array.from(new Set([...existingServices, ...newServices])).map(id => new mongoose.Types.ObjectId(id));
+
+            // 2. Identify which newly approved serviceIds correspond to pending extra service requests and mark them as 'approved'
+            const activeServiceIdsSet = new Set(vendor.selectedServices.map(id => id.toString()));
+            let hasExtraServiceChanges = false;
+            
+            for (const request of vendor.extraServiceRequests || []) {
+                if (request.approvalStatus === 'pending') {
+                    const requestServiceIds = (request.services || []).map(id => id.toString());
+                    const anyServiceApproved = requestServiceIds.some(id => newServiceIds.includes(id));
+                    
+                    if (anyServiceApproved) {
+                        request.approvalStatus = 'approved';
+                        request.reviewedAt = new Date();
+                        hasExtraServiceChanges = true;
+
+                        // Emit socket event and send push notification for extra service request approval
+                        const payload = {
+                            vendorId: vendor._id,
+                            requestId: request._id,
+                            requestedBy: request.requestedBy || vendor._id,
+                            approvalStatus: request.approvalStatus,
+                            adminRemark: request.adminRemark || 'Approved during service verification',
+                            reviewedAt: request.reviewedAt,
+                            serviceIds: requestServiceIds,
+                            disapprovedServiceIds: []
+                        };
+                        emitToVendor(vendor._id, 'extra_service_approval_update', payload);
+                        try {
+                            await sendPush(
+                                vendor._id,
+                                'Vendor',
+                                'extra_service_approval',
+                                'Extra Service Approval Updated',
+                                `Your extra service request is approved.`,
+                                payload
+                            );
+                        } catch (err) {
+                            console.error('Error sending push notification for extra service:', err);
+                        }
+                    }
+                }
+            }
+
+            if (hasExtraServiceChanges) {
+                vendor.markModified('extraServiceRequests');
+            }
+
+            // 3. Clean up extraServiceRequests - remove any requests whose services are now fully active inside selectedServices
+            vendor.extraServiceRequests = (vendor.extraServiceRequests || []).filter(request => {
+                const requestServiceIds = (request.services || []).map(id => id.toString());
+                const allServicesActive = requestServiceIds.length > 0 && requestServiceIds.every(id => activeServiceIdsSet.has(id));
+                return !allServicesActive;
+            });
+            vendor.markModified('extraServiceRequests');
+        }
+    } else {
+        // First-time registration approval flow:
+        if (categoryId) {
+            const category = await Category.findById(categoryId);
+            if (category) {
+                vendor.membership.category = category._id;
+                const catIdStr = String(category._id);
+                if (!vendor.selectedCategories.map(id => String(id)).includes(catIdStr)) {
+                    vendor.selectedCategories.push(category._id);
+                }
+            }
+        }
+
+        if (subcategoryIds) {
+            vendor.selectedSubcategories = parseArrayInput(subcategoryIds);
+        }
+        if (serviceTypeIds) {
+            vendor.selectedServiceTypes = parseArrayInput(serviceTypeIds);
+        }
+        if (serviceIds) {
+            vendor.selectedServices = newServiceIds;
+        }
+
+        // Auto-derive parent hierarchy
+        await _deriveVendorHierarchy(vendor);
+
+        // Recalculate and persist membership fee
         const calc = await _calculateMembershipAmounts({
             vendorId,
             durationMonths,
@@ -908,31 +989,45 @@ const approveVendorServices = async (vendorId, serviceData) => {
         vendor.membership.durationMonths = durationMonths;
         vendor.registrationStep = 'SERVICES_APPROVED';
     }
-    // For already-paid vendors we only update service lists (done above) and approval status.
+
+    // Auto-derive parent hierarchy for safety
+    await _deriveVendorHierarchy(vendor);
 
     vendor.serviceApprovalStatus = 'approved';
-
     await vendor.save();
 
     // Determine approved vs not approved services
-    const finalServices = await Service.find({ _id: { $in: newServiceIds } }).lean();
-    const approvedServices = finalServices.map(svc => ({
-        id: svc._id,
-        name: svc.name,
-        serviceCharge: svc.serviceCharge
-    }));
+    let approvedServices = [];
+    let notApprovedServices = [];
 
-    const originalServices = await Service.find({ _id: { $in: originalServiceIds } }).lean();
-    const newServiceIdsSet = new Set(newServiceIds.map(id => id.toString()));
-    const notApprovedServices = [];
-    for (const svc of originalServices) {
-        const svcIdStr = svc._id.toString();
-        if (!newServiceIdsSet.has(svcIdStr)) {
-            notApprovedServices.push({
-                id: svc._id,
-                name: svc.name,
-                serviceCharge: svc.serviceCharge
-            });
+    if (vendorAlreadyPaid) {
+        const finalServiceIds = vendor.selectedServices.map(id => id.toString());
+        const finalServices = await Service.find({ _id: { $in: finalServiceIds } }).lean();
+        approvedServices = finalServices.map(svc => ({
+            id: svc._id,
+            name: svc.name,
+            serviceCharge: svc.serviceCharge
+        }));
+        notApprovedServices = [];
+    } else {
+        const finalServices = await Service.find({ _id: { $in: newServiceIds } }).lean();
+        approvedServices = finalServices.map(svc => ({
+            id: svc._id,
+            name: svc.name,
+            serviceCharge: svc.serviceCharge
+        }));
+
+        const originalServices = await Service.find({ _id: { $in: originalServiceIds } }).lean();
+        const newServiceIdsSet = new Set(newServiceIds.map(id => id.toString()));
+        for (const svc of originalServices) {
+            const svcIdStr = svc._id.toString();
+            if (!newServiceIdsSet.has(svcIdStr)) {
+                notApprovedServices.push({
+                    id: svc._id,
+                    name: svc.name,
+                    serviceCharge: svc.serviceCharge
+                });
+            }
         }
     }
 
