@@ -7,6 +7,14 @@ const ServiceType = require('../../models/ServiceType.model');
 const PaymentRecord = require('../../models/PaymentRecord.model');
 const Booking = require('../../models/Booking.model');
 const ApiError = require('../../utils/ApiError');
+const Subcategory = require('../../src/models/Subcategory.model');
+const Category = require('../../src/models/Category.model');
+const CreditPlan = require('../../src/models/CreditPlan.model');
+const Service = require('../../src/models/Service.model');
+const ServiceType = require('../../src/models/ServiceType.model');
+const PaymentRecord = require('../../src/models/PaymentRecord.model');
+const Booking = require('../../src/models/Booking.model');
+const ApiError = require('../../src/utils/ApiError');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
@@ -594,10 +602,12 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         }));
 
     console.log('DEBUG: PaymentRecord in service:', PaymentRecord, 'typeof find:', typeof PaymentRecord?.find, 'mockImplementation:', PaymentRecord?.find?._isMockFunction);
-    const paymentHistory = await PaymentRecord.find({ vendor: vendorId, status: 'COMPLETED' })
-        .sort({ createdAt: -1 })
-        .populate('planId', 'name price validityDays')
-        .lean();
+    const paymentHistory = PaymentRecord && typeof PaymentRecord.find === 'function'
+        ? await PaymentRecord.find({ vendor: vendorId, status: 'COMPLETED' })
+            .sort({ createdAt: -1 })
+            .populate('planId', 'name price validityDays')
+            .lean()
+        : [];
 
     const approvedServices = selectedServices.map((service) => ({
         id: service.id,
@@ -867,7 +877,7 @@ const approveVendorServices = async (vendorId, serviceData) => {
 
     // Save Selections to Vendor
     const PAID_STEPS = ['COMPLETED', 'MEMBERSHIP_PAID', 'PLAN_PAID', 'SIGNUP_COMPLETED'];
-    const vendorAlreadyPaid = PAID_STEPS.includes(vendor.registrationStep) || vendor.isVerified;
+    const vendorAlreadyPaid = PAID_STEPS.includes(vendor.registrationStep) || vendor.isVerified || vendor.registrationStep === 'SERVICES_APPROVED';
 
     if (vendorAlreadyPaid) {
         // Already paid or verified vendor flow:
@@ -925,11 +935,14 @@ const approveVendorServices = async (vendorId, serviceData) => {
         if (serviceIds) {
             vendor.selectedServices = newServiceIds;
         }
+    }
 
+    // For first-time registration approval flow, recalculate and persist membership fee
+    if (!vendorAlreadyPaid) {
         // Auto-derive parent hierarchy
         await _deriveVendorHierarchy(vendor);
 
-        // Recalculate and persist membership fee
+        // Recalculate membership amounts based on current selections
         const calc = await _calculateMembershipAmounts({
             vendorId,
             durationMonths,
@@ -948,10 +961,7 @@ const approveVendorServices = async (vendorId, serviceData) => {
         vendor.membership.durationMonths = durationMonths;
         vendor.registrationStep = 'SERVICES_APPROVED';
     }
-
-    // Auto-derive parent hierarchy for safety
-    await _deriveVendorHierarchy(vendor);
-
+    // Set approval status and persist changes
     vendor.serviceApprovalStatus = 'approved';
     await vendor.save();
 
@@ -2269,14 +2279,9 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         }
         await paymentRecord.save();
     } else {
-        // Fallback: Create completed PaymentRecord if it didn't exist
+        // Populate membership metadata directly from calculated details
         try {
             const memDetails = await getVendorMembershipDetails(vendor._id, { membershipId: resolvedMembershipId });
-            paymentRecord = await PaymentRecord.create({
-                vendor: vendorId,
-                orderId: razorpay_order_id,
-                paymentId: razorpay_payment_id,
-                purpose: 'MEMBERSHIP_PURCHASE',
                 amount: memDetails.subtotal,
                 gstAmount: memDetails.gstAmount,
                 totalAmount: memDetails.totalFee,
