@@ -19,6 +19,65 @@ const adminService = require('../admin/admin.service');
 const { sendPush } = require('../../utils/pushNotification');
 
 
+const ensureCategorySubscriptions = async (vendor) => {
+    if (vendor.registrationStep !== 'COMPLETED' && !vendor.isVerified) return;
+    
+    vendor.categorySubscriptions = vendor.categorySubscriptions || [];
+    let modified = false;
+
+    if (vendor.selectedCategories && vendor.selectedCategories.length > 0) {
+        const Category = require('../../models/Category.model');
+        const now = new Date();
+        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+        
+        let expiryDate = vendor.serviceRenewal?.expiryDate || new Date();
+        if (expiryDate <= now) {
+            expiryDate = new Date();
+            expiryDate.setDate(expiryDate.getDate() + Number(renewalDays));
+        }
+
+        for (const catId of vendor.selectedCategories) {
+            const catIdStr = catId.toString();
+            const existingSub = vendor.categorySubscriptions.find(s => s.category && s.category.toString() === catIdStr);
+            
+            if (!existingSub) {
+                const category = await Category.findById(catId).select('membershipCharge membershipFee');
+                const fee = category ? (category.membershipCharge || category.membershipFee || 0) : 0;
+
+                vendor.categorySubscriptions.push({
+                    category: catId,
+                    subcategories: vendor.selectedSubcategories || [],
+                    services: vendor.selectedServices || [],
+                    startDate: vendor.serviceRenewal?.startDate || now,
+                    expiryDate: expiryDate,
+                    fee: fee,
+                    status: 'ACTIVE'
+                });
+                modified = true;
+            } else {
+                let subMod = false;
+                if (!existingSub.services || existingSub.services.length === 0) {
+                    existingSub.services = vendor.selectedServices || [];
+                    subMod = true;
+                }
+                if (!existingSub.subcategories || existingSub.subcategories.length === 0) {
+                    existingSub.subcategories = vendor.selectedSubcategories || [];
+                    subMod = true;
+                }
+                if (subMod) {
+                    modified = true;
+                }
+            }
+        }
+    }
+    
+    if (modified) {
+        vendor.markModified('categorySubscriptions');
+        await vendor.save();
+        console.log(`[AUTO-HEAL] Synchronized categorySubscriptions for Vendor ${vendor._id}`);
+    }
+};
+
 /**
  * Helper to map duration (3, 6, 12 months) to CreditPlan names
  */
@@ -1852,9 +1911,7 @@ const verifyAllDocuments = async (vendorId, adminId, payload = {}) => {
     await _processApprovedExtraServices(vendor, payload, adminId);
 
     // Set registrationStep and startDate IF already paid or moved past selection
-    const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID'].includes(vendor.registrationStep) || vendor.membership?.expiryDate;
-
-    if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
+    const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID'].includes(vendor.registrationStep)    if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
         const startDate = new Date();
         const durationMonths = vendor.membership.durationMonths || 3;
         const plan = await getPlanByDuration(durationMonths);
@@ -1873,7 +1930,32 @@ const verifyAllDocuments = async (vendorId, adminId, payload = {}) => {
         renExpiryDate.setDate(renExpiryDate.getDate() + Number(renewalDays));
         vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiryDate;
 
+        // Initialize category subscriptions for registration categories if missing
+        if (vendor.selectedCategories && vendor.selectedCategories.length > 0) {
+            vendor.categorySubscriptions = vendor.categorySubscriptions || [];
+            for (const catId of vendor.selectedCategories) {
+                const existingSub = vendor.categorySubscriptions.find(s => s.category.toString() === catId.toString());
+                if (!existingSub) {
+                    const Category = require('../../models/Category.model');
+                    const category = await Category.findById(catId).select('membershipCharge membershipFee');
+                    const fee = category ? (category.membershipCharge || category.membershipFee || 0) : 0;
+
+                    vendor.categorySubscriptions.push({
+                        category: catId,
+                        subcategories: vendor.selectedSubcategories || [],
+                        services: vendor.selectedServices || [],
+                        startDate: startDate,
+                        expiryDate: renExpiryDate,
+                        fee: fee,
+                        status: 'ACTIVE'
+                    });
+                }
+            }
+            vendor.markModified('categorySubscriptions');
+        }
+
         vendor.registrationStep = 'COMPLETED';
+    }registrationStep = 'COMPLETED';
     }
 
     await vendor.save();
