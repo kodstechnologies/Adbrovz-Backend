@@ -708,7 +708,6 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount, members
             amount: calc.combinedSubtotal,
             gstAmount: calc.finalGst,
             totalAmount: calc.grandTotal,
-            planId: calc.planId,
             validityDays: calc.validityDays,
             metadata: {
                 services: calc.itemBreakdown,
