@@ -254,6 +254,10 @@ const vendorSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    currentLoginId: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,

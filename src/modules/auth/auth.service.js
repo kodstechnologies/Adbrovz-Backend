@@ -795,9 +795,12 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
   if (fcmToken) {
     user.fcmToken = fcmToken;
   }
+  // Generate a new login identifier for single-device restriction
+  const loginId = require('crypto').randomUUID();
+  // Save login identifier to user record
+  user.currentLoginId = loginId;
   await user.save();
-
-  const token = generateToken({ userId: user._id, role: user.role });
+  const token = generateToken({ userId: user._id, role: user.role, jti: loginId });
   const refreshToken = generateRefreshToken({ userId: user._id });
 
   const userIdField = role === 'vendor' ? 'vendorID' : 'userID';
@@ -1008,8 +1011,19 @@ const completeResetPIN = async ({ resetId, newPin, confirmPin, acceptedPolicies 
 
 // ======================== REFRESH TOKEN ========================
 const refreshToken = async (refreshToken) => {
-  const { verifyRefreshToken } = require('../../utils/jwt');
-  const decoded = verifyRefreshToken(refreshToken);
+  const { verifyRefreshToken } = require('../../utils');
+    // Verify token
+    const decoded = verifyToken(token);
+    // Load user from DB to compare currentLoginId
+    const UserModel = require('../models/User.model');
+    const VendorModel = require('../models/Vendor.model');
+    const userRecord = decoded.role === 'vendor' ? await VendorModel.findById(decoded.userId) : await UserModel.findById(decoded.userId);
+    if (!userRecord) {
+      throw new ApiError(401, MESSAGES.AUTH.UNAUTHORIZED);
+    }
+    if (decoded.jti !== userRecord.currentLoginId) {
+      throw new ApiError(401, 'Your account was logged in from another device. Please logout from previous device.');
+    }
 
   let user = await User.findById(decoded.userId);
   let role = 'user';
