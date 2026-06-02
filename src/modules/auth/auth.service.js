@@ -795,21 +795,11 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
   if (fcmToken) {
     user.fcmToken = fcmToken;
   }
-  await user.save();
-
-  // If the account is already logged in on another device, ask the user to logout first
-  if (user.currentLoginId) {
-    return {
-      needsLogout: true,
-      message: 'Your account is already logged in on another device. Please logout from the previous device first.'
-    };
-  }
-
-  // Generate a new login identifier for this session
+  // Generate a new login identifier for single-device restriction
   const loginId = require('crypto').randomUUID();
+  // Save login identifier to user record
   user.currentLoginId = loginId;
   await user.save();
-
   const token = generateToken({ userId: user._id, role: user.role, jti: loginId });
   const refreshToken = generateRefreshToken({ userId: user._id });
 
