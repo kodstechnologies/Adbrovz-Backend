@@ -16,16 +16,6 @@ const authenticate = asyncHandler(async (req, res, next) => {
 
   // Verify token
   const decoded = verifyToken(token);
-  // Load user record to compare currentLoginId
-  const UserModel = require('../models/User.model');
-  const VendorModel = require('../models/Vendor.model');
-  const userRecord = decoded.role === 'vendor' ? await VendorModel.findById(decoded.userId) : await UserModel.findById(decoded.userId);
-  if (!userRecord) {
-    throw new ApiError(401, MESSAGES.AUTH.UNAUTHORIZED);
-  }
-  if (decoded.jti !== userRecord.currentLoginId) {
-    throw new ApiError(401, 'Your account was logged in from another device. Please logout from previous device.');
-  }
 
   // Attach user info to request
   req.user = decoded;

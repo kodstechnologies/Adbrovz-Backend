@@ -1,11 +1,8 @@
 const jwt = require('jsonwebtoken');
 const config = require('../config/env');
-const { randomUUID } = require('crypto');
 
 const generateToken = (payload, expiresIn = config.JWT_EXPIRE) => {
-  const tokenId = payload.jti || randomUUID();
-  const tokenPayload = { ...payload, jti: tokenId };
-  return jwt.sign(tokenPayload, config.JWT_SECRET, {
+  return jwt.sign(payload, config.JWT_SECRET, {
     expiresIn,
   });
 };
