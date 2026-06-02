@@ -762,12 +762,22 @@ const initSocket = (server) => {
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
+                
+                let acceptedServiceIds = [];
+                if (data?.acceptedServiceIds) {
+                    acceptedServiceIds = Array.isArray(data.acceptedServiceIds) ? data.acceptedServiceIds : [data.acceptedServiceIds];
+                } else if (data?.serviceIds) {
+                    acceptedServiceIds = Array.isArray(data.serviceIds) ? data.serviceIds : [data.serviceIds];
+                } else if (data?.serviceId) {
+                    acceptedServiceIds = [data.serviceId];
+                }
+                acceptedServiceIds = acceptedServiceIds.map(id => stringifyId(id)).filter(Boolean);
 
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
                 const bookingService = require('./modules/booking/booking.service');
-                const result = await bookingService.vendorAcceptExtraServices(vendorId, bookingId);
+                const result = await bookingService.vendorAcceptExtraServices(vendorId, bookingId, acceptedServiceIds);
                 socket.emit('vendor_accept_extra_services_success', result);
             } catch (error) {
                 socket.emit('booking_error', { action: 'vendor_accept_extra_services', message: error.message });
@@ -781,11 +791,21 @@ const initSocket = (server) => {
                 const bookingId = stringifyId(data?.bookingId);
                 const { reason } = data || {};
 
+                let rejectedServiceIds = [];
+                if (data?.rejectedServiceIds) {
+                    rejectedServiceIds = Array.isArray(data.rejectedServiceIds) ? data.rejectedServiceIds : [data.rejectedServiceIds];
+                } else if (data?.serviceIds) {
+                    rejectedServiceIds = Array.isArray(data.serviceIds) ? data.serviceIds : [data.serviceIds];
+                } else if (data?.serviceId) {
+                    rejectedServiceIds = [data.serviceId];
+                }
+                rejectedServiceIds = rejectedServiceIds.map(id => stringifyId(id)).filter(Boolean);
+
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
                 const bookingService = require('./modules/booking/booking.service');
-                const result = await bookingService.vendorRejectExtraServices(vendorId, bookingId, reason);
+                const result = await bookingService.vendorRejectExtraServices(vendorId, bookingId, rejectedServiceIds, reason);
                 socket.emit('vendor_reject_extra_services_success', result);
             } catch (error) {
                 socket.emit('booking_error', { action: 'vendor_reject_extra_services', message: error.message });

@@ -3394,8 +3394,8 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
  * Vendor simply accepts all pending user-requested extra services (no price override needed)
  * This is the simple "Accept" button flow — vendor agrees to do the services at existing prices.
  */
-async function vendorAcceptExtraServices(vendorId, bookingId) {
-    console.log(`[SERVICE] vendorAcceptExtraServices called - vendorId: ${vendorId}, bookingId: ${bookingId}`);
+async function vendorAcceptExtraServices(vendorId, bookingId, acceptedServiceIds) {
+    console.log(`[SERVICE] vendorAcceptExtraServices called - vendorId: ${vendorId}, bookingId: ${bookingId}, acceptedServiceIds: ${JSON.stringify(acceptedServiceIds)}`);
     const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
     if (!booking) {
         console.error(`[SERVICE] vendorAcceptExtraServices ERROR: Booking not found for bookingId: ${bookingId}, vendorId: ${vendorId}`);
@@ -3407,10 +3407,15 @@ async function vendorAcceptExtraServices(vendorId, bookingId) {
         throw new ApiError(400, 'No pending user service requests to accept');
     }
 
-    // Mark all pending services as accepted
+    const acceptIds = acceptedServiceIds && acceptedServiceIds.length > 0 
+        ? acceptedServiceIds.map(id => id.toString()) 
+        : null;
+
+    // Mark pending services as accepted
     let anyAccepted = false;
     for (const item of booking.userRequestedServices) {
-        if (item.status === 'pending' || !item.status) {
+        const sid = item.service.toString();
+        if ((item.status === 'pending' || !item.status) && (!acceptIds || acceptIds.includes(sid))) {
             item.status = 'accepted';
             anyAccepted = true;
         }
