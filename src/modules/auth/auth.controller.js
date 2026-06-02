@@ -2,6 +2,8 @@ const asyncHandler = require('../../utils/asyncHandler');
 const ApiResponse = require('../../utils/ApiResponse');
 const authService = require('./auth.service');
 const MESSAGES = require('../../constants/messages');
+const User = require('../../models/User.model');
+const Vendor = require('../../models/Vendor.model');
 
 // ======================== USER CONTROLLERS ========================
 
@@ -67,6 +69,15 @@ const userResetPIN = asyncHandler(async (req, res) => {
 });
 
 const userLogout = asyncHandler(async (req, res) => {
+  // Clear the user's currentLoginId to allow future logins
+  const userId = req.user?.userId;
+  if (userId) {
+    const user = await User.findById(userId);
+    if (user) {
+      user.currentLoginId = undefined;
+      await user.save();
+    }
+  }
   res.status(200).json(new ApiResponse(200, null, MESSAGES.AUTH.LOGOUT_SUCCESS));
 });
 
@@ -113,6 +124,15 @@ const vendorResetPIN = asyncHandler(async (req, res) => {
 });
 
 const vendorLogout = asyncHandler(async (req, res) => {
+  // Clear the vendor's currentLoginId to allow future logins
+  const vendorId = req.user?.userId;
+  if (vendorId) {
+    const vendor = await Vendor.findById(vendorId);
+    if (vendor) {
+      vendor.currentLoginId = undefined;
+      await vendor.save();
+    }
+  }
   res.status(200).json(new ApiResponse(200, null, MESSAGES.AUTH.LOGOUT_SUCCESS));
 });
 

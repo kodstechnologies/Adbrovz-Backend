@@ -795,9 +795,14 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
   if (fcmToken) {
     user.fcmToken = fcmToken;
   }
+
+  // Enforce single-device login: if a session already exists, reject login
+  if (user.currentLoginId) {
+    throw new ApiError(403, 'Please logout from the previous device before logging in on this device.');
+  }
+
   // Generate a new login session identifier
   const newLoginId = crypto.randomUUID();
-  const previousSessionInvalidated = !!user.currentLoginId;
   user.currentLoginId = newLoginId;
   await user.save();
 
@@ -819,7 +824,6 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
     refreshToken,
     isVerified: user.isVerified || false,
     isDocsVerified: user.documentStatus === 'approved',
-    previousSessionInvalidated,
   };
 
   // For vendors: include verification/document status so the app can route correctly
