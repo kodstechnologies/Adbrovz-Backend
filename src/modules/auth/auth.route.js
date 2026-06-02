@@ -36,7 +36,7 @@ router.post('/users/send-otp', otpLimiter, authController.userSendOTP);
 router.post('/users/verify-reset-otp', authLimiter, validateVerifyResetOTP, authController.userVerifyResetOTP);
 router.post('/users/complete-reset-pin', authLimiter, validateCompleteResetPIN, authController.userCompleteResetPIN);
 router.post('/users/reset-pin', authLimiter, validateResetPIN, authController.userResetPIN);
-router.post('/users/logout', authController.userLogout);
+router.post('/users/logout', authenticate, authController.userLogout);
 
 // ======================== VENDOR ROUTES ========================
 router.post('/vendors/signup', authLimiter, uploadVendorDocs, processVendorDocs, validateVendorSignup, authController.vendorSignup);
@@ -46,7 +46,7 @@ router.post('/vendors/initiate-login', authLimiter, validateVendorInitiateLogin,
 router.post('/vendors/complete-login', authLimiter, validateVendorCompleteLogin, authController.vendorCompleteLogin);
 router.post('/vendors/send-otp', otpLimiter, authController.vendorSendOTP);
 router.post('/vendors/reset-pin', authLimiter, validateResetPIN, authController.vendorResetPIN);
-router.post('/vendors/logout', authController.vendorLogout);
+router.post('/vendors/logout', authenticate, authController.vendorLogout);
 
 // ======================== ADMIN ROUTES ========================
 router.post('/admins/signup', authLimiter, validateAdminSignup, authController.adminSignup);

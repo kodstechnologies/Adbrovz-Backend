@@ -70,7 +70,7 @@ const userResetPIN = asyncHandler(async (req, res) => {
 
 const userLogout = asyncHandler(async (req, res) => {
   // Clear the user's currentLoginId to allow future logins
-  const userId = req.user?.userId;
+  const userId = req.user?.id;
   if (userId) {
     const user = await User.findById(userId);
     if (user) {
