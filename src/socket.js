@@ -758,6 +758,7 @@ const initSocket = (server) => {
 
         // Simple accept — vendor agrees to do user's requested extra services (no price change needed)
         socket.on('vendor_accept_extra_services', async (data) => {
+            console.log(`[SOCKET] Received 'vendor_accept_extra_services' event with data:`, JSON.stringify(data));
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -774,6 +775,7 @@ const initSocket = (server) => {
         });
 
         socket.on('vendor_reject_extra_services', async (data) => {
+            console.log(`[SOCKET] Received 'vendor_reject_extra_services' event with data:`, JSON.stringify(data));
             try {
                 const vendorId = stringifyId(data?.vendorId || socket.vendorId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -791,6 +793,7 @@ const initSocket = (server) => {
         });
 
         socket.on('user_confirm_extra_services', async (data) => {
+            console.log(`[SOCKET] Received 'user_confirm_extra_services' event with data:`, JSON.stringify(data));
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
@@ -808,6 +811,7 @@ const initSocket = (server) => {
         });
 
         socket.on('user_reject_extra_services', async (data) => {
+            console.log(`[SOCKET] Received 'user_reject_extra_services' event with data:`, JSON.stringify(data));
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);

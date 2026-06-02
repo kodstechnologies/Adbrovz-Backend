@@ -3395,8 +3395,13 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
  * This is the simple "Accept" button flow — vendor agrees to do the services at existing prices.
  */
 async function vendorAcceptExtraServices(vendorId, bookingId) {
+    console.log(`[SERVICE] vendorAcceptExtraServices called - vendorId: ${vendorId}, bookingId: ${bookingId}`);
     const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
-    if (!booking) throw new ApiError(404, 'Booking not found');
+    if (!booking) {
+        console.error(`[SERVICE] vendorAcceptExtraServices ERROR: Booking not found for bookingId: ${bookingId}, vendorId: ${vendorId}`);
+        throw new ApiError(404, 'Booking not found');
+    }
+    console.log(`[SERVICE] vendorAcceptExtraServices: Booking found, userRequestedServices length: ${booking.userRequestedServices?.length}`);
 
     if (!booking.userRequestedServices || booking.userRequestedServices.length === 0) {
         throw new ApiError(400, 'No pending user service requests to accept');
@@ -3459,8 +3464,13 @@ async function vendorAcceptExtraServices(vendorId, bookingId) {
  * Vendor rejects the user's extra service requests
  */
 async function vendorRejectExtraServices(vendorId, bookingId, rejectedServiceIds, reason) {
+    console.log(`[SERVICE] vendorRejectExtraServices called - vendorId: ${vendorId}, bookingId: ${bookingId}, rejectedServiceIds: ${JSON.stringify(rejectedServiceIds)}, reason: ${reason}`);
     const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
-    if (!booking) throw new ApiError(404, 'Booking not found');
+    if (!booking) {
+        console.error(`[SERVICE] vendorRejectExtraServices ERROR: Booking not found for bookingId: ${bookingId}, vendorId: ${vendorId}`);
+        throw new ApiError(404, 'Booking not found');
+    }
+    console.log(`[SERVICE] vendorRejectExtraServices: Booking found, userRequestedServices length: ${booking.userRequestedServices?.length}`);
 
     if (!booking.userRequestedServices || booking.userRequestedServices.length === 0) {
         throw new ApiError(400, 'No pending user service requests to reject');
@@ -3545,8 +3555,13 @@ async function vendorRejectExtraServices(vendorId, bookingId, rejectedServiceIds
  * User confirms the priced extra services from the vendor
  */
 async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
+    console.log(`[SERVICE] userConfirmExtraServices called - userId: ${userId}, bookingId: ${bookingId}, acceptedServiceIds: ${JSON.stringify(acceptedServiceIds)}`);
     const booking = await findBookingByUser(bookingId, userId);
-    if (!booking) throw new ApiError(404, 'Booking not found');
+    if (!booking) {
+        console.error(`[SERVICE] userConfirmExtraServices ERROR: Booking not found for bookingId: ${bookingId}, userId: ${userId}`);
+        throw new ApiError(404, 'Booking not found');
+    }
+    console.log(`[SERVICE] userConfirmExtraServices: Booking found, userRequestedServices length: ${booking.userRequestedServices?.length}`);
 
     if (!booking.userRequestedServices || booking.userRequestedServices.length === 0) {
         throw new ApiError(400, 'No pending extra service requests to confirm');
@@ -3605,8 +3620,13 @@ async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
  * User rejects the priced extra service requests
  */
 async function userRejectExtraServices(userId, bookingId, rejectedServiceIds, reason) {
+    console.log(`[SERVICE] userRejectExtraServices called - userId: ${userId}, bookingId: ${bookingId}, rejectedServiceIds: ${JSON.stringify(rejectedServiceIds)}, reason: ${reason}`);
     const booking = await findBookingByUser(bookingId, userId);
-    if (!booking) throw new ApiError(404, 'Booking not found');
+    if (!booking) {
+        console.error(`[SERVICE] userRejectExtraServices ERROR: Booking not found for bookingId: ${bookingId}, userId: ${userId}`);
+        throw new ApiError(404, 'Booking not found');
+    }
+    console.log(`[SERVICE] userRejectExtraServices: Booking found, userRequestedServices length: ${booking.userRequestedServices?.length}`);
 
     if (!booking.userRequestedServices || booking.userRequestedServices.length === 0) {
         throw new ApiError(400, 'No pending extra service requests to reject');
