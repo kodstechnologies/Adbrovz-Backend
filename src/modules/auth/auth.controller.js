@@ -69,12 +69,13 @@ const userResetPIN = asyncHandler(async (req, res) => {
 });
 
 const userLogout = asyncHandler(async (req, res) => {
-  // Clear the user's currentLoginId to allow future logins
+  // Clear the user's currentLoginId and FCM token to allow future logins and stop push notifications
   const userId = req.user?.id;
   if (userId) {
     const user = await User.findById(userId);
     if (user) {
       user.currentLoginId = undefined;
+      user.fcmToken = undefined;
       await user.save();
     }
   }
@@ -124,12 +125,13 @@ const vendorResetPIN = asyncHandler(async (req, res) => {
 });
 
 const vendorLogout = asyncHandler(async (req, res) => {
-  // Clear the vendor's currentLoginId to allow future logins
-  const vendorId = req.user?.userId;
+  // Clear the vendor's currentLoginId and FCM token to allow future logins and stop push notifications
+  const vendorId = req.user?.id;
   if (vendorId) {
     const vendor = await Vendor.findById(vendorId);
     if (vendor) {
       vendor.currentLoginId = undefined;
+      vendor.fcmToken = undefined;
       await vendor.save();
     }
   }
