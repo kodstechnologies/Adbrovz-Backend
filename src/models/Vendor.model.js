@@ -211,7 +211,12 @@ const vendorSchema = new mongoose.Schema(
     failedAttempts: {
       type: Number,
       default: 0,
-    },    lastLogin: {
+    },
+    currentLoginId: {
+      type: String,
+      default: null,
+    },
+    lastLogin: {
       type: Date,
     },
     concurrentJobLimit: {

@@ -795,6 +795,10 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
   if (fcmToken) {
     user.fcmToken = fcmToken;
   }
+  // Generate a new login session identifier
+  const newLoginId = crypto.randomUUID();
+  const previousSessionInvalidated = !!user.currentLoginId;
+  user.currentLoginId = newLoginId;
   await user.save();
 
   const token = generateToken({ userId: user._id, role: user.role });
@@ -815,6 +819,7 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
     refreshToken,
     isVerified: user.isVerified || false,
     isDocsVerified: user.documentStatus === 'approved',
+    previousSessionInvalidated,
   };
 
   // For vendors: include verification/document status so the app can route correctly
