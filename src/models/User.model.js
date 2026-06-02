@@ -52,13 +52,18 @@ const userSchema = new mongoose.Schema(
     lockUntil: {
       type: Date,
     },
+    deletedAt: {
+      type: Date,
+    },
     failedAttempts: {
       type: Number,
       default: 0,
-    },    lastLogin: {
-      type: Date,
     },
-    deletedAt: {
+    currentLoginId: {
+      type: String,
+      default: null,
+    },
+    lastLogin: {
       type: Date,
     },
     coins: {
