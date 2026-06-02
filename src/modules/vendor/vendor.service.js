@@ -3372,7 +3372,6 @@ const getMembershipPlansWithStatus = async (vendorId) => {
     ];
 
     const allPlans = [];
-    let currentPlan = null;
     const currentDuration = vendor.membership?.durationMonths || 0;
 
     for (const p of plans) {
@@ -3394,18 +3393,10 @@ const getMembershipPlansWithStatus = async (vendorId) => {
             validityDays: feeDetails.validityDays
         };
 
-        if (isCurrent) {
-            currentPlan = {
-                ...planObj,
-                currentExpiryDate: vendor.membership?.expiryDate || null
-            };
-        } else {
-            allPlans.push(planObj);
-        }
+        allPlans.push(planObj);
     }
 
     return {
-        currentPlan,
         plans: allPlans
     };
 };
