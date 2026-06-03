@@ -1595,6 +1595,11 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                 radius: radiusInKm
             };
 
+            // Remove internal MongoDB fields that are not needed by the mobile client
+            delete payload._id;
+            delete payload.__v;
+            // Now payload has a clean 'id' field (already added above) and no duplicate identifiers
+
             // ── Sensitive Data Redaction for unaccepted requests ──
             if (payload.user) {
                 payload.user.phoneNumber = '••••••••••';
