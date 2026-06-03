@@ -1648,14 +1648,13 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                     // 2. Push Notification (Fallback)
                     console.log(`[TRACKING-FLOW] [STEP 2.18] Creating/Sending Push Notification to Vendor ${vendorNameStr}...`);
                     
-                    const mongoose = require('mongoose');
                     const fcmData = {
-                        type: 'new_booking_request',
-                        bookingId: payload.id || '',
-                        bookingID: payload.bookingID || '',
-                        booking_data: JSON.stringify(payload)
+                      type: 'new_booking_request',
+                      bookingId: payload.id || '',
+                      bookingID: payload.bookingID || '',
+                      address: payload.location?.address || '',
+                      booking_data: JSON.stringify(payload)
                     };
-
                     await notificationService.createNotification({
                         user: v._id,
                         userModel: 'Vendor',
