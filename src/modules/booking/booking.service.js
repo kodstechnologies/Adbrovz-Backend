@@ -1574,6 +1574,7 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                 const serviceDetailsObj = item.service ? (item.service.toObject ? item.service.toObject() : item.service) : null;
                 if (serviceDetailsObj) {
                     serviceDetailsObj.id = serviceDetailsObj._id ? serviceDetailsObj._id.toString() : '';
+                    delete serviceDetailsObj._id;
                 }
                 return {
                     quantity: item.quantity,
@@ -1581,26 +1582,27 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                     vendorPrice: item.vendorPrice,
                     finalPrice: item.finalPrice,
                     isPriceConfirmed: item.isPriceConfirmed,
-                    _id: item._id ? item._id.toString() : '',
+                    id: item._id ? item._id.toString() : '',
                     service: serviceDetailsObj
                 };
             });
 
+            // ------------------------------------------------------------------
+            // 2️⃣  Strip Mongo internals and force 'id' to be at the very top
+            // ------------------------------------------------------------------
+            const baseObj = populatedBooking.toObject();
+            delete baseObj._id;
+            delete baseObj.__v;
+            delete baseObj.id; // Remove virtual id if it exists so we can place it first
+
             const payload = {
-                ...(populatedBooking.toObject()),
                 id: populatedBooking._id.toString(),
                 bookingID: populatedBooking.bookingID,
+                ...baseObj,
                 services: servicesMapped,
                 totalDurationMins,
                 radius: radiusInKm
             };
-
-            // ------------------------------------------------------------------
-            // 2️⃣  Strip Mongo internals – they must never go over the wire
-            // ------------------------------------------------------------------
-            // Remove top‑level Mongo fields
-            delete payload._id;
-            delete payload.__v;
 
             // Clean nested objects: replace internal _id with plain id strings
             if (payload.user) {
