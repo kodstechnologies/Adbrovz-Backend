@@ -1755,7 +1755,7 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                     }
                 }, finalWaitMins * 60 * 1000);
             }
-            
+        } // Close if (scheduleNextWave)
         } catch (error) {
             console.error('[TRACKING-FLOW] [SOCKET/BROADCAST ERROR] Socket.io error during broadcast:', error.message);
         }
