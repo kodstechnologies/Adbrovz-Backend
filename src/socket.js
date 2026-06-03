@@ -771,7 +771,12 @@ const initSocket = (server) => {
                 } else if (data?.serviceId) {
                     acceptedServiceIds = [data.serviceId];
                 }
-                acceptedServiceIds = acceptedServiceIds.map(id => stringifyId(id)).filter(Boolean);
+                acceptedServiceIds = acceptedServiceIds.map(id => {
+                    if (id && typeof id === 'object') {
+                        return (id.serviceId || id._id || id.id || '').toString();
+                    }
+                    return id ? id.toString() : null;
+                }).filter(Boolean);
 
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
@@ -799,7 +804,12 @@ const initSocket = (server) => {
                 } else if (data?.serviceId) {
                     rejectedServiceIds = [data.serviceId];
                 }
-                rejectedServiceIds = rejectedServiceIds.map(id => stringifyId(id)).filter(Boolean);
+                rejectedServiceIds = rejectedServiceIds.map(id => {
+                    if (id && typeof id === 'object') {
+                        return (id.serviceId || id._id || id.id || '').toString();
+                    }
+                    return id ? id.toString() : null;
+                }).filter(Boolean);
 
                 if (!vendorId) throw new Error('Vendor ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
