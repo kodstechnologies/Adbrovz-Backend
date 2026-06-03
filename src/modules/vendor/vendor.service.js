@@ -3372,18 +3372,12 @@ const getMembershipPlansWithStatus = async (vendorId) => {
     ];
 
     const allPlans = [];
-    const currentDuration = vendor.membership?.durationMonths || 0;
     const currentMembershipId = vendor.membership?.membershipId?.toString();
 
     for (const p of plans) {
         const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { durationMonths: p.duration });
         
-        let isCurrent = false;
-        if (currentMembershipId && feeDetails.planId) {
-            isCurrent = currentMembershipId === feeDetails.planId.toString();
-        } else {
-            isCurrent = currentDuration === p.duration;
-        }
+        const isCurrent = Boolean(currentMembershipId && feeDetails.planId && currentMembershipId === feeDetails.planId.toString());
 
         const membershipAmount = Number(feeDetails?.breakdown?.basePlan?.price || 0);
         const renewalAmount = Math.max(0, Number(feeDetails.subtotal || 0) - membershipAmount);
