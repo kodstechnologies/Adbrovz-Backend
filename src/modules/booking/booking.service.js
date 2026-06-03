@@ -1356,7 +1356,7 @@ const createBooking = async (userId, bookingData) => {
 };
 
 const searchVendors = async (booking, broadcast = false, scheduleNextWave = true) => {
-    try {console.log(`[TRACKING-FLOW] [STEP 2] searchVendors CALLED for booking ID: ${booking._id}, broadcast: ${broadcast}`);
+    console.log(`[TRACKING-FLOW] [STEP 2] searchVendors CALLED for booking ID: ${booking._id}, broadcast: ${broadcast}`);
     
     let currentSearchId = booking.searchId;
     if (!currentSearchId) {
