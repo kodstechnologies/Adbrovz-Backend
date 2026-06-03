@@ -1355,8 +1355,8 @@ const createBooking = async (userId, bookingData) => {
     };
 };
 
-const searchVendors = async (booking, broadcast = false) => {
-    console.log(`[TRACKING-FLOW] [STEP 2] searchVendors CALLED for booking ID: ${booking._id}, broadcast: ${broadcast}`);
+const searchVendors = async (booking, broadcast = false, scheduleNextWave = true) => {
+    try {console.log(`[TRACKING-FLOW] [STEP 2] searchVendors CALLED for booking ID: ${booking._id}, broadcast: ${broadcast}`);
     
     let currentSearchId = booking.searchId;
     if (!currentSearchId) {
@@ -1650,23 +1650,11 @@ const searchVendors = async (booking, broadcast = false) => {
                     
                     const mongoose = require('mongoose');
                     const fcmData = {
-                        type: 'new_booking_request'
+                        type: 'new_booking_request',
+                        bookingId: payload.id || '',
+                        bookingID: payload.bookingID || '',
+                        booking_data: JSON.stringify(payload)
                     };
-                    for (const [key, value] of Object.entries(payload)) {
-                        if (value !== null && value !== undefined) {
-                            if (value instanceof mongoose.Types.ObjectId) {
-                                fcmData[key] = value.toString();
-                            } else if (value instanceof Date) {
-                                fcmData[key] = value.toISOString();
-                            } else if (Array.isArray(value) || (typeof value === 'object' && value.constructor === Object)) {
-                                fcmData[key] = JSON.stringify(value);
-                            } else if (typeof value === 'object') {
-                                fcmData[key] = value.toString() !== '[object Object]' ? value.toString() : JSON.stringify(value);
-                            } else {
-                                fcmData[key] = String(value);
-                            }
-                        }
-                    }
 
                     await notificationService.createNotification({
                         user: v._id,
@@ -1717,29 +1705,30 @@ const searchVendors = async (booking, broadcast = false) => {
             });
 
             // ── Schedule Search Expansion (Dynamic Waves) ──
-            if (retryCount < waves.length - 1) {
-                const delayMins = waves[retryCount].mins > 0 ? waves[retryCount].mins : 5;
-                
-                console.log(`[TRACKING-FLOW] [STEP 2.22] Scheduling Wave ${retryCount + 1} (Radius: ${waves[retryCount+1].km}km) in ${delayMins} minutes`);
+            if (scheduleNextWave) {
+                if (retryCount < waves.length - 1) {
+                    const delayMins = waves[retryCount].mins > 0 ? waves[retryCount].mins : 5;
+                    
+                    console.log(`[TRACKING-FLOW] [STEP 2.22] Scheduling Wave ${retryCount + 1} (Radius: ${waves[retryCount+1].km}km) in ${delayMins} minutes`);
 
-                setTimeout(async () => {
-                    console.log(`[TRACKING-FLOW] [STEP 3] Wave timer fired! Checking eligibility of booking ${booking._id}...`);
-                    const current = await Booking.findById(booking._id);
-                    if (current && current.status === 'pending_acceptance' && current.searchId === currentSearchId) {
-                        current.retryCount = (current.retryCount || 0) + 1;
-                        await current.save();
-                        console.log(`[TRACKING-FLOW] [STEP 3.1] Triggering next wave retry search... retryCount: ${current.retryCount}`);
-                        searchVendors(current, true).catch(console.error);
-                    } else {
-                        console.log(`[TRACKING-FLOW] [STEP 3.2] Wave ${retryCount + 1} skipped. Reason: status changed from pending_acceptance or searchId rotated.`);
-                    }
-                }, delayMins * 60 * 1000);
-            } else if (retryCount === waves.length - 1) {
-                // Hard-Stop: After the final tier
-                const finalWaitMins = waves[retryCount].mins > 0 ? waves[retryCount].mins : 2; 
-                console.log(`[TRACKING-FLOW] [STEP 2.22] Final wave reached. Scheduling Hard-Stop in ${finalWaitMins} minutes`);
+                    setTimeout(async () => {
+                        console.log(`[TRACKING-FLOW] [STEP 3] Wave timer fired! Checking eligibility of booking ${booking._id}...`);
+                        const current = await Booking.findById(booking._id);
+                        if (current && current.status === 'pending_acceptance' && current.searchId === currentSearchId) {
+                            current.retryCount = (current.retryCount || 0) + 1;
+                            await current.save();
+                            console.log(`[TRACKING-FLOW] [STEP 3.1] Triggering next wave retry search... retryCount: ${current.retryCount}`);
+                            searchVendors(current, true, true).catch(console.error);
+                        } else {
+                            console.log(`[TRACKING-FLOW] [STEP 3.2] Wave ${retryCount + 1} skipped. Reason: status changed from pending_acceptance or searchId rotated.`);
+                        }
+                    }, delayMins * 60 * 1000);
+                } else if (retryCount === waves.length - 1) {
+                    // Hard-Stop: After the final tier
+                    const finalWaitMins = waves[retryCount].mins > 0 ? waves[retryCount].mins : 2; 
+                    console.log(`[TRACKING-FLOW] [STEP 2.22] Final wave reached. Scheduling Hard-Stop in ${finalWaitMins} minutes`);
 
-                setTimeout(async () => {
+                    setTimeout(async () => {
                     console.log(`[TRACKING-FLOW] [STEP 4] Hard-Stop timer fired! Evaluating booking ${booking._id}...`);
                     const current = await Booking.findById(booking._id);
                     if (current && current.status === 'pending_acceptance' && current.searchId === currentSearchId) {
@@ -1831,9 +1820,9 @@ const rejectBooking = async (vendorId, bookingId) => {
         console.error('[SOCKET ERROR] Failed to emit booking_rejected_success:', socketErr.message);
     }
 
-    // ── Re-trigger vendor search to find alternatives ──
+    // ── Re-trigger vendor search to find alternatives (Do NOT duplicate wave timers!) ──
     try {
-        await searchVendors(booking, true).catch(err => {
+        await searchVendors(booking, true, false).catch(err => {
             console.error(`[SEARCH] Failed to re-search after rejection: ${err.message}`);
         });
     } catch (err) {
