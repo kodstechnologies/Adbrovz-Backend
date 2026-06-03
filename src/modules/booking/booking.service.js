@@ -1595,10 +1595,24 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                 radius: radiusInKm
             };
 
-            // Remove internal MongoDB fields that are not needed by the mobile client
+            // ------------------------------------------------------------------
+            // 2️⃣  Strip Mongo internals – they must never go over the wire
+            // ------------------------------------------------------------------
+            // Remove top‑level Mongo fields
             delete payload._id;
             delete payload.__v;
-            // Now payload has a clean 'id' field (already added above) and no duplicate identifiers
+
+            // Clean nested objects: replace internal _id with plain id strings
+            if (payload.user) {
+                payload.user.id = payload.user._id?.toString();
+                delete payload.user._id;
+            }
+            if (payload.category) {
+                payload.category.id = payload.category._id?.toString();
+                delete payload.category._id;
+            }
+            // (location does not contain _id, so no change needed)
+
 
             // ── Sensitive Data Redaction for unaccepted requests ──
             if (payload.user) {
