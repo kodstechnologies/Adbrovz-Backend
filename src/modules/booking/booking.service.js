@@ -3455,15 +3455,20 @@ async function vendorAcceptExtraServices(vendorId, bookingId, acceptedServiceIds
     // Mark pending services as accepted
     let anyAccepted = false;
     for (const item of booking.userRequestedServices) {
-        const sid = item.service.toString();
-        if ((item.status === 'pending' || !item.status) && (!acceptIds || acceptIds.includes(sid))) {
-            item.status = 'accepted';
-            anyAccepted = true;
+        const sid = (item.service && (item.service._id || item.service)).toString();
+        if (!acceptIds || acceptIds.includes(sid)) {
+            if (item.status === 'pending' || !item.status) {
+                item.status = 'accepted';
+                anyAccepted = true;
+            } else if (item.status === 'accepted') {
+                // If already accepted, treat it as a successful match to prevent throwing errors
+                anyAccepted = true;
+            }
         }
     }
 
     if (!anyAccepted) {
-        throw new ApiError(400, 'No pending services found to accept');
+        throw new ApiError(400, 'No pending or accepted services found matching the provided IDs');
     }
 
     booking.markModified('userRequestedServices');
@@ -3625,11 +3630,16 @@ async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
         : [];
 
     booking.userRequestedServices.forEach(item => {
-        const sid = item.service.toString();
-        if (item.status === 'priced' && acceptedIds.includes(sid)) {
-            item.status = 'accepted';
-            item.isPriceConfirmed = true;
-            hasConfirmed = true;
+        const sid = (item.service && (item.service._id || item.service)).toString();
+        if (acceptedIds.includes(sid)) {
+            if (item.status === 'priced') {
+                item.status = 'accepted';
+                item.isPriceConfirmed = true;
+                hasConfirmed = true;
+            } else if (item.status === 'accepted') {
+                // If already accepted, treat it as a successful match to prevent throwing errors
+                hasConfirmed = true;
+            }
         }
     });
 
