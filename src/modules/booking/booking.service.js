@@ -1461,6 +1461,7 @@ const searchVendors = async (booking, broadcast = false) => {
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
+        isOnline: true,
         registrationStep: 'COMPLETED',
         deletedAt: null,
         $and: [
@@ -1624,29 +1625,46 @@ const searchVendors = async (booking, broadcast = false) => {
                     emitToVendor(vendorIdStr, 'new_booking_request', payload);
                     broadcastCount++;
                 } else {
-                    console.warn(`[TRACKING-FLOW] [WARNING] Vendor ${vendorNameStr} is offline (0 active sockets). Socket emission bypassed.`);
-                }
+                    console.warn(`[TRACKING-FLOW] [WARNING] Vendor ${vendorNameStr} is offline (0 active sockets). Socket emission bypassed. Sending push notification fallback.`);
 
-                // 2. Push Notification (Always or Fallback)
-                console.log(`[TRACKING-FLOW] [STEP 2.18] Creating/Sending Push Notification to Vendor ${vendorNameStr}...`);
-                await notificationService.createNotification({
-                    user: v._id,
-                    userModel: 'Vendor',
-                    type: 'new_booking',
-                    title: 'New Booking Request',
-                    body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
-                    data: {
-                        bookingId: booking._id.toString(),
-                        bookingID: populatedBooking.bookingID,
+                    // 2. Push Notification (Fallback)
+                    console.log(`[TRACKING-FLOW] [STEP 2.18] Creating/Sending Push Notification to Vendor ${vendorNameStr}...`);
+                    
+                    const mongoose = require('mongoose');
+                    const fcmData = {
                         type: 'new_booking_request'
-                    },
-                    sendPush: true,
-                    fcmToken: v.fcmToken
-                }).then(() => {
-                    console.log(`[TRACKING-FLOW] [STEP 2.19] Push Notification dispatched successfully to Vendor ${vendorNameStr}`);
-                }).catch(err => {
-                    console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send push to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
-                });
+                    };
+                    for (const [key, value] of Object.entries(payload)) {
+                        if (value !== null && value !== undefined) {
+                            if (value instanceof mongoose.Types.ObjectId) {
+                                fcmData[key] = value.toString();
+                            } else if (value instanceof Date) {
+                                fcmData[key] = value.toISOString();
+                            } else if (Array.isArray(value) || (typeof value === 'object' && value.constructor === Object)) {
+                                fcmData[key] = JSON.stringify(value);
+                            } else if (typeof value === 'object') {
+                                fcmData[key] = value.toString() !== '[object Object]' ? value.toString() : JSON.stringify(value);
+                            } else {
+                                fcmData[key] = String(value);
+                            }
+                        }
+                    }
+
+                    await notificationService.createNotification({
+                        user: v._id,
+                        userModel: 'Vendor',
+                        type: 'new_booking',
+                        title: 'New Booking Request',
+                        body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
+                        data: fcmData,
+                        sendPush: true,
+                        fcmToken: v.fcmToken
+                    }).then(() => {
+                        console.log(`[TRACKING-FLOW] [STEP 2.19] Push Notification dispatched successfully to Vendor ${vendorNameStr}`);
+                    }).catch(err => {
+                        console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send push to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
+                    });
+                }
 
                 return v._id;
             });
@@ -3408,7 +3426,12 @@ async function vendorAcceptExtraServices(vendorId, bookingId, acceptedServiceIds
     }
 
     const acceptIds = acceptedServiceIds && acceptedServiceIds.length > 0 
-        ? acceptedServiceIds.map(id => id.toString()) 
+        ? acceptedServiceIds.map(id => {
+            if (id && typeof id === 'object') {
+                return (id.serviceId || id.id || id._id || id).toString();
+            }
+            return id.toString();
+        }) 
         : null;
 
     // Mark pending services as accepted
@@ -3574,7 +3597,14 @@ async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
 
     const now = new Date();
     let hasConfirmed = false;
-    const acceptedIds = acceptedServiceIds ? acceptedServiceIds.map(id => id.toString()) : [];
+    const acceptedIds = acceptedServiceIds 
+        ? acceptedServiceIds.map(id => {
+            if (id && typeof id === 'object') {
+                return (id.serviceId || id.id || id._id || id).toString();
+            }
+            return id.toString();
+        }) 
+        : [];
 
     booking.userRequestedServices.forEach(item => {
         const sid = item.service.toString();
