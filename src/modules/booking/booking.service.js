@@ -1570,9 +1570,27 @@ const searchVendors = async (booking, broadcast = false) => {
                 });
             }
 
+            const servicesMapped = (populatedBooking.services || []).map(item => {
+                const serviceDetailsObj = item.service ? (item.service.toObject ? item.service.toObject() : item.service) : null;
+                if (serviceDetailsObj) {
+                    serviceDetailsObj.id = serviceDetailsObj._id ? serviceDetailsObj._id.toString() : '';
+                }
+                return {
+                    quantity: item.quantity,
+                    adminPrice: item.adminPrice,
+                    vendorPrice: item.vendorPrice,
+                    finalPrice: item.finalPrice,
+                    isPriceConfirmed: item.isPriceConfirmed,
+                    _id: item._id ? item._id.toString() : '',
+                    service: serviceDetailsObj
+                };
+            });
+
             const payload = {
                 ...(populatedBooking.toObject()),
+                id: populatedBooking._id.toString(),
                 bookingID: populatedBooking.bookingID,
+                services: servicesMapped,
                 totalDurationMins,
                 radius: radiusInKm
             };
