@@ -28,7 +28,7 @@ const ensureCategorySubscriptions = async (vendor) => {
     if (vendor.selectedCategories && vendor.selectedCategories.length > 0) {
         const Category = require('../../models/Category.model');
         const now = new Date();
-        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 0;
         
         let expiryDate = vendor.serviceRenewal?.expiryDate || new Date();
         if (expiryDate <= now) {
@@ -946,24 +946,13 @@ const approveVendorServices = async (vendorId, serviceData) => {
         }
 
         if (subcategoryIds) {
-            const existingSub = vendor.selectedSubcategories.map(id => id.toString());
-            const newSub = parseArrayInput(subcategoryIds).map(id => id.toString());
-            vendor.selectedSubcategories = Array.from(new Set([...existingSub, ...newSub])).map(id => new mongoose.Types.ObjectId(id));
+            vendor.selectedSubcategories = parseArrayInput(subcategoryIds).map(id => new mongoose.Types.ObjectId(id));
         }
         if (serviceTypeIds) {
-            const existingTypes = vendor.selectedServiceTypes.map(id => id.toString());
-            const newTypes = parseArrayInput(serviceTypeIds).map(id => id.toString());
-            vendor.selectedServiceTypes = Array.from(new Set([...existingTypes, ...newTypes])).map(id => new mongoose.Types.ObjectId(id));
+            vendor.selectedServiceTypes = parseArrayInput(serviceTypeIds).map(id => new mongoose.Types.ObjectId(id));
         }
         if (serviceIds) {
-            const existingServices = vendor.selectedServices.map(id => id.toString());
-            const newServices = parseArrayInput(serviceIds).map(id => id.toString());
-            vendor.selectedServices = Array.from(new Set([...existingServices, ...newServices])).map(id => new mongoose.Types.ObjectId(id));
-            // NOTE: extraServiceRequests are intentionally NOT modified here.
-            // Each extra service request has its own independent approvalStatus
-            // managed exclusively by reviewExtraServiceApprovalRequest.
-            // Mixing primary service approval with extra request lifecycle
-            // caused stale/incorrect statuses on unrelated requests.
+            vendor.selectedServices = parseArrayInput(serviceIds).map(id => new mongoose.Types.ObjectId(id));
         }
     } else {
         // First-time registration approval flow:
