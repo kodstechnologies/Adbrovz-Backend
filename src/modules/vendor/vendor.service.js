@@ -1144,7 +1144,7 @@ const purchaseMembership = async (vendorId) => {
         const adminService = require('../admin/admin.service');
         const durationMonths = vendor.membership.durationMonths || 3;
         const plan = await getPlanByDuration(durationMonths);
-        const validityDays = plan.validityDays || (durationMonths * 30);
+        const validityDays = (plan.validityDays !== undefined && plan.validityDays !== null && plan.validityDays !== '') ? Number(plan.validityDays) : (durationMonths * 30);
 
         const now = new Date();
         const baseMemDate = (vendor.membership.expiryDate && vendor.membership.expiryDate > now)
@@ -1161,7 +1161,8 @@ const purchaseMembership = async (vendorId) => {
             : now;
         const renExpiry = new Date(baseRenDate);
         
-        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+        const _rd1 = await adminService.getSetting('pricing.service_renewal_days');
+        const renewalDays = (_rd1 !== undefined && _rd1 !== null && _rd1 !== '') ? Number(_rd1) : 30;
         renExpiry.setDate(renExpiry.getDate() + Number(renewalDays));
         vendor.serviceRenewal.expiryDate = renExpiry;
 
@@ -1232,7 +1233,7 @@ const getMembershipPlans = async (serviceMembershipFee = 0, options = {}) => {
     const result = [];
     for (const plan of tiers) {
         const baseFee = (plan.price || 0);
-        const validityDays = plan.validityDays || 30;
+        const validityDays = (plan.validityDays !== undefined && plan.validityDays !== null && plan.validityDays !== '') ? Number(plan.validityDays) : 30;
         const serviceFee = Number(resolvedServiceMembershipFee || 0);
 
         const subtotal = baseFee + serviceFee;
@@ -1818,7 +1819,7 @@ const verifyDocument = async (vendorId, payload = {}) => {
             const startDate = new Date();
             const durationMonths = vendor.membership.durationMonths || 3;
             const plan = await getPlanByDuration(durationMonths);
-            const validityDays = plan.validityDays || (durationMonths * 30);
+            const validityDays = (plan.validityDays !== undefined && plan.validityDays !== null && plan.validityDays !== '') ? Number(plan.validityDays) : (durationMonths * 30);
 
             const expiryDate = new Date(startDate);
             expiryDate.setDate(expiryDate.getDate() + Number(validityDays));
@@ -1829,7 +1830,8 @@ const verifyDocument = async (vendorId, payload = {}) => {
             vendor.serviceRenewal = vendor.serviceRenewal || {};
             vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || startDate;
             const renExpiryDate = new Date();
-            const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+            const _rd1 = await adminService.getSetting('pricing.service_renewal_days');
+        const renewalDays = (_rd1 !== undefined && _rd1 !== null && _rd1 !== '') ? Number(_rd1) : 30;
             renExpiryDate.setDate(renExpiryDate.getDate() + Number(renewalDays));
             vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiryDate;
 
@@ -1905,7 +1907,7 @@ if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
         const startDate = new Date();
         const durationMonths = vendor.membership.durationMonths || 3;
         const plan = await getPlanByDuration(durationMonths);
-        const validityDays = plan.validityDays || (durationMonths * 30);
+        const validityDays = (plan.validityDays !== undefined && plan.validityDays !== null && plan.validityDays !== '') ? Number(plan.validityDays) : (durationMonths * 30);
 
         const expiryDate = new Date(startDate);
         expiryDate.setDate(expiryDate.getDate() + Number(validityDays));
@@ -1916,7 +1918,8 @@ if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
         vendor.serviceRenewal = vendor.serviceRenewal || {};
         vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || startDate;
         const renExpiryDate = new Date();
-        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+        const _rd1 = await adminService.getSetting('pricing.service_renewal_days');
+        const renewalDays = (_rd1 !== undefined && _rd1 !== null && _rd1 !== '') ? Number(_rd1) : 30;
         renExpiryDate.setDate(renExpiryDate.getDate() + Number(renewalDays));
         vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiryDate;
 
@@ -2299,14 +2302,15 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         vendor.serviceRenewal = vendor.serviceRenewal || {};
         vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || now;
         const renExpiry = new Date(vendor.serviceRenewal.startDate);
-        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 0;
         renExpiry.setDate(renExpiry.getDate() + Number(renewalDays));
         vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiry;
 
         // Initialize category subscriptions for registration categories
         if (vendor.selectedCategories && vendor.selectedCategories.length > 0) {
             const categoryExpiry = new Date(now);
-            const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+            const _rd3 = await adminService.getSetting('pricing.service_renewal_days');
+            const renewalDays = (_rd3 !== undefined && _rd3 !== null && _rd3 !== '') ? Number(_rd3) : 30;
             categoryExpiry.setDate(categoryExpiry.getDate() + Number(renewalDays)); // Service expires based on admin setting
 
             for (const catId of vendor.selectedCategories) {
@@ -3246,6 +3250,10 @@ const createServiceRenewalOrder = async (vendorId) => {
             },
         });
 
+        const adminService = require('../admin/admin.service');
+        const _rd = await adminService.getSetting('pricing.service_renewal_days');
+        const renewalDays = (_rd !== undefined && _rd !== null && _rd !== '') ? Number(_rd) : 30;
+
         // Log the pending payment record
         await PaymentRecord.create({
             vendor: vendorId,
@@ -3254,7 +3262,7 @@ const createServiceRenewalOrder = async (vendorId) => {
             amount: feeDetails.subtotal,
             gstAmount: feeDetails.gstAmount,
             totalAmount: feeDetails.totalFee,
-            validityDays: 30, // Service renewal is always 30 days
+            validityDays: renewalDays, // Replaced hardcoded 30
             status: 'PENDING'
         });
     } catch (error) {
@@ -3302,7 +3310,8 @@ const verifyServiceRenewalPayment = async (vendorId, { razorpay_order_id, razorp
         : now;
 
     const newExpiryDate = new Date(baseDate);
-    const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+    const _rd4 = await adminService.getSetting('pricing.service_renewal_days');
+    const renewalDays = (_rd4 !== undefined && _rd4 !== null && _rd4 !== '') ? Number(_rd4) : 30;
     newExpiryDate.setDate(newExpiryDate.getDate() + Number(renewalDays));
 
     vendor.serviceRenewal.expiryDate = newExpiryDate;
@@ -3527,7 +3536,7 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     if (!category) throw new ApiError(404, 'Category not found');
 
     const renewalDaysSetting = await adminService.getSetting('pricing.service_renewal_days');
-    const renewalDays = renewalDaysSetting ? Number(renewalDaysSetting) : 30;
+    const renewalDays = (renewalDaysSetting !== undefined && renewalDaysSetting !== null && renewalDaysSetting !== '') ? Number(renewalDaysSetting) : 30;
 
     // If subcategoryIds are missing but services are provided, derive the subcategories to ensure hierarchical charges are applied
     if (parsedSubcategoryIds.length === 0 && parsedServiceIds.length > 0) {
@@ -4048,7 +4057,8 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
 
     // Update vendor profile for each category involved
     const now = new Date();
-    const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+    const _rd5 = await adminService.getSetting('pricing.service_renewal_days');
+    const renewalDays = (_rd5 !== undefined && _rd5 !== null && _rd5 !== '') ? Number(_rd5) : 30;
 
     for (const [catIdStr, data] of categoriesToUpdate.entries()) {
         const catId = new mongoose.Types.ObjectId(catIdStr);
@@ -4255,7 +4265,7 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 0;
 
     const renewalDaysSetting = await adminService.getSetting('pricing.service_renewal_days');
-    const adminRenewalDays = renewalDaysSetting ? Number(renewalDaysSetting) : 30;
+    const adminRenewalDays = (renewalDaysSetting !== undefined && renewalDaysSetting !== null && renewalDaysSetting !== '') ? Number(renewalDaysSetting) : 30;
 
     // Derive renewalDays from the vendor's actual serviceRenewal cycle dates.
     // This ensures proration aligns to the real service expiry, not just the admin setting.
