@@ -1658,6 +1658,7 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                     require('fs').appendFileSync(require('path').join(__dirname, '../../../scratch/notify_debug.txt'), `[DEBUG] ${new Date().toISOString()} | Booking: ${booking._id} | Vendor: ${vendorIdStr} | Socket Online: ${online} | Sockets: ${matchedSockets.join(',')} | FCM Token Present: ${!!v.fcmToken}\n`);
                 } catch(e) {}
                 
+
                 // 1. Socket Notification (Real-time)
                 if (online) {
                     console.log(`[TRACKING-FLOW] [STEP 2.17] Emitting 'new_booking_request' via sockets: ${matchedSockets.join(', ')} to Vendor ${vendorNameStr}`);
@@ -1669,9 +1670,11 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                     // 2. Push Notification (Fallback)
                     console.log(`[TRACKING-FLOW] [STEP 2.18] Creating/Sending Push Notification to Vendor ${vendorNameStr}...`);
                     
+                    // Debug: ensure id is present before sending FCM
+                    console.log('[DEBUG] FCM payload id:', payload.id);
                     const fcmData = {
                       type: 'new_booking_request',
-                      bookingId: payload.id || '',
+                      bookingId: payload.id || booking._id?.toString() || '',
                       bookingID: payload.bookingID || '',
                       address: payload.location?.address || '',
                       booking_data: JSON.stringify(payload)
@@ -1734,13 +1737,13 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                     setTimeout(async () => {
                         console.log(`[TRACKING-FLOW] [STEP 3] Wave timer fired! Checking eligibility of booking ${booking._id}...`);
                         const current = await Booking.findById(booking._id);
-                        if (current && current.status === 'pending_acceptance' && current.searchId === currentSearchId) {
+                        if (current && current.searchId === currentSearchId) {
                             current.retryCount = (current.retryCount || 0) + 1;
                             await current.save();
                             console.log(`[TRACKING-FLOW] [STEP 3.1] Triggering next wave retry search... retryCount: ${current.retryCount}`);
                             searchVendors(current, true, true).catch(console.error);
                         } else {
-                            console.log(`[TRACKING-FLOW] [STEP 3.2] Wave ${retryCount + 1} skipped. Reason: status changed from pending_acceptance or searchId rotated.`);
+                            console.log(`[TRACKING-FLOW] [STEP 3.2] Wave ${retryCount + 1} skipped. Reason: searchId changed or booking missing.`);
                         }
                     }, delayMins * 60 * 1000);
                 } else if (retryCount === waves.length - 1) {
@@ -2936,7 +2939,23 @@ const addServicesToBooking = async (vendorId, bookingId, newServices) => {
 
     const allowedStatuses = ['pending', 'on_the_way', 'arrived', 'ongoing'];
     if (!allowedStatuses.includes(booking.status)) {
-        throw new ApiError(400, 'Additional services can only be added after a lead is accepted and before completion');
+        throw new ApiError(400, 'Additional services can only be added after a lead isconst logout = async ({ userId, role, fcmToken }) => {
+  const Model = role === 'Vendor' ? require('../../models/Vendor.model') : require('../../models/User.model');
+  if (!userId) throw new ApiError(400, 'Missing userId for logout');
+  const doc = await Model.findById(userId);
+  if (!doc) throw new ApiError(404, `${role} not found`);
+  // Clear stored FCM token if provided or just wipe it
+  if (fcmToken && doc.fcmToken === fcmToken) {
+    doc.fcmToken = null;
+  } else {
+    doc.fcmToken = null;
+  }
+  await doc.save();
+  // Optional: clear cached session key
+  const cacheKey = `login:${role.toLowerCase()}:${userId}`;
+  await cacheService.del(cacheKey);
+  return { message: `${role} logged out successfully` };
+};');
     }
 
     if (!newServices || newServices.length === 0) {
