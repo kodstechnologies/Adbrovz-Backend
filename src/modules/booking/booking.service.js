@@ -248,10 +248,19 @@ const acceptBooking = async (vendorId, bookingId) => {
     );
 
     if (!booking) {
-        // Check if it was already accepted by someone else
-        const acceptedBooking = await Booking.findOne(query);
-        if (acceptedBooking) {
-            throw new ApiError(400, 'You missed your order! This booking has already been accepted by another vendor.');
+        // Check the actual status of the booking
+        const existingBooking = await Booking.findOne(query);
+        if (existingBooking) {
+            // Provide status-specific error messages
+            if (existingBooking.status === 'cancelled') {
+                throw new ApiError(400, 'This booking request is no longer available (cancelled by user).');
+            } else if (existingBooking.status === 'completed') {
+                throw new ApiError(400, 'This booking has already been completed.');
+            } else if (['pending', 'arrived', 'ongoing'].includes(existingBooking.status)) {
+                throw new ApiError(400, 'You missed your order! This booking has already been accepted by another vendor.');
+            } else {
+                throw new ApiError(400, 'This booking is no longer available.');
+            }
         }
         throw new ApiError(404, 'Booking not found or already expired.');
     }
@@ -1665,35 +1674,35 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                     emitToVendor(vendorIdStr, 'new_booking_request', payload);
                     broadcastCount++;
                 } else {
-                    console.warn(`[TRACKING-FLOW] [WARNING] Vendor ${vendorNameStr} is offline (0 active sockets). Socket emission bypassed. Sending push notification fallback.`);
-
-                    // 2. Push Notification (Fallback)
-                    console.log(`[TRACKING-FLOW] [STEP 2.18] Creating/Sending Push Notification to Vendor ${vendorNameStr}...`);
-                    
-                    // Debug: ensure id is present before sending FCM
-                    console.log('[DEBUG] FCM payload id:', payload.id);
-                    const fcmData = {
-                      type: 'new_booking_request',
-                      bookingId: payload.id || booking._id?.toString() || '',
-                      bookingID: payload.bookingID || '',
-                      address: payload.location?.address || '',
-                      booking_data: JSON.stringify(payload)
-                    };
-                    await notificationService.createNotification({
-                        user: v._id,
-                        userModel: 'Vendor',
-                        type: 'new_booking',
-                        title: 'New Booking Request',
-                        body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
-                        data: fcmData,
-                        sendPush: true,
-                        fcmToken: v.fcmToken
-                    }).then(() => {
-                        console.log(`[TRACKING-FLOW] [STEP 2.19] Push Notification dispatched successfully to Vendor ${vendorNameStr}`);
-                    }).catch(err => {
-                        console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send push to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
-                    });
+                    console.warn(`[TRACKING-FLOW] [WARNING] Vendor ${vendorNameStr} is offline (0 active sockets). Socket emission bypassed.`);
                 }
+
+                // 2. Push Notification (Always sent)
+                console.log(`[TRACKING-FLOW] [STEP 2.18] Creating/Sending Push Notification to Vendor ${vendorNameStr}...`);
+                
+                // Debug: ensure id is present before sending FCM
+                console.log('[DEBUG] FCM payload id:', payload.id);
+                const fcmData = {
+                  type: 'new_booking_request',
+                  bookingId: payload.id || booking._id?.toString() || '',
+                  bookingID: payload.bookingID || '',
+                  address: payload.location?.address || '',
+                  booking_data: JSON.stringify(payload)
+                };
+                await notificationService.createNotification({
+                    user: v._id,
+                    userModel: 'Vendor',
+                    type: 'new_booking',
+                    title: 'New Booking Request',
+                    body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
+                    data: fcmData,
+                    sendPush: true,
+                    fcmToken: v.fcmToken
+                }).then(() => {
+                    console.log(`[TRACKING-FLOW] [STEP 2.19] Push Notification dispatched successfully to Vendor ${vendorNameStr}`);
+                }).catch(err => {
+                    console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send push to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
+                });
 
                 return v._id;
             });
