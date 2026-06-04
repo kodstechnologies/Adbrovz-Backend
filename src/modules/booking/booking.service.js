@@ -1668,41 +1668,41 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                 } catch(e) {}
                 
 
-                // 1. Socket Notification (Real-time)
+                // ── Socket + FCM Hybrid: Online uses Socket (real-time), Offline uses FCM (reliable fallback) ──
+                
+                // 1. Socket Notification (Real-time when online)
                 if (online) {
-                    console.log(`[TRACKING-FLOW] [STEP 2.17] Emitting 'new_booking_request' via sockets: ${matchedSockets.join(', ')} to Vendor ${vendorNameStr}`);
+                    console.log(`[TRACKING-FLOW] [STEP 2.17] Vendor is ONLINE. Emitting 'new_booking_request' via socket(s): ${matchedSockets.join(', ')}`);
                     emitToVendor(vendorIdStr, 'new_booking_request', payload);
                     broadcastCount++;
                 } else {
-                    console.warn(`[TRACKING-FLOW] [WARNING] Vendor ${vendorNameStr} is offline (0 active sockets). Socket emission bypassed.`);
+                    // 2. Push Notification (Fallback when offline)
+                    console.log(`[TRACKING-FLOW] [STEP 2.17] Vendor is OFFLINE (0 sockets). Sending FCM push notification...`);
+                    
+                    // Debug: ensure id is present before sending FCM
+                    console.log('[DEBUG] FCM payload id:', payload.id);
+                    const fcmData = {
+                      type: 'new_booking_request',
+                      bookingId: payload.id || booking._id?.toString() || '',
+                      bookingID: payload.bookingID || '',
+                      address: payload.location?.address || '',
+                      booking_data: JSON.stringify(payload)
+                    };
+                    await notificationService.createNotification({
+                        user: v._id,
+                        userModel: 'Vendor',
+                        type: 'new_booking',
+                        title: 'New Booking Request',
+                        body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
+                        data: fcmData,
+                        sendPush: true,
+                        fcmToken: v.fcmToken
+                    }).then(() => {
+                        console.log(`[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to offline Vendor ${vendorNameStr}`);
+                    }).catch(err => {
+                        console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to offline Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
+                    });
                 }
-
-                // 2. Push Notification (Always sent)
-                console.log(`[TRACKING-FLOW] [STEP 2.18] Creating/Sending Push Notification to Vendor ${vendorNameStr}...`);
-                
-                // Debug: ensure id is present before sending FCM
-                console.log('[DEBUG] FCM payload id:', payload.id);
-                const fcmData = {
-                  type: 'new_booking_request',
-                  bookingId: payload.id || booking._id?.toString() || '',
-                  bookingID: payload.bookingID || '',
-                  address: payload.location?.address || '',
-                  booking_data: JSON.stringify(payload)
-                };
-                await notificationService.createNotification({
-                    user: v._id,
-                    userModel: 'Vendor',
-                    type: 'new_booking',
-                    title: 'New Booking Request',
-                    body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
-                    data: fcmData,
-                    sendPush: true,
-                    fcmToken: v.fcmToken
-                }).then(() => {
-                    console.log(`[TRACKING-FLOW] [STEP 2.19] Push Notification dispatched successfully to Vendor ${vendorNameStr}`);
-                }).catch(err => {
-                    console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send push to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
-                });
 
                 return v._id;
             });

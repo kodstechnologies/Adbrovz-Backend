@@ -742,23 +742,28 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount, members
     vendor.membership.membershipId = calc.planId;
     await vendor.save();
 
-    if (totalFee <= 0) {
-        throw new ApiError(400, 'Membership fee must be greater than 0');
-    }
-
-    // Razorpay amount is in paise (multiply by 100)
     let razorpayOrder;
     try {
-        razorpayOrder = await getRazorpay().orders.create({
-            amount: Math.round(totalFee * 100),
-            currency: 'INR',
-            receipt: `m_${vendor._id.toString().slice(-10)}_${Date.now()}`,
-            notes: {
-                vendorId: vendor._id.toString(),
-                vendorName: vendor.name,
-                purpose: 'membership',
-            },
-        });
+        if (totalFee <= 0) {
+            razorpayOrder = {
+                id: `order_free_${vendor._id.toString().slice(-10)}_${Date.now()}`,
+                amount: 0,
+                currency: 'INR',
+                receipt: `m_${vendor._id.toString().slice(-10)}_${Date.now()}`,
+                status: 'created'
+            };
+        } else {
+            razorpayOrder = await getRazorpay().orders.create({
+                amount: Math.round(totalFee * 100),
+                currency: 'INR',
+                receipt: `m_${vendor._id.toString().slice(-10)}_${Date.now()}`,
+                notes: {
+                    vendorId: vendor._id.toString(),
+                    vendorName: vendor.name,
+                    purpose: 'membership',
+                },
+            });
+        }
         // Log the pending payment record
         await PaymentRecord.create({
             vendor: vendorId,
@@ -3101,17 +3106,23 @@ const getMembershipRenewalFeeDetails = async (vendorId, { planId, membershipId, 
 const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, durationMonths } = {}) => {
     const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { planId, membershipId, durationMonths });
 
-    if (feeDetails.totalFee <= 0) {
-        throw new ApiError(400, 'Renewal fee is zero. Cannot create payment order.');
-    }
-
     let razorpayOrder;
     try {
-        razorpayOrder = await getRazorpay().orders.create({
-            amount: Math.round(feeDetails.totalFee * 100),
-            currency: 'INR',
-            receipt: `m_ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
-        });
+        if (feeDetails.totalFee <= 0) {
+            razorpayOrder = {
+                id: `order_free_${vendorId.toString().slice(-10)}_${Date.now()}`,
+                amount: 0,
+                currency: 'INR',
+                receipt: `m_ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
+                status: 'created'
+            };
+        } else {
+            razorpayOrder = await getRazorpay().orders.create({
+                amount: Math.round(feeDetails.totalFee * 100),
+                currency: 'INR',
+                receipt: `m_ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
+            });
+        }
 
         // Log the pending payment record
         await PaymentRecord.create({
@@ -3234,21 +3245,27 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
 const createServiceRenewalOrder = async (vendorId) => {
     const feeDetails = await getServiceRenewalFeeDetails(vendorId);
 
-    if (feeDetails.totalFee <= 0) {
-        throw new ApiError(400, 'Renewal fee is zero. Cannot create payment order.');
-    }
-
     let razorpayOrder;
     try {
-        razorpayOrder = await getRazorpay().orders.create({
-            amount: Math.round(feeDetails.totalFee * 100),
-            currency: 'INR',
-            receipt: `ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
-            notes: {
-                vendorId: vendorId.toString(),
-                purpose: 'service_renewal',
-            },
-        });
+        if (feeDetails.totalFee <= 0) {
+            razorpayOrder = {
+                id: `order_free_${vendorId.toString().slice(-10)}_${Date.now()}`,
+                amount: 0,
+                currency: 'INR',
+                receipt: `ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
+                status: 'created'
+            };
+        } else {
+            razorpayOrder = await getRazorpay().orders.create({
+                amount: Math.round(feeDetails.totalFee * 100),
+                currency: 'INR',
+                receipt: `ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
+                notes: {
+                    vendorId: vendorId.toString(),
+                    purpose: 'service_renewal',
+                },
+            });
+        }
 
         const adminService = require('../admin/admin.service');
         const _rd = await adminService.getSetting('pricing.service_renewal_days');
@@ -3755,21 +3772,27 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
 
     const totalToPay = feeDetails.totalWithGst;
 
-    if (totalToPay <= 0) {
-        throw new ApiError(400, 'Total fee for adding category is zero. Cannot create payment order.');
-    }
-
     let razorpayOrder;
     try {
-        razorpayOrder = await getRazorpay().orders.create({
-            amount: Math.round(totalToPay * 100),
-            currency: 'INR',
-            receipt: `add_cat_${vendorId.toString().slice(-10)}_${Date.now()}`,
-            notes: {
-                vendorId: vendorId.toString(),
-                purpose: 'category_purchase',
-            },
-        });
+        if (totalToPay <= 0) {
+            razorpayOrder = {
+                id: `order_free_${vendorId.toString().slice(-10)}_${Date.now()}`,
+                amount: 0,
+                currency: 'INR',
+                receipt: `add_cat_${vendorId.toString().slice(-10)}_${Date.now()}`,
+                status: 'created'
+            };
+        } else {
+            razorpayOrder = await getRazorpay().orders.create({
+                amount: Math.round(totalToPay * 100),
+                currency: 'INR',
+                receipt: `add_cat_${vendorId.toString().slice(-10)}_${Date.now()}`,
+                notes: {
+                    vendorId: vendorId.toString(),
+                    purpose: 'category_purchase',
+                },
+            });
+        }
 
         // Log the pending payment record
         await PaymentRecord.create({
@@ -4518,15 +4541,25 @@ const createPurchaseOrder = async (vendorId, { serviceIds = [], approvalRequestI
 
     let razorpayOrder;
     try {
-        razorpayOrder = await getRazorpay().orders.create({
-            amount: Math.round(totalToPay * 100),
-            currency: 'INR',
-            receipt: `pur_cat_${vendorId.toString().slice(-10)}_${Date.now()}`,
-            notes: {
-                vendorId: vendorId.toString(),
-                purpose: 'multi_category_purchase',
-            },
-        });
+        if (totalToPay <= 0) {
+            razorpayOrder = {
+                id: `order_free_${vendorId.toString().slice(-10)}_${Date.now()}`,
+                amount: 0,
+                currency: 'INR',
+                receipt: `add_svc_${vendorId.toString().slice(-10)}_${Date.now()}`,
+                status: 'created'
+            };
+        } else {
+            razorpayOrder = await getRazorpay().orders.create({
+                amount: Math.round(totalToPay * 100),
+                currency: 'INR',
+                receipt: `add_svc_${vendorId.toString().slice(-10)}_${Date.now()}`,
+                notes: {
+                    vendorId: vendorId.toString(),
+                    purpose: 'multi_category_purchase',
+                },
+            });
+        }
 
         // Log the pending payment record
         await PaymentRecord.create({
