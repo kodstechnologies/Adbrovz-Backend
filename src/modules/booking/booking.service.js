@@ -1668,19 +1668,22 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                 } catch(e) {}
                 
 
-                // ── Socket + FCM Hybrid: Online uses Socket (real-time), Offline uses FCM (reliable fallback) ──
+                // ── Socket + FCM Hybrid: Send BOTH socket AND FCM to ensure delivery ──
+                // Socket for real-time in-app notifications when app is active
+                // FCM as guaranteed delivery mechanism for all cases (background, inactive, offline)
                 
-                // 1. Socket Notification (Real-time when online)
+                // 1. Always send Socket Notification if vendor is online
                 if (online) {
-                    console.log(`[TRACKING-FLOW] [STEP 2.17] Vendor is ONLINE. Emitting 'new_booking_request' via socket(s): ${matchedSockets.join(', ')}`);
+                    console.log(`[TRACKING-FLOW] [STEP 2.17a] Vendor is ONLINE. Emitting 'new_booking_request' via socket(s): ${matchedSockets.join(', ')}`);
                     emitToVendor(vendorIdStr, 'new_booking_request', payload);
                     broadcastCount++;
-                } else {
-                    // 2. Push Notification (Fallback when offline)
-                    console.log(`[TRACKING-FLOW] [STEP 2.17] Vendor is OFFLINE (0 sockets). Sending FCM push notification...`);
+                }
+                
+                // 2. ALWAYS send FCM Push Notification as a reliable fallback (whether online or offline)
+                // This ensures delivery even if socket fails or app is in background
+                if (v.fcmToken) {
+                    console.log(`[TRACKING-FLOW] [STEP 2.17b] Sending FCM push notification to Vendor ${vendorNameStr}...`);
                     
-                    // Debug: ensure id is present before sending FCM
-                    console.log('[DEBUG] FCM payload id:', payload.id);
                     const fcmData = {
                       type: 'new_booking_request',
                       bookingId: payload.id || booking._id?.toString() || '',
@@ -1698,10 +1701,12 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                         sendPush: true,
                         fcmToken: v.fcmToken
                     }).then(() => {
-                        console.log(`[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to offline Vendor ${vendorNameStr}`);
+                        console.log(`[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to Vendor ${vendorNameStr}`);
                     }).catch(err => {
-                        console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to offline Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
+                        console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
                     });
+                } else {
+                    console.log(`[TRACKING-FLOW] [STEP 2.17c] Vendor ${vendorNameStr} has no FCM token. Skipping push notification.`);
                 }
 
                 return v._id;
