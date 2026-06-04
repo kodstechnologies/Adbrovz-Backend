@@ -742,9 +742,43 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount, members
     vendor.membership.membershipId = calc.planId;
     await vendor.save();
 
-    if (totalFee <= 0) {
-        throw new ApiError(400, 'Membership fee must be greater than 0');
-    }
+    if (totalFee < 0) {
+    throw new ApiError(400, 'Membership fee must not be negative');
+}
+// Allow zero-fee orders: skip Razorpay and mark payment as completed
+if (totalFee === 0) {
+    // Create a completed payment record without Razorpay
+    await PaymentRecord.create({
+        vendor: vendorId,
+        orderId: null,
+        purpose: 'MEMBERSHIP_PURCHASE',
+        amount: 0,
+        gstAmount: 0,
+        totalAmount: 0,
+        validityDays: calc.validityDays,
+        metadata: {
+            services: calc.itemBreakdown,
+            serviceSelectionsTotal: calc.servicesSubtotal,
+            basePlanFee: calc.basePlanFee,
+            durationMonths: durationMonths || calc.durationMonths
+        },
+        status: 'COMPLETED',
+        createdAt: new Date(),
+        updatedAt: new Date()
+    });
+    return {
+        vendorId: vendor._id,
+        vendorName: vendor.name,
+        totalFee: 0,
+        duration: `${calc.validityDays} days`,
+        status: 'completed',
+        razorpayKeyId: config.RAZORPAY_KEY_ID,
+        razorpayOrder: null,
+        services: calc.itemBreakdown,
+        serviceSelectionsTotal: calc.servicesSubtotal
+    };
+}
+
 
     // Razorpay amount is in paise (multiply by 100)
     let razorpayOrder;
