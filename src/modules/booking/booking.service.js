@@ -1769,14 +1769,13 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                     console.log(`[TRACKING-FLOW] [STEP 4] Hard-Stop timer fired! Evaluating booking ${booking._id}...`);
                     const current = await Booking.findById(booking._id);
                     if (current && current.status === 'pending_acceptance' && current.searchId === currentSearchId) {
-                        current.status = 'no_vendors_available';
-                        await current.save();
-                        console.warn(`[TRACKING-FLOW] [STEP 4.1] Hard-Stop completed. Marked booking ${booking._id} status as 'no_vendors_available'.`);
+                        // Don't change status to invalid enum value. Keep as 'pending_acceptance' so user can retry.
+                        console.warn(`[TRACKING-FLOW] [STEP 4.1] Hard-Stop completed. No vendors found for booking ${booking._id}. Notifying user.`);
                         
                         emitToUser(booking.user, 'booking_search_update', {
                             bookingId: booking._id,
                             bookingID: booking.bookingID,
-                            status: 'no_vendors_available',
+                            status: 'search_completed_no_vendors',
                             message: `Could not find any vendors within ${waves[waves.length - 1].km}km after ${waves[waves.length - 1].mins} minutes of searching. Please try again manually.`,
                             searchCompleted: true,
                             ...buildSearchTimingPayload({
@@ -2451,7 +2450,7 @@ const retrySearchVendors = async (userId, bookingId) => {
     
     console.log(`[DEBUG] retrySearchVendors: Found Booking ${booking._id} with status ${booking.status}`);
 
-    if (booking.status !== 'pending_acceptance' && booking.status !== 'no_vendors_available') {
+    if (booking.status !== 'pending_acceptance') {
         throw new ApiError(400, 'Retry allowed only for pending search requests');
     }
 
