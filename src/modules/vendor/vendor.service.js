@@ -2399,36 +2399,24 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         }
     }
 
-    // Unconditionally update/populate membership metadata with correct values
-    try {
-        const memDetails = await getVendorMembershipDetails(vendor._id, { membershipId: resolvedMembershipId });
-        vendor.membership.membershipFee = paymentRecord ? (paymentRecord.amount - (memDetails.serviceSelectionsTotal || 0)) : memDetails.basePlanFee;
-        vendor.membership.serviceFee = memDetails.serviceSelectionsTotal;
-        vendor.membership.gstAmount = paymentRecord ? paymentRecord.gstAmount : memDetails.gstAmount;
-        vendor.membership.totalAmount = paymentRecord ? paymentRecord.totalAmount : memDetails.totalFee;
-        vendor.membership.subtotal = paymentRecord ? paymentRecord.amount : memDetails.subtotal;
-        vendor.membership.fee = paymentRecord ? paymentRecord.totalAmount : memDetails.totalFee;
-        
-        if (paymentRecord?.validityDays) {
-            vendor.membership.durationMonths = Math.round(paymentRecord.validityDays / 30);
-        } else {
-            vendor.membership.durationMonths = memDetails.durationMonths;
+    // Update membership amount fields directly from the payment record (if available)
+    if (paymentRecord) {
+        vendor.membership.totalAmount = paymentRecord.totalAmount;
+        vendor.membership.gstAmount = paymentRecord.gstAmount;
+        vendor.membership.membershipFee = paymentRecord.amount;
+    } else {
+        // Fallback: recompute using membership details if needed
+        try {
+            const memDetails = await getVendorMembershipDetails(vendor._id, { membershipId: resolvedMembershipId });
+            vendor.membership.membershipFee = memDetails.basePlanFee;
+            vendor.membership.serviceFee = memDetails.serviceSelectionsTotal;
+            vendor.membership.gstAmount = memDetails.gstAmount;
+            vendor.membership.totalAmount = memDetails.totalFee;
+            vendor.membership.subtotal = memDetails.subtotal;
+            vendor.membership.fee = memDetails.totalFee;
+        } catch (err) {
+            console.error('Error populating/updating membership metadata (fallback):', err.message);
         }
-
-        if (!vendor.membership.category && memDetails.services.length > 0) {
-            const Service = require('../../models/Service.model');
-            const Subcategory = require('../../models/Subcategory.model');
-            const firstItem = memDetails.services[0];
-            if (firstItem.type === 'subcategory') {
-                const sub = await Subcategory.findById(firstItem.id).select('category');
-                vendor.membership.category = sub?.category;
-            } else {
-                const svc = await Service.findById(firstItem.id).select('category');
-                vendor.membership.category = svc?.category;
-            }
-        }
-    } catch (err) {
-        console.error('Error populating/updating membership metadata:', err.message);
     }
 
     await vendor.save();
@@ -3131,9 +3119,27 @@ const getMembershipRenewalFeeDetails = async (vendorId, { planId, membershipId, 
 const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, durationMonths } = {}) => {
     const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { planId, membershipId, durationMonths });
 
-    if (feeDetails.totalFee <= 0) {
-        throw new ApiError(400, 'Renewal fee is zero. Cannot create payment order.');
+    // Validate fee amount
+    if (feeDetails.totalFee < 0) {
+        throw new ApiError(400, 'Renewal fee cannot be negative.');
     }
+    if (feeDetails.totalFee === 0) {
+        // No payment needed, create completed payment record
+        await PaymentRecord.create({
+            vendor: vendorId,
+            orderId: null,
+            purpose: 'MEMBERSHIP_RENEWAL',
+            amount: 0,
+            gstAmount: 0,
+            totalAmount: 0,
+            planId: feeDetails.planId,
+            validityDays: feeDetails.validityDays,
+            metadata: feeDetails.breakdown,
+            status: 'COMPLETED'
+        });
+        return { ...feeDetails, status: 'COMPLETED', razorpayOrder: null };
+    }
+
 
     let razorpayOrder;
     try {
@@ -3233,20 +3239,21 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
     vendor.membership.expiryDate = newExpiryDate;
     vendor.membership.durationMonths = plan.validityDays / 30; // Rough estimate
     
-    // Update payment record history
-    try {
-        await PaymentRecord.findOneAndUpdate(
-            { orderId: razorpay_order_id },
-            { 
-                status: 'COMPLETED',
-                paymentId: razorpay_payment_id,
-                previousExpiryDate: baseDate,
-                newExpiryDate: newExpiryDate
-            }
-        );
-    } catch (paymentErr) {
-        console.error('Failed to update PaymentRecord on verification:', paymentErr.message);
+    // Update payment record history and propagate amounts to vendor membership
+    const paymentRecord = await PaymentRecord.findOne({ orderId: razorpay_order_id });
+    if (!paymentRecord) {
+        throw new ApiError(404, 'PaymentRecord not found');
     }
+    paymentRecord.status = 'COMPLETED';
+    paymentRecord.paymentId = razorpay_payment_id;
+    paymentRecord.previousExpiryDate = baseDate;
+    paymentRecord.newExpiryDate = newExpiryDate;
+    await paymentRecord.save();
+
+    // Update vendor membership amounts based on payment record
+    vendor.membership.totalAmount = paymentRecord.totalAmount;
+    vendor.membership.gstAmount = paymentRecord.gstAmount;
+    vendor.membership.membershipFee = paymentRecord.amount;
 
     await vendor.save();
 
@@ -3264,9 +3271,26 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
 const createServiceRenewalOrder = async (vendorId) => {
     const feeDetails = await getServiceRenewalFeeDetails(vendorId);
 
-    if (feeDetails.totalFee <= 0) {
-        throw new ApiError(400, 'Renewal fee is zero. Cannot create payment order.');
+    // Validate fee amount
+    if (feeDetails.totalFee < 0) {
+        throw new ApiError(400, 'Renewal fee cannot be negative.');
     }
+    // If zero fee, skip Razorpay and create completed payment record
+    if (feeDetails.totalFee === 0) {
+        await PaymentRecord.create({
+            vendor: vendorId,
+            orderId: null,
+            purpose: 'SERVICE_RENEWAL',
+            amount: 0,
+            gstAmount: 0,
+            totalAmount: 0,
+            validityDays: 30,
+            status: 'COMPLETED',
+        });
+        return { ...feeDetails, status: 'COMPLETED', razorpayOrder: null };
+    }
+
+
 
     let razorpayOrder;
     try {
@@ -3900,6 +3924,7 @@ const getExtraServiceApprovalRequests = async (vendorId) => {
 
     const purchasedServiceIds = new Set((vendor.selectedServices || []).map((service) => String(service?._id || service)));
     const visibleRequests = (vendor.extraServiceRequests || []).filter((req) => {
+        if (req.approvalStatus === 'disapproved') return false;
         if (req.approvalStatus !== 'approved') return true;
         const requestServiceIds = (req.services || []).map((service) => String(service?._id || service));
         return !requestServiceIds.some((serviceId) => purchasedServiceIds.has(serviceId));
