@@ -191,6 +191,10 @@ const bookingSchema = new mongoose.Schema(
     searchId: {
       type: String,
     },
+    retryCount: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true,

@@ -72,12 +72,9 @@ const userLogout = asyncHandler(async (req, res) => {
   // Clear the user's currentLoginId and FCM token to allow future logins and stop push notifications
   const userId = req.user?.id;
   if (userId) {
-    const user = await User.findById(userId);
-    if (user) {
-      user.currentLoginId = undefined;
-      user.fcmToken = undefined;
-      await user.save();
-    }
+    await User.findByIdAndUpdate(userId, {
+      $unset: { currentLoginId: 1, fcmToken: 1 }
+    });
   }
   res.status(200).json(new ApiResponse(200, null, MESSAGES.AUTH.LOGOUT_SUCCESS));
 });
@@ -128,12 +125,9 @@ const vendorLogout = asyncHandler(async (req, res) => {
   // Clear the vendor's currentLoginId and FCM token to allow future logins and stop push notifications
   const vendorId = req.user?.id;
   if (vendorId) {
-    const vendor = await Vendor.findById(vendorId);
-    if (vendor) {
-      vendor.currentLoginId = undefined;
-      vendor.fcmToken = undefined;
-      await vendor.save();
-    }
+    await Vendor.findByIdAndUpdate(vendorId, {
+      $unset: { currentLoginId: 1, fcmToken: 1 }
+    });
   }
   res.status(200).json(new ApiResponse(200, null, MESSAGES.AUTH.LOGOUT_SUCCESS));
 });
