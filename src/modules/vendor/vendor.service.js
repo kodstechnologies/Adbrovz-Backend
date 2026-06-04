@@ -742,28 +742,23 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount, members
     vendor.membership.membershipId = calc.planId;
     await vendor.save();
 
+    if (totalFee <= 0) {
+        throw new ApiError(400, 'Membership fee must be greater than 0');
+    }
+
+    // Razorpay amount is in paise (multiply by 100)
     let razorpayOrder;
     try {
-        if (totalFee <= 0) {
-            razorpayOrder = {
-                id: `order_free_${vendor._id.toString().slice(-10)}_${Date.now()}`,
-                amount: 0,
-                currency: 'INR',
-                receipt: `m_${vendor._id.toString().slice(-10)}_${Date.now()}`,
-                status: 'created'
-            };
-        } else {
-            razorpayOrder = await getRazorpay().orders.create({
-                amount: Math.round(totalFee * 100),
-                currency: 'INR',
-                receipt: `m_${vendor._id.toString().slice(-10)}_${Date.now()}`,
-                notes: {
-                    vendorId: vendor._id.toString(),
-                    vendorName: vendor.name,
-                    purpose: 'membership',
-                },
-            });
-        }
+        razorpayOrder = await getRazorpay().orders.create({
+            amount: Math.round(totalFee * 100),
+            currency: 'INR',
+            receipt: `m_${vendor._id.toString().slice(-10)}_${Date.now()}`,
+            notes: {
+                vendorId: vendor._id.toString(),
+                vendorName: vendor.name,
+                purpose: 'membership',
+            },
+        });
         // Log the pending payment record
         await PaymentRecord.create({
             vendor: vendorId,
@@ -1149,7 +1144,7 @@ const purchaseMembership = async (vendorId) => {
         const adminService = require('../admin/admin.service');
         const durationMonths = vendor.membership.durationMonths || 3;
         const plan = await getPlanByDuration(durationMonths);
-        const validityDays = (plan.validityDays !== undefined && plan.validityDays !== null && plan.validityDays !== '') ? Number(plan.validityDays) : (durationMonths * 30);
+        const validityDays = plan.validityDays || (durationMonths * 30);
 
         const now = new Date();
         const baseMemDate = (vendor.membership.expiryDate && vendor.membership.expiryDate > now)
@@ -1166,8 +1161,7 @@ const purchaseMembership = async (vendorId) => {
             : now;
         const renExpiry = new Date(baseRenDate);
         
-        const _rd1 = await adminService.getSetting('pricing.service_renewal_days');
-        const renewalDays = (_rd1 !== undefined && _rd1 !== null && _rd1 !== '') ? Number(_rd1) : 30;
+        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
         renExpiry.setDate(renExpiry.getDate() + Number(renewalDays));
         vendor.serviceRenewal.expiryDate = renExpiry;
 
@@ -1238,7 +1232,7 @@ const getMembershipPlans = async (serviceMembershipFee = 0, options = {}) => {
     const result = [];
     for (const plan of tiers) {
         const baseFee = (plan.price || 0);
-        const validityDays = (plan.validityDays !== undefined && plan.validityDays !== null && plan.validityDays !== '') ? Number(plan.validityDays) : 30;
+        const validityDays = plan.validityDays || 30;
         const serviceFee = Number(resolvedServiceMembershipFee || 0);
 
         const subtotal = baseFee + serviceFee;
@@ -1824,7 +1818,7 @@ const verifyDocument = async (vendorId, payload = {}) => {
             const startDate = new Date();
             const durationMonths = vendor.membership.durationMonths || 3;
             const plan = await getPlanByDuration(durationMonths);
-            const validityDays = (plan.validityDays !== undefined && plan.validityDays !== null && plan.validityDays !== '') ? Number(plan.validityDays) : (durationMonths * 30);
+            const validityDays = plan.validityDays || (durationMonths * 30);
 
             const expiryDate = new Date(startDate);
             expiryDate.setDate(expiryDate.getDate() + Number(validityDays));
@@ -1835,8 +1829,7 @@ const verifyDocument = async (vendorId, payload = {}) => {
             vendor.serviceRenewal = vendor.serviceRenewal || {};
             vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || startDate;
             const renExpiryDate = new Date();
-            const _rd1 = await adminService.getSetting('pricing.service_renewal_days');
-        const renewalDays = (_rd1 !== undefined && _rd1 !== null && _rd1 !== '') ? Number(_rd1) : 30;
+            const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
             renExpiryDate.setDate(renExpiryDate.getDate() + Number(renewalDays));
             vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiryDate;
 
@@ -1912,7 +1905,7 @@ if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
         const startDate = new Date();
         const durationMonths = vendor.membership.durationMonths || 3;
         const plan = await getPlanByDuration(durationMonths);
-        const validityDays = (plan.validityDays !== undefined && plan.validityDays !== null && plan.validityDays !== '') ? Number(plan.validityDays) : (durationMonths * 30);
+        const validityDays = plan.validityDays || (durationMonths * 30);
 
         const expiryDate = new Date(startDate);
         expiryDate.setDate(expiryDate.getDate() + Number(validityDays));
@@ -1923,8 +1916,7 @@ if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
         vendor.serviceRenewal = vendor.serviceRenewal || {};
         vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || startDate;
         const renExpiryDate = new Date();
-        const _rd1 = await adminService.getSetting('pricing.service_renewal_days');
-        const renewalDays = (_rd1 !== undefined && _rd1 !== null && _rd1 !== '') ? Number(_rd1) : 30;
+        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
         renExpiryDate.setDate(renExpiryDate.getDate() + Number(renewalDays));
         vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiryDate;
 
@@ -2314,8 +2306,7 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         // Initialize category subscriptions for registration categories
         if (vendor.selectedCategories && vendor.selectedCategories.length > 0) {
             const categoryExpiry = new Date(now);
-            const _rd3 = await adminService.getSetting('pricing.service_renewal_days');
-            const renewalDays = (_rd3 !== undefined && _rd3 !== null && _rd3 !== '') ? Number(_rd3) : 30;
+            const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 0;
             categoryExpiry.setDate(categoryExpiry.getDate() + Number(renewalDays)); // Service expires based on admin setting
 
             for (const catId of vendor.selectedCategories) {
@@ -3106,23 +3097,17 @@ const getMembershipRenewalFeeDetails = async (vendorId, { planId, membershipId, 
 const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, durationMonths } = {}) => {
     const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { planId, membershipId, durationMonths });
 
+    if (feeDetails.totalFee <= 0) {
+        throw new ApiError(400, 'Renewal fee is zero. Cannot create payment order.');
+    }
+
     let razorpayOrder;
     try {
-        if (feeDetails.totalFee <= 0) {
-            razorpayOrder = {
-                id: `order_free_${vendorId.toString().slice(-10)}_${Date.now()}`,
-                amount: 0,
-                currency: 'INR',
-                receipt: `m_ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
-                status: 'created'
-            };
-        } else {
-            razorpayOrder = await getRazorpay().orders.create({
-                amount: Math.round(feeDetails.totalFee * 100),
-                currency: 'INR',
-                receipt: `m_ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
-            });
-        }
+        razorpayOrder = await getRazorpay().orders.create({
+            amount: Math.round(feeDetails.totalFee * 100),
+            currency: 'INR',
+            receipt: `m_ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
+        });
 
         // Log the pending payment record
         await PaymentRecord.create({
@@ -3245,31 +3230,21 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
 const createServiceRenewalOrder = async (vendorId) => {
     const feeDetails = await getServiceRenewalFeeDetails(vendorId);
 
+    if (feeDetails.totalFee <= 0) {
+        throw new ApiError(400, 'Renewal fee is zero. Cannot create payment order.');
+    }
+
     let razorpayOrder;
     try {
-        if (feeDetails.totalFee <= 0) {
-            razorpayOrder = {
-                id: `order_free_${vendorId.toString().slice(-10)}_${Date.now()}`,
-                amount: 0,
-                currency: 'INR',
-                receipt: `ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
-                status: 'created'
-            };
-        } else {
-            razorpayOrder = await getRazorpay().orders.create({
-                amount: Math.round(feeDetails.totalFee * 100),
-                currency: 'INR',
-                receipt: `ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
-                notes: {
-                    vendorId: vendorId.toString(),
-                    purpose: 'service_renewal',
-                },
-            });
-        }
-
-        const adminService = require('../admin/admin.service');
-        const _rd = await adminService.getSetting('pricing.service_renewal_days');
-        const renewalDays = (_rd !== undefined && _rd !== null && _rd !== '') ? Number(_rd) : 30;
+        razorpayOrder = await getRazorpay().orders.create({
+            amount: Math.round(feeDetails.totalFee * 100),
+            currency: 'INR',
+            receipt: `ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
+            notes: {
+                vendorId: vendorId.toString(),
+                purpose: 'service_renewal',
+            },
+        });
 
         // Log the pending payment record
         await PaymentRecord.create({
@@ -3279,7 +3254,7 @@ const createServiceRenewalOrder = async (vendorId) => {
             amount: feeDetails.subtotal,
             gstAmount: feeDetails.gstAmount,
             totalAmount: feeDetails.totalFee,
-            validityDays: renewalDays, // Replaced hardcoded 30
+            validityDays: 30, // Service renewal is always 30 days
             status: 'PENDING'
         });
     } catch (error) {
@@ -3327,8 +3302,7 @@ const verifyServiceRenewalPayment = async (vendorId, { razorpay_order_id, razorp
         : now;
 
     const newExpiryDate = new Date(baseDate);
-    const _rd4 = await adminService.getSetting('pricing.service_renewal_days');
-    const renewalDays = (_rd4 !== undefined && _rd4 !== null && _rd4 !== '') ? Number(_rd4) : 30;
+    const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
     newExpiryDate.setDate(newExpiryDate.getDate() + Number(renewalDays));
 
     vendor.serviceRenewal.expiryDate = newExpiryDate;
@@ -3553,7 +3527,7 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
     if (!category) throw new ApiError(404, 'Category not found');
 
     const renewalDaysSetting = await adminService.getSetting('pricing.service_renewal_days');
-    const renewalDays = (renewalDaysSetting !== undefined && renewalDaysSetting !== null && renewalDaysSetting !== '') ? Number(renewalDaysSetting) : 30;
+    const renewalDays = renewalDaysSetting ? Number(renewalDaysSetting) : 30;
 
     // If subcategoryIds are missing but services are provided, derive the subcategories to ensure hierarchical charges are applied
     if (parsedSubcategoryIds.length === 0 && parsedServiceIds.length > 0) {
@@ -3772,27 +3746,21 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
 
     const totalToPay = feeDetails.totalWithGst;
 
+    if (totalToPay <= 0) {
+        throw new ApiError(400, 'Total fee for adding category is zero. Cannot create payment order.');
+    }
+
     let razorpayOrder;
     try {
-        if (totalToPay <= 0) {
-            razorpayOrder = {
-                id: `order_free_${vendorId.toString().slice(-10)}_${Date.now()}`,
-                amount: 0,
-                currency: 'INR',
-                receipt: `add_cat_${vendorId.toString().slice(-10)}_${Date.now()}`,
-                status: 'created'
-            };
-        } else {
-            razorpayOrder = await getRazorpay().orders.create({
-                amount: Math.round(totalToPay * 100),
-                currency: 'INR',
-                receipt: `add_cat_${vendorId.toString().slice(-10)}_${Date.now()}`,
-                notes: {
-                    vendorId: vendorId.toString(),
-                    purpose: 'category_purchase',
-                },
-            });
-        }
+        razorpayOrder = await getRazorpay().orders.create({
+            amount: Math.round(totalToPay * 100),
+            currency: 'INR',
+            receipt: `add_cat_${vendorId.toString().slice(-10)}_${Date.now()}`,
+            notes: {
+                vendorId: vendorId.toString(),
+                purpose: 'category_purchase',
+            },
+        });
 
         // Log the pending payment record
         await PaymentRecord.create({
@@ -4080,8 +4048,7 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
 
     // Update vendor profile for each category involved
     const now = new Date();
-    const _rd5 = await adminService.getSetting('pricing.service_renewal_days');
-    const renewalDays = (_rd5 !== undefined && _rd5 !== null && _rd5 !== '') ? Number(_rd5) : 30;
+    const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
 
     for (const [catIdStr, data] of categoriesToUpdate.entries()) {
         const catId = new mongoose.Types.ObjectId(catIdStr);
@@ -4288,7 +4255,7 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 0;
 
     const renewalDaysSetting = await adminService.getSetting('pricing.service_renewal_days');
-    const adminRenewalDays = (renewalDaysSetting !== undefined && renewalDaysSetting !== null && renewalDaysSetting !== '') ? Number(renewalDaysSetting) : 30;
+    const adminRenewalDays = renewalDaysSetting ? Number(renewalDaysSetting) : 30;
 
     // Derive renewalDays from the vendor's actual serviceRenewal cycle dates.
     // This ensures proration aligns to the real service expiry, not just the admin setting.
@@ -4541,25 +4508,15 @@ const createPurchaseOrder = async (vendorId, { serviceIds = [], approvalRequestI
 
     let razorpayOrder;
     try {
-        if (totalToPay <= 0) {
-            razorpayOrder = {
-                id: `order_free_${vendorId.toString().slice(-10)}_${Date.now()}`,
-                amount: 0,
-                currency: 'INR',
-                receipt: `add_svc_${vendorId.toString().slice(-10)}_${Date.now()}`,
-                status: 'created'
-            };
-        } else {
-            razorpayOrder = await getRazorpay().orders.create({
-                amount: Math.round(totalToPay * 100),
-                currency: 'INR',
-                receipt: `add_svc_${vendorId.toString().slice(-10)}_${Date.now()}`,
-                notes: {
-                    vendorId: vendorId.toString(),
-                    purpose: 'multi_category_purchase',
-                },
-            });
-        }
+        razorpayOrder = await getRazorpay().orders.create({
+            amount: Math.round(totalToPay * 100),
+            currency: 'INR',
+            receipt: `pur_cat_${vendorId.toString().slice(-10)}_${Date.now()}`,
+            notes: {
+                vendorId: vendorId.toString(),
+                purpose: 'multi_category_purchase',
+            },
+        });
 
         // Log the pending payment record
         await PaymentRecord.create({
