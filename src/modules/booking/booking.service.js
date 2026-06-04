@@ -1398,9 +1398,9 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
     console.log(`[TRACKING-FLOW] [STEP 2.4] Admin settings loaded: Row1=${r1_km}km/${r1_min}m, Row2=${r2_km}km/${r2_min}m, Row3=${r3_km}km/${r3_min}m`);
 
     const waves = [
-        { km: Number(r1_km) || 2, mins: Number(r1_min) || 5 },
-        { km: Number(r2_km) || 5, mins: Number(r2_min) || 10 },
-        { km: Number(r3_km) || 10, mins: Number(r3_min) || 15 }
+        { km: Number(r1_km) || 1, mins: Number(r1_min) || 5 },
+        { km: Number(r2_km) || 1, mins: Number(r2_min) || 10 },
+        { km: Number(r3_km) || 1, mins: Number(r3_min) || 15 }
     ];
 
     const totalSearchTimeMins = waves.reduce((sum, wave) => sum + wave.mins, 0);
