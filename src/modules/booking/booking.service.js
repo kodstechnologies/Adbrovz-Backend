@@ -2939,23 +2939,7 @@ const addServicesToBooking = async (vendorId, bookingId, newServices) => {
 
     const allowedStatuses = ['pending', 'on_the_way', 'arrived', 'ongoing'];
     if (!allowedStatuses.includes(booking.status)) {
-        throw new ApiError(400, 'Additional services can only be added after a lead isconst logout = async ({ userId, role, fcmToken }) => {
-  const Model = role === 'Vendor' ? require('../../models/Vendor.model') : require('../../models/User.model');
-  if (!userId) throw new ApiError(400, 'Missing userId for logout');
-  const doc = await Model.findById(userId);
-  if (!doc) throw new ApiError(404, `${role} not found`);
-  // Clear stored FCM token if provided or just wipe it
-  if (fcmToken && doc.fcmToken === fcmToken) {
-    doc.fcmToken = null;
-  } else {
-    doc.fcmToken = null;
-  }
-  await doc.save();
-  // Optional: clear cached session key
-  const cacheKey = `login:${role.toLowerCase()}:${userId}`;
-  await cacheService.del(cacheKey);
-  return { message: `${role} logged out successfully` };
-};');
+        throw new ApiError(400, 'Additional services can only be added after a lead is accepted');
     }
 
     if (!newServices || newServices.length === 0) {
