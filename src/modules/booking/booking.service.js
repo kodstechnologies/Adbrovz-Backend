@@ -2585,13 +2585,12 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
         throw new ApiError(404, 'Booking not found');
     }
 
-    // Block repricing of regular services (but allow if only extra services need pricing)
+    // Determine if any non‑extra services are being updated. Extra services (userRequestedServices) can be priced multiple times.
+    let nonExtraUpdate = false;
     const hasPendingExtraServices = booking.userRequestedServices &&
         booking.userRequestedServices.some(s => s.status === 'pending');
+    // The early guard is removed; we will enforce the once‑only rule only when a non‑extra service is updated.
 
-    if (booking.priceUpdatedOnce && !hasPendingExtraServices) {
-        throw new ApiError(400, 'Price can only be updated once per booking');
-    }
 
     if (!['pending', 'on_the_way', 'arrived', 'ongoing'].includes(booking.status)) {
         throw new ApiError(400, 'Price can only be updated before work is completed');
@@ -2635,6 +2634,7 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
                 } else {
                     item.isPriceConfirmed = false;
                     booking.markModified('services');
+                    nonExtraUpdate = true; // mark that a core service price was changed
                 }
                 
                 modified = true;
@@ -2647,8 +2647,6 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
         throw new ApiError(400, 'No unpriced services found to update');
     }
 
-    // Recalculate total price so the user can see the proposed amount before confirming
-    await recalculateBookingPrice(booking);
 
     booking.priceUpdatedOnce = true;
     // Sync booking-level flag: false because at least one service needs re-confirmation
