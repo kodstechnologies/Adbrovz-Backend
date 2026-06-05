@@ -1020,6 +1020,10 @@ const _formatBooking = (bookingDoc, role) => {
     // Remove rejectedServices history array from the response as requested
     delete bookingObj.rejectedServices;
 
+    // Filter out rejected user requested services for vendor view
+    if (role === 'vendor' && bookingObj.userRequestedServices) {
+        bookingObj.userRequestedServices = bookingObj.userRequestedServices.filter(item => item.status !== 'rejected');
+    }
     return bookingObj;
 };
 
