@@ -1398,7 +1398,7 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330, serviceId = nu
                 // Adjust end time if it exceeds the configured category end
                 const actualSlotEndUTCMs = Math.min(slotEndUTCMs, categoryEndUTCMs);
 
-                const isAvailable = (slotStartUTCMs - now.getTime()) >= 30 * 60000;
+                const isAvailable = (slotStartUTCMs - now.getTime()) >= 0;
                 if (isAvailable) {
                     const endDate = new Date(actualSlotEndUTCMs);
                     const endH = endDate.getUTCHours();
