@@ -1388,7 +1388,7 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330, serviceId = nu
 
         for (let h = slotStartH; h <= slotEndH; h++) {
             for (let m = (h === slotStartH ? slotStartM : 0); m < 60; m += stepMinutes) {
-                if (h === slotEndH && m >= slotEndM) break;
+                if (slotStartUTCMs >= categoryEndUTCMs) break;
                 
                 const currentMinutes = h * 60 + m;
                 const slotStartUTCMs = loopDate.getTime() + (currentMinutes * 60000);
