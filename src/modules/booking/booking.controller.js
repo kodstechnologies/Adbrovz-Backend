@@ -363,8 +363,7 @@ const completeWork = asyncHandler(async (req, res) => {
 const updatePrice = asyncHandler(async (req, res) => {
     const vendorId = req.user?._id || req.body.vendorId;
     const { id } = req.params; // bookingId
-    const result = await bookingService.updateBookingPrice(vendorId, id, updatedServices);
-
+    const { updatedServices } = req.body;
     const result = await bookingService.updateBookingPrice(vendorId, id, updatedServices);
 
     res.status(200).json(
