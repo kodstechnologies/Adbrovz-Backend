@@ -1400,9 +1400,8 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330, serviceId = nu
 
                 const isAvailable = (slotStartUTCMs - now.getTime()) >= 0;
                 if (isAvailable) {
-                    const endDate = new Date(actualSlotEndUTCMs);
-                    const endH = endDate.getUTCHours();
-                    const endM = endDate.getUTCMinutes();
+                                        const endH = Math.floor((currentMinutes + stepMinutes) / 60);
+                    const endM = (currentMinutes + stepMinutes) % 60;
                     dailySlots.push({
                         time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
                         endTime: `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`,
