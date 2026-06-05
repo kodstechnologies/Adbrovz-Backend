@@ -3554,7 +3554,7 @@ async function vendorAcceptExtraServices(vendorId, bookingId, acceptedServiceIds
  * Vendor rejects the user's extra service requests
  */
 async function vendorRejectExtraServices(vendorId, bookingId, rejectedServiceIds, reason) {
-    console.log(`[SERVICE] vendorRejectExtraServices called - vendorId: ${vendorId}, bookingId: ${bookingId}, rejectedServiceIds: ${JSON.stringify(rejectedServiceIds)}, reason: ${reason}`);
+
     const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
     if (!booking) {
         console.error(`[SERVICE] vendorRejectExtraServices ERROR: Booking not found for bookingId: ${bookingId}, vendorId: ${vendorId}`);
@@ -3567,12 +3567,36 @@ async function vendorRejectExtraServices(vendorId, bookingId, rejectedServiceIds
     }
 
     const now = new Date();
+    const rejectIds = rejectedServiceIds && rejectedServiceIds.length > 0 ? rejectedServiceIds.map(id => id.toString()) : null;
+
+    // Filter out rejected items from userRequestedServices
+    const originalLength = booking.userRequestedServices.length;
+    booking.userRequestedServices = booking.userRequestedServices.filter(item => {
+        const sid = item.service.toString();
+        const shouldReject = (item.status === 'pending' || item.status === 'priced') && (!rejectIds || rejectIds.includes(sid));
+        return !shouldReject; // keep if not rejected
+    });
+
+    const removedCount = originalLength - booking.userRequestedServices.length;
+    if (removedCount === 0) {
+        throw new ApiError(400, 'Could not reject any services. Ensure valid service IDs were provided.');
+    }
+
+    // Log rejection in history
+    booking.statusHistory.push({
+        status: 'extra_services_rejected',
+        actor: 'vendor',
+        reason: reason || 'Vendor declined to perform the requested extra services.',
+        timestamp: now
+    });
+    booking.markModified('statusHistory');
+    booking.markModified('userRequestedServices');
+
+    await booking.save();
     let hasRejected = false;
     let actualRejectedIds = [];
 
-    const rejectIds = rejectedServiceIds && rejectedServiceIds.length > 0 
-        ? rejectedServiceIds.map(id => id.toString()) 
-        : null;
+
 
     booking.userRequestedServices.forEach(item => {
         const sid = item.service.toString();

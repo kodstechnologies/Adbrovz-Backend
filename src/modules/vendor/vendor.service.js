@@ -4206,16 +4206,11 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
         });
     }
 
-    const purchasedServiceIds = new Set((vendor.selectedServices || []).map((service) => String(service?._id || service)));
     vendor.extraServiceRequests = (vendor.extraServiceRequests || []).filter((request) => {
         if (paymentRecord?.metadata?.approvalRequestId && String(request._id) === String(paymentRecord.metadata.approvalRequestId)) {
             return false;
         }
-        if (request.approvalStatus !== 'approved') {
-            return true;
-        }
-        const requestServiceIds = (request.services || []).map((service) => String(service?._id || service));
-        return !requestServiceIds.some((serviceId) => purchasedServiceIds.has(serviceId));
+        return true;
     });
 
     await vendor.save();
