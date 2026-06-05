@@ -889,11 +889,16 @@ const _formatBooking = (bookingDoc, role) => {
                 }
             };
 
-            // ── Derive price confirmation from per-service flags ──
             // All services must have isPriceConfirmed=true before OTP is revealed.
-            const allPricesConfirmed = (bookingObj.services || []).length > 0
+            const allMainServicesConfirmed = (bookingObj.services || []).length > 0
                 ? (bookingObj.services || []).every(s => s.isPriceConfirmed)
                 : !!bookingObj.isPriceConfirmed; // fallback for legacy bookings with no services
+
+            // Extra requested services lock the OTP if they are pending or priced (not yet accepted or rejected)
+            const allExtraServicesConfirmed = (bookingObj.userRequestedServices || [])
+                .every(s => s.status !== 'pending' && s.status !== 'priced');
+
+            const allPricesConfirmed = allMainServicesConfirmed && allExtraServicesConfirmed;
 
             if (['pending', 'on_the_way', 'arrived'].includes(bookingObj.status)) {
                 if (allPricesConfirmed) {
@@ -1011,6 +1016,9 @@ const _formatBooking = (bookingDoc, role) => {
         bookingObj.categoryName = bookingObj.category.title || bookingObj.category.name || "N/A";
         bookingObj.categoryId = bookingObj.category._id ? bookingObj.category._id : bookingObj.category;
     }
+
+    // Remove rejectedServices history array from the response as requested
+    delete bookingObj.rejectedServices;
 
     return bookingObj;
 };
