@@ -2683,7 +2683,8 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
     emitToUser(booking.user, 'booking_price_proposed', userPayload);
 
     console.log(`[SOCKET] updateBookingPrice completed successfully for booking: ${bookingId}`);
-    return { booking: userPayload, message: 'Price updated, awaiting user confirmation' };
+    const updatedResults = updatedServices.map(u => ({ serviceId: u.serviceId, newPrice: u.price }));
+    return { booking: userPayload, updatedServices: updatedResults, message: 'Price updated, awaiting user confirmation' };
 };
 
 /**

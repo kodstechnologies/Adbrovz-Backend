@@ -363,12 +363,12 @@ const completeWork = asyncHandler(async (req, res) => {
 const updatePrice = asyncHandler(async (req, res) => {
     const vendorId = req.user?._id || req.body.vendorId;
     const { id } = req.params; // bookingId
-    const { updatedServices } = req.body;
+    const result = await bookingService.updateBookingPrice(vendorId, id, updatedServices);
 
     const result = await bookingService.updateBookingPrice(vendorId, id, updatedServices);
 
     res.status(200).json(
-        new ApiResponse(200, result.booking, result.message)
+        new ApiResponse(200, { booking: result.booking, updatedServices: result.updatedServices }, result.message)
     );
 });
 

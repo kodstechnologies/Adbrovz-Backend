@@ -2188,14 +2188,14 @@ const getVendorProfile = async (vendorId) => {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-    const [completedBookingsThisMonth, totalCompletedBookingCounts] = await Promise.all([
-        Booking.find({
-            vendor: vendorIdObj,
-            status: 'completed',
-            updatedAt: { $gte: startOfMonth, $lte: endOfMonth }
-        }).select('pricing services'),
-        Booking.countDocuments({ vendor: vendorIdObj, status: 'completed' })
-    ]);
+    // Get completed bookings THIS MONTH (array for earnings calculation)
+    const completedBookingsThisMonth = await Booking.find({
+        vendor: vendorIdObj,
+        status: 'completed',
+        updatedAt: { $gte: startOfMonth, $lte: endOfMonth }
+    }).select('pricing services');
+    // Total number of completed bookings (all time)
+    const totalCompletedBookingCounts = await Booking.countDocuments({ vendor: vendorIdObj, status: 'completed' });
 
     let monthlyEarnings = 0;
     completedBookingsThisMonth.forEach(booking => {
