@@ -112,24 +112,6 @@ const createBookingRequest = async (
         const d = new Date(scheduledDate).getDate();
         // Construct date in IST (assuming IST since the app uses +05:30 in other places)
         const slotDate = new Date(`${new Date(scheduledDate).toISOString().split('T')[0]}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+05:30`);
-        
-        if ((slotDate.getTime() - Date.now()) < 30 * 60000) {
-            throw new ApiError(400, 'Bookings must be scheduled at least 30 minutes in advance');
-        }
-    }
-
-    if (subcategory?.timeSlots && subcategory.timeSlots.length > 0) {
-        const activeSlots = subcategory.timeSlots.filter(s => s.isActive);
-        if (activeSlots.length > 0) {
-            const normalizedTime = String(scheduledTime || '').slice(0, 5);
-            const isValid = activeSlots.some(s => s.startTime.slice(0, 5) === normalizedTime);
-            
-            if (!isValid) {
-                const slotLabels = activeSlots.map(s => s.label || s.startTime).join(', ');
-                throw new ApiError(400, `The selected time ${normalizedTime} is not valid for "${subcategory.name}". Please choose from: ${slotLabels}`);
-            }
-        }
-    }
 
     // Find all services under this subcategory so we can also match vendors by selectedServices
     const servicesInSubcategory = await Service.find({ subcategory: subcategoryId }).select('_id');
