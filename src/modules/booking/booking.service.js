@@ -916,16 +916,18 @@ const _formatBooking = (bookingDoc, role) => {
         }
     }
 
-    // Ensure extra services arrays always have pricing fields
+    // Ensure extra services arrays always have pricing fields, filtering out rejected ones
     if (bookingObj.userRequestedServices) {
-        bookingObj.userRequestedServices = bookingObj.userRequestedServices.map(item => ({
-            ...item,
-            adminPrice: item.adminPrice,
-            vendorPrice: item.vendorPrice,
-            finalPrice: item.finalPrice,
-            isPriceConfirmed: item.isPriceConfirmed ?? false,
-            isExtra: true
-        }));
+        bookingObj.userRequestedServices = bookingObj.userRequestedServices
+            .filter(item => item.status !== 'rejected')
+            .map(item => ({
+                ...item,
+                adminPrice: item.adminPrice,
+                vendorPrice: item.vendorPrice,
+                finalPrice: item.finalPrice,
+                isPriceConfirmed: item.isPriceConfirmed ?? false,
+                isExtra: true
+            }));
     }
 
     if (bookingObj.services) {
@@ -3598,6 +3600,19 @@ async function vendorRejectExtraServices(vendorId, bookingId, rejectedServiceIds
     await booking.save();
 
     const { emitToUser, emitToVendor } = require('../../socket');
+
+    // Populate service details for socket payload before they get filtered out in getBookingDetails
+    await booking.populate('userRequestedServices.service');
+    const rejectedServicesList = booking.userRequestedServices
+        .filter(item => item.status === 'rejected' && actualRejectedIds.includes((item.service?._id || item.service)?.toString()))
+        .map(item => {
+            const itemObj = item.toObject ? item.toObject() : item;
+            return {
+                ...itemObj,
+                isExtra: true
+            };
+        });
+
     const vendorPayload = await getBookingDetails(booking._id, vendorId, 'vendor');
     const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
 
@@ -3609,7 +3624,7 @@ async function vendorRejectExtraServices(vendorId, bookingId, rejectedServiceIds
         bookingId: booking._id,
         reason: reason || 'Vendor declined the extra services.',
         message: 'Vendor has rejected your request for additional services.',
-        rejectedServices: userPayload.userRequestedServices.filter(s => s.status === 'rejected'),
+        rejectedServices: rejectedServicesList,
         rejectedServiceIds: actualRejectedIds
     });
 
