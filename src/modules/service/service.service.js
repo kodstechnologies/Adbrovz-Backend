@@ -1331,18 +1331,92 @@ const getServiceCatalogue = async () => {
  * @param {string} serviceId Optional serviceId to base slot intervals on service duration
  */
 const getCategorySlots = async (categoryId, timezoneOffset = 330, serviceId = null) => {
-    const category = await Category.findById(categoryId).select('slotStartTime slotEndTime');
+    const category = await Category.findById(categoryId);
     if (!category) throw new ApiError(404, 'Category not found');
-    // Return raw slot timings as stored, without any rounding or interval generation
-    return [{
-        date: null,
-        dayLabel: null,
-        slots: [{
-            time: `${category.slotStartTime}-${category.slotEndTime}`,
-            displayTime: `${category.slotStartTime} - ${category.slotEndTime}`,
-            isAvailable: true
-        }]
-    }];
+
+    let stepMinutes = 30; // Default
+    if (serviceId) {
+        const service = await Service.findById(serviceId);
+        if (service && service.approxCompletionTime) {
+            // Use service duration as the interval, but capped between 30 and 120 mins for UI sanity
+            stepMinutes = Math.max(30, Math.min(service.approxCompletionTime, 120));
+        }
+    }
+
+    const parseTime = (timeStr, fallbackH) => {
+        if (!timeStr) return [fallbackH, 0];
+        const [h, m] = timeStr.split(':').map(Number);
+        return [isNaN(h) ? fallbackH : h, isNaN(m) ? 0 : m];
+    };
+
+    const [slotStartH, slotStartM] = parseTime(category.slotStartTime, 8);
+    const [slotEndH, slotEndM] = parseTime(category.slotEndTime, 20);
+
+    const formatDisplayTime = (h, m) => {
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const hours12 = h % 12 || 12;
+        return `${String(hours12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
+    };
+
+    const now = new Date();
+    const daysList = [];
+    const windowDays = 7;
+    const slotDurationMs = stepMinutes * 60 * 1000;
+
+    // Correctly calculate the start of the user's "Today" in UTC
+    const nowLocalMs = now.getTime() + (timezoneOffset * 60000);
+    const startOfUserTodayLocal = new Date(nowLocalMs);
+    startOfUserTodayLocal.setUTCHours(0, 0, 0, 0);
+    const todayBaseMs = startOfUserTodayLocal.getTime() - (timezoneOffset * 60000);
+    const todayBase = new Date(todayBaseMs);
+
+    for (let dayOffset = 0; dayOffset < windowDays; dayOffset++) {
+        const loopDate = new Date(todayBase.getTime());
+        loopDate.setUTCDate(loopDate.getUTCDate() + dayOffset);
+        
+        const localDateForLoop = new Date(loopDate.getTime() + (timezoneOffset * 60000));
+        const dateStr = localDateForLoop.toISOString().split('T')[0];
+        let dayLabel = dayOffset === 0 ? 'Today' : (dayOffset === 1 ? 'Tomorrow' : '');
+        
+        if (!dayLabel) {
+            const options = { weekday: 'short', month: 'short', day: 'numeric' };
+            dayLabel = loopDate.toLocaleDateString('en-US', options);
+        }
+
+        const dailySlots = [];
+        const categoryEndMs = (slotEndH * 60 + slotEndM) * 60000;
+
+        for (let h = slotStartH; h <= slotEndH; h++) {
+            for (let m = (h === slotStartH ? slotStartM : 0); m < 60; m += stepMinutes) {
+                const currentMinutes = h * 60 + m;
+                if (h === slotEndH && m >= slotEndM) break;
+                
+                const slotStartUTCMs = loopDate.getTime() + (currentMinutes * 60000);
+                const slotEndUTCMs = slotStartUTCMs + slotDurationMs;
+                const categoryEndUTCMs = loopDate.getTime() + categoryEndMs;
+                
+                if (slotEndUTCMs > categoryEndUTCMs) break;
+
+                const isAvailable = (slotStartUTCMs - now.getTime()) >= 30 * 60000;
+                
+                if (isAvailable) {
+                    dailySlots.push({
+                        time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+                        displayTime: formatDisplayTime(h, m),
+                        isAvailable
+                    });
+                }
+            }
+        }
+
+        daysList.push({
+            date: dateStr,
+            dayLabel,
+            slots: dailySlots
+        });
+    }
+
+    return daysList;
 };
 
 const getSubcategoryById = async (subcategoryId) => {
