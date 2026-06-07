@@ -112,6 +112,7 @@ const createBookingRequest = async (
         const d = new Date(scheduledDate).getDate();
         // Construct date in IST (assuming IST since the app uses +05:30 in other places)
         const slotDate = new Date(`${new Date(scheduledDate).toISOString().split('T')[0]}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+05:30`);
+    }
 
     // Find all services under this subcategory so we can also match vendors by selectedServices
     const servicesInSubcategory = await Service.find({ subcategory: subcategoryId }).select('_id');
@@ -1554,64 +1555,17 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
 
     if (broadcast) {
         try {
-            console.log(`[TRACKING-FLOW] [STEP 2.14] Initiating socket/push broadcast..const resendActiveRequestsToVendor = async (vendorId) => {
-    try {
-        const vIdStr = vendorId.toString();
-        const activeBookings = await Booking.find({
-            status: 'pending_acceptance',
-            notifiedVendors: vIdStr,
-            rejectedVendors: { $ne: vIdStr },
-            laterVendors: { $ne: vIdStr }
-        })
-        .populate('services.service', 'title serviceCharge photo approxCompletionTime')
-        .populate('category', 'title name')
-        .populate('user', 'name phoneNumber photo');
+            console.log(`[TRACKING-FLOW] [STEP 2.14] Initiating socket/push broadcast...`);
 
-        if (!activeBookings.length) return;
+            // Fetch populated booking for broadcast payload
+            const populatedBooking = await Booking.findById(booking._id)
+                .populate('services.service', 'title serviceCharge photo approxCompletionTime')
+                .populate('category', 'title name')
+                .populate('user', 'name phoneNumber photo');
 
-        const { emitToVendor } = require('../../socket');
-
-        const [r1_km, r2_km, r3_km] = await Promise.all([
-            adminService.getSetting('notifications.radius_row1_km'),
-            adminService.getSetting('notifications.radius_row2_km'),
-            adminService.getSetting('notifications.radius_row3_km')
-        ]);
-        const radii = [r1_km || 2, r2_km || 5, r3_km || 10];
-
-        for (const booking of activeBookings) {
             let totalDurationMins = 0;
-            if (booking.services && booking.services.length > 0) {
-                booking.services.forEach(item => {
-                    totalDurationMins += (item.service?.approxCompletionTime || 0) * (item.quantity || 1);
-                });
-            }
 
-            const retryCount = booking.retryCount || 0;
-            const radiusInKm = radii[Math.min(retryCount, radii.length - 1)];
-
-            const payload = {
-                ...(booking.toObject()),
-                bookingID: booking.bookingID,
-                totalDurationMins,
-                radius: radiusInKm
-            };
-
-            // Sensitive Data Redaction
-            if (payload.user) {
-                payload.user.phoneNumber = '••••••••••';
-                if (payload.user.email) payload.user.email = '••••••••••';
-            }
-            if (payload.location) {
-                payload.location.address = 'Location visible after acceptance';
-            }
-            if (payload.user && payload.location) {
-                emitToVendor(vIdStr, 'new_booking_request', payload);
-            }
-        }
-    } catch (error) {
-        console.error('[RESEND ACTIVE REQUESTS ERROR]', error);
-    }
-};.services && populatedBooking.services.length > 0) {
+            if (populatedBooking.services && populatedBooking.services.length > 0) {
                 populatedBooking.services.forEach(item => {
                     totalDurationMins += (item.service?.approxCompletionTime || 0) * (item.quantity || 1);
                 });
@@ -3956,6 +3910,43 @@ const resendActiveRequestsToVendor = async (vendorId) => {
             if (payload.user && payload.location) {
                 emitToVendor(vIdStr, 'new_booking_request', payload);
             }
+        }
+    } catch (error) {
+        console.error('[RESEND ACTIVE REQUESTS ERROR]', error);
+    }
+};
+
+const triggerBroadcast = async (bookingId) => {
+    const booking = await Booking.findOne({
+        $or: [{ _id: bookingId }, { bookingID: bookingId }]
+    });
+
+    if (!booking) throw new ApiError(404, 'Booking not found');
+
+    if (booking.status !== 'pending_acceptance') {
+        throw new ApiError(400, 'Broadcast allowed only for pending bookings');
+    }
+
+    // Reset search state
+    booking.retryCount = 0;
+    booking.searchId = require('crypto').randomUUID();
+    booking.laterVendors = [];
+    booking.rejectedVendors = [];
+
+    await booking.save();
+
+    const nearby = await searchVendors(booking, true);
+
+    return {
+        found: nearby.length > 0,
+        count: nearby.length,
+        notifiedVendorIds: nearby.map(v => v.vendorId),
+        message: nearby.length > 0
+            ? `Broadcast triggered. Notified ${nearby.length} vendors.`
+            : 'No vendors are currently available nearby.'
+    };
+};
+
 module.exports = {
     createBooking,
     addServicesToBooking,
