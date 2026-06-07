@@ -208,11 +208,7 @@ const createBookingRequest = async (
 
 };
 
-// Alias for createBooking used by the controller
-const createBooking = async (userId, payload) => {
-    // Reuse the existing createBookingRequest logic
-    return await createBookingRequest(userId, payload);
-};
+
 
 /**
  * Accept a Booking (Vendor accepts)
