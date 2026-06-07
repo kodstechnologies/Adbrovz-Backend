@@ -1195,6 +1195,8 @@ const createBooking = async (userId, bookingData) => {
         services,
         date,
         time,
+        scheduledDate,
+        scheduledTime,
         address,
         totalPrice,
         latitude,
@@ -1203,6 +1205,9 @@ const createBooking = async (userId, bookingData) => {
         confirmation,
         otp
     } = bookingData;
+
+    const bookingDate = date || scheduledDate;
+    const bookingTime = time || scheduledTime;
 
     if (!services || services.length === 0) {
         console.error("[TRACKING-FLOW] [ERROR] At least one service is required");
@@ -1226,10 +1231,10 @@ const createBooking = async (userId, bookingData) => {
     }
 
     // ── 30-Minute Buffer Validation ──
-    if (date && time) {
-        const [hour, minute] = time.split(':').map(Number);
+    if (bookingDate && bookingTime) {
+        const [hour, minute] = bookingTime.split(':').map(Number);
         // Construct date in IST
-        const slotDate = new Date(`${new Date(date).toISOString().split('T')[0]}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+05:30`);
+        const slotDate = new Date(`${new Date(bookingDate).toISOString().split('T')[0]}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+05:30`);
         
         console.log(`[TRACKING-FLOW] [STEP 1.5] Scheduled time slot constructed: ${slotDate.toISOString()}, Local Now: ${new Date().toISOString()}`);
         if ((slotDate.getTime() - Date.now()) < 30 * 60000) {
@@ -1270,7 +1275,7 @@ const createBooking = async (userId, bookingData) => {
         if (serviceData?.timeSlots && serviceData.timeSlots.length > 0) {
             const activeSlots = serviceData.timeSlots.filter(s => s.isActive);
             if (activeSlots.length > 0) {
-                const normalizedTime = String(time || '').slice(0, 5); 
+                const normalizedTime = String(bookingTime || '').slice(0, 5);
                 const isValid = activeSlots.some(s => s.startTime.slice(0, 5) === normalizedTime);
                 console.log(`[TRACKING-FLOW] [STEP 1.10] Service ${item.serviceId} time slot check: normalized=${normalizedTime}, valid=${isValid}`);
                 
@@ -1316,8 +1321,8 @@ const createBooking = async (userId, bookingData) => {
         user: userId,
         category: leadCategory,
         services: processedServices,
-        scheduledDate: new Date(date),
-        scheduledTime: time,
+        scheduledDate: new Date(bookingDate),
+        scheduledTime: bookingTime,
         location: { address, latitude, longitude, pincode },
         pricing: { 
             basePrice: calculatedBasePrice,
