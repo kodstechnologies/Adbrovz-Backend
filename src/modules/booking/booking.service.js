@@ -1554,24 +1554,64 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
 
     if (broadcast) {
         try {
-            console.log(`[TRACKING-FLOW] [STEP 2.14] Initiating socket/push broadcast...`);
-            const { getVendorSockets, getIo } = require('../../socket');
-            const io = getIo();
-            let broadcastCount = 0;
+            console.log(`[TRACKING-FLOW] [STEP 2.14] Initiating socket/push broadcast..const resendActiveRequestsToVendor = async (vendorId) => {
+    try {
+        const vIdStr = vendorId.toString();
+        const activeBookings = await Booking.find({
+            status: 'pending_acceptance',
+            notifiedVendors: vIdStr,
+            rejectedVendors: { $ne: vIdStr },
+            laterVendors: { $ne: vIdStr }
+        })
+        .populate('services.service', 'title serviceCharge photo approxCompletionTime')
+        .populate('category', 'title name')
+        .populate('user', 'name phoneNumber photo');
 
-            // Fetch latest data for broadcast
-            const populatedBooking = await Booking.findById(booking._id)
-                .populate('services.service', 'title serviceCharge photo approxCompletionTime')
-                .populate('category', 'title name')
-                .populate('user', 'name phoneNumber photo');
+        if (!activeBookings.length) return;
 
-            if (!populatedBooking) {
-                console.error(`[TRACKING-FLOW] [ERROR] Populated booking not found inside searchVendors for ID: ${booking._id}`);
-                return [];
+        const { emitToVendor } = require('../../socket');
+
+        const [r1_km, r2_km, r3_km] = await Promise.all([
+            adminService.getSetting('notifications.radius_row1_km'),
+            adminService.getSetting('notifications.radius_row2_km'),
+            adminService.getSetting('notifications.radius_row3_km')
+        ]);
+        const radii = [r1_km || 2, r2_km || 5, r3_km || 10];
+
+        for (const booking of activeBookings) {
+            let totalDurationMins = 0;
+            if (booking.services && booking.services.length > 0) {
+                booking.services.forEach(item => {
+                    totalDurationMins += (item.service?.approxCompletionTime || 0) * (item.quantity || 1);
+                });
             }
 
-            let totalDurationMins = 0;
-            if (populatedBooking.services && populatedBooking.services.length > 0) {
+            const retryCount = booking.retryCount || 0;
+            const radiusInKm = radii[Math.min(retryCount, radii.length - 1)];
+
+            const payload = {
+                ...(booking.toObject()),
+                bookingID: booking.bookingID,
+                totalDurationMins,
+                radius: radiusInKm
+            };
+
+            // Sensitive Data Redaction
+            if (payload.user) {
+                payload.user.phoneNumber = '••••••••••';
+                if (payload.user.email) payload.user.email = '••••••••••';
+            }
+            if (payload.location) {
+                payload.location.address = 'Location visible after acceptance';
+            }
+            if (payload.user && payload.location) {
+                emitToVendor(vIdStr, 'new_booking_request', payload);
+            }
+        }
+    } catch (error) {
+        console.error('[RESEND ACTIVE REQUESTS ERROR]', error);
+    }
+};.services && populatedBooking.services.length > 0) {
                 populatedBooking.services.forEach(item => {
                     totalDurationMins += (item.service?.approxCompletionTime || 0) * (item.quantity || 1);
                 });
@@ -3914,80 +3954,10 @@ const resendActiveRequestsToVendor = async (vendorId) => {
                 payload.location.address = 'Location visible after acceptance';
             }
             if (payload.user && payload.location) {
-                payload.user.latitude = payload.location.latitude;
-                payload.user.longitude = payload.location.longitude;
+                emitToVendor(vIdStr, 'new_booking_request', payload);
             }
-
-            console.log(`[SOCKET] Resending active request for booking ${booking.bookingID} to Vendor ${vIdStr}`);
-            emitToVendor(vIdStr, 'new_booking_request', payload);
-        }
-    } catch (error) {
-        console.error(`[SOCKET ERROR] Failed to resend active requests to vendor ${vendorId}:`, error.message);
-    }
-};
-
-/**
- * Trigger a broadcast for a specific booking to all matched vendors via socket.
- * Can be called via API to manually re-trigger order notifications.
- */
-const triggerBroadcast = async (bookingId) => {
-    const booking = await Booking.findById(bookingId);
-    if (!booking) throw new ApiError(404, 'Booking not found');
-
-    if (booking.status !== 'pending_acceptance') {
-        throw new ApiError(400, `Cannot broadcast: booking status is '${booking.status}'. Only 'pending_acceptance' bookings can be broadcasted.`);
-    }
-
-    console.log(`[BROADCAST] Manual trigger for booking ${booking._id}`);
-    const vendors = await searchVendors(booking, true);
-    return {
-        bookingId: booking._id,
-        bookingID: booking.bookingID,
-        vendorsSearched: vendors.length,
-        message: `Broadcast triggered. Found ${vendors.length} matching vendors.`
-    };
-};
-
 module.exports = {
-    // Booking flow
-    // Lead flow aliases (for controller compatibility)
-    requestLead: createBookingRequest,
-    acceptLead: acceptBooking,
-    rejectLead: rejectBooking,
-    markLeadLater: markBookingLater,
-
-    createBookingRequest,
     createBooking,
-    generateBookingID,
-    searchVendors,
-    acceptBooking,
-    rejectBooking,
-    markBookingLater,
-    cancelBooking,
-    vendorCancelBooking,
-    rescheduleBooking,
-    findBookingByUser,
-    getBookingDetails,
-    getBookingsByUser,
-    getBookingsByVendor,
-    getCompletedBookingsByUser,
-    getCancelledBookings,
-    getVendorBookingHistory,
-    getVendorLaterBookings,
-    retrySearchVendors,
-    getBookingStatusHistory,
-    markOnTheWay,
-    markArrived,
-    startWork,
-    requestCompletionOTP,
-    completeWork,
-    updateBookingPrice,
-    confirmBookingPrice,
-    rejectBookingPrice,
-
-    // New features
-    reportVendorNoShow,
-    gracePeriodCancel,
     addServicesToBooking,
     confirmProposedServices,
     rejectProposedServices,
@@ -4002,5 +3972,4 @@ module.exports = {
     broadcastVendorLocation,
     triggerBroadcast,
     resendActiveRequestsToVendor
-};
 };
