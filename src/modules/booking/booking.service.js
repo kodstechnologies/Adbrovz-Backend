@@ -158,7 +158,7 @@ const createBookingRequest = async (
         user: userId,
         status: 'pending_acceptance',
         statusHistory: [{ status: 'pending_acceptance', timestamp: new Date(), actor: 'user' }],
-        scheduledDate: scheduledDate || new Date(),
+        scheduledDate: scheduledDate ? new Date(scheduledDate) : new Date(),
         scheduledTime: scheduledTime || '00:00',
         category: leadCategory,
         location: { address, latitude, longitude, pincode },
