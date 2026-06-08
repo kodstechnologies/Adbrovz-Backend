@@ -2365,6 +2365,10 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         vendor.registrationStep = 'MEMBERSHIP_PAID';
     }
 
+    // Mark membership payment as verified and vendor as registered
+    vendor.membershipVerifyPayment = true;
+    vendor.isRegistered = true;
+
     // Find or complete PaymentRecord
     let paymentRecord = await PaymentRecord.findOne({ orderId: razorpay_order_id });
     if (paymentRecord) {
@@ -2437,6 +2441,8 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         },
         documentStatus: vendor.documentStatus,
         isVerified: vendor.isVerified,
+        isRegistered: vendor.isRegistered,
+        membershipVerifyPayment: vendor.membershipVerifyPayment,
         documents: documentStatuses,
         message: 'Membership activated successfully!',
     });
@@ -2446,6 +2452,8 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         message: 'Payment verified. Membership activated successfully.',
         isVerified: vendor.isVerified,
         documentStatus: vendor.documentStatus,
+        isRegistered: vendor.isRegistered,
+        membershipVerifyPayment: vendor.membershipVerifyPayment,
         membership: {
             startDate: vendor.membership.startDate,
             expiryDate: vendor.membership.expiryDate,
