@@ -23,6 +23,7 @@ const notificationSchema = new mongoose.Schema(
         'booking_rescheduled',
         'price_confirmation',
         'price_proposed',
+        'price_confirmed',
         'price_rejected',
         'services_proposed',
         'services_confirmed',

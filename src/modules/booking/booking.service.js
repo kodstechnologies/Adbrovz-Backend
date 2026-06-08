@@ -1521,6 +1521,7 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
 
     if (broadcast) {
         try {
+            let broadcastCount = 0;
             console.log(`[TRACKING-FLOW] [STEP 2.14] Initiating socket/push broadcast...`);
 
             // Fetch populated booking for broadcast payload
