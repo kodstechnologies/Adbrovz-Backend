@@ -983,7 +983,7 @@ const _formatBooking = (bookingDoc, role) => {
     // Initial actions (to be refined in getBookingDetails if dispute info is needed)
     bookingObj.actions = {
         canReschedule: rescheduleAllowed,
-        canCancel: ['pending_acceptance', 'pending'].includes(bookingObj.status),
+        canCancel: bookingObj.status === 'pending_acceptance',
         canAddService: bookingObj.status === 'ongoing',
         canRaiseDispute: bookingObj.status === 'completed',
         canViewDispute: false,
@@ -2018,8 +2018,9 @@ const cancelBooking = async (userId, bookingId, reason) => {
     const booking = await findBookingByUser(bookingId, userId);
     if (!booking) throw new ApiError(404, 'Booking not found');
 
-    if (['completed', 'cancelled'].includes(booking.status)) {
-        throw new ApiError(400, 'Cannot cancel a booking that is already completed or cancelled');
+    // ── Only allow cancellation while searching for vendors ──
+    if (booking.status !== 'pending_acceptance') {
+        throw new ApiError(400, 'Booking can only be cancelled while searching for vendors. Once a vendor accepts, cancellation is not allowed.');
     }
 
     // ── Cancel count enforcement ──
@@ -2028,28 +2029,7 @@ const cancelBooking = async (userId, bookingId, reason) => {
         throw new ApiError(400, `Maximum cancellation limit of ${cancelLimit} reached for this booking`);
     }
 
-    const lockMins = (await adminService.getSetting('bookings.cancellation_lock_mins')) || 60;
-
-    // Combine scheduledDate and scheduledTime into a proper Date object in IST
-    const scheduledDateTime = _getScheduledDateTimeIST(booking.scheduledDate, booking.scheduledTime);
-
     const now = new Date();
-    const diffMs = scheduledDateTime - now;
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-
-    // Allow users to cancel while the booking is still searching for vendors
-    // (status: 'pending_acceptance'). For other statuses enforce the lock window.
-    const skipLockForPending = booking.status === 'pending_acceptance';
-
-    console.log(`[CANCEL DEBUG] Booking ${booking._id} | status: ${booking.status} | scheduled: ${scheduledDateTime} | now: ${now} | diffMins: ${diffMins} | lockMins: ${lockMins} | skipLockForPending: ${skipLockForPending}`);
-
-    if (!skipLockForPending && diffMins < lockMins && diffMins > 0) {
-        throw new ApiError(400, `Booking cannot be cancelled within ${lockMins} minutes of the scheduled time`);
-    }
-
-    // Determine travel charge based on vendor arrival status
-    const vendorHasArrived = booking.status === 'arrived' || booking.status === 'ongoing';
-    const travelChargeApplied = vendorHasArrived;
 
     booking.status = 'cancelled';
     booking.statusHistory.push({ status: 'cancelled', actor: 'user', reason: reason || 'Cancelled by user', timestamp: now });
@@ -2059,7 +2039,7 @@ const cancelBooking = async (userId, bookingId, reason) => {
         cancelledBy: 'user',
         reason,
         cancelledAt: now,
-        travelChargeApplied
+        travelChargeApplied: false
     };
 
     await booking.save();
@@ -3953,10 +3933,49 @@ const triggerBroadcast = async (bookingId) => {
 };
 
 module.exports = {
+    // Lead flow
+    requestLead: createBookingRequest,
+    acceptLead: acceptBooking,
+    rejectLead: rejectBooking,
+    markLeadLater: markBookingLater,
+
+    // Booking creation
     createBooking,
+
+    // Booking flow
+    cancelBooking,
+    vendorCancelBooking,
+    getCancelledBookings,
+    rescheduleBooking,
+    getBookingsByUser,
+    getBookingsByVendor,
+    getCompletedBookingsByUser,
+    retrySearchVendors,
+    getVendorBookingHistory,
+    getVendorLaterBookings,
+    getBookingDetails,
+    getBookingStatusHistory,
+    markOnTheWay,
+    markArrived,
+    startWork,
+    requestCompletionOTP,
+    completeWork,
+
+    // Pricing
+    updateBookingPrice,
+    confirmBookingPrice,
+    rejectBookingPrice,
+
+    // Reporting
+    reportVendorNoShow,
+    gracePeriodCancel,
+
+    // Services
     addServicesToBooking,
     confirmProposedServices,
     rejectProposedServices,
+
+    // Extra services
     requestExtraServices,
     vendorAcceptExtraServices,
     vendorConfirmExtraServices,
@@ -3964,6 +3983,8 @@ module.exports = {
     userConfirmExtraServices,
     userRejectExtraServices,
     getVendorSelectableServicesForBooking,
+
+    // Tracking / broadcast
     shouldTrackVendor,
     broadcastVendorLocation,
     triggerBroadcast,
