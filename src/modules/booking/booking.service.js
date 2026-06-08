@@ -3936,8 +3936,11 @@ module.exports = {
     // Lead flow
     requestLead: createBookingRequest,
     acceptLead: acceptBooking,
+    acceptBooking,
     rejectLead: rejectBooking,
+    rejectBooking,
     markLeadLater: markBookingLater,
+    markBookingLater,
 
     // Booking creation
     createBooking,
