@@ -22,8 +22,12 @@ const authenticate = asyncHandler(async (req, res, next) => {
   // Session validation: if token contains currentLoginId, verify it matches the DB
   if (decoded.currentLoginId && decoded.userId) {
     const model = decoded.role === 'vendor' ? Vendor : User;
-    const user = await model.findById(decoded.userId).select('currentLoginId');
+    const user = await model.findById(decoded.userId).select('currentLoginId deviceId');
     if (user && user.currentLoginId && user.currentLoginId !== decoded.currentLoginId) {
+      throw new ApiError(401, 'Session expired. You have been logged in from another device.');
+    }
+    // Also validate deviceId if present in token
+    if (decoded.deviceId && user && user.deviceId && user.deviceId !== decoded.deviceId) {
       throw new ApiError(401, 'Session expired. You have been logged in from another device.');
     }
   }

@@ -53,6 +53,8 @@ const signupSchema = Joi.object({
       'any.only': 'You must accept the terms and privacy policy',
       'any.required': 'Policies acceptance is required',
     }),
+  fcmToken: Joi.string().optional().allow('', null),
+  deviceId: Joi.string().optional().allow('', null),
 });
 
 // Initiate User Signup schema
@@ -105,6 +107,8 @@ const completeUserSignupSchema = Joi.object({
     .messages({
       'any.only': 'You must accept the terms and privacy policy',
     }),
+  fcmToken: Joi.string().optional().allow('', null),
+  deviceId: Joi.string().optional().allow('', null),
 });
 
 // Vendor Signup schema (Step 1: Profile & Documents)
@@ -151,6 +155,8 @@ const vendorSignupSchema = Joi.object({
   services: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional(),
   // Duration
   durationMonths: Joi.number().optional(),
+  fcmToken: Joi.string().optional().allow('', null),
+  deviceId: Joi.string().optional().allow('', null),
 });
 
 // Vendor Set PIN schema (Step 2: PIN & Policies)
@@ -165,6 +171,8 @@ const vendorSetPINSchema = Joi.object({
     .required(),
   acceptedTerms: Joi.boolean().valid(true).required(),
   acceptedPrivacyPolicy: Joi.boolean().valid(true).required(),
+  fcmToken: Joi.string().optional().allow('', null),
+  deviceId: Joi.string().optional().allow('', null),
 });
 
 // Admin Signup schema
@@ -200,6 +208,8 @@ const loginSchema = Joi.object({
       'string.pattern.base': 'PIN must contain only numbers',
       'any.required': 'PIN is required',
     }),
+  fcmToken: Joi.string().optional().allow('', null),
+  deviceId: Joi.string().optional().allow('', null),
 });
 
 // Initiate Login schema
@@ -214,6 +224,8 @@ const initiateLoginSchema = Joi.object({
 const completeLoginSchema = Joi.object({
   loginId: Joi.string().required(),
   pin: Joi.string().length(4).pattern(/^\d+$/).required(),
+  fcmToken: Joi.string().optional().allow('', null),
+  deviceId: Joi.string().optional().allow('', null),
 });
 
 // Vendor Initiate Login schema (Step 1)
@@ -237,6 +249,8 @@ const vendorCompleteLoginSchema = Joi.object({
     'string.pattern.base': 'PIN must contain only numbers',
     'any.required': 'PIN is required',
   }),
+  fcmToken: Joi.string().optional().allow('', null),
+  deviceId: Joi.string().optional().allow('', null),
 });
 
 // OTP verification schema

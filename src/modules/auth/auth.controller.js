@@ -18,8 +18,8 @@ const userInitiateSignup = asyncHandler(async (req, res) => {
 });
 
 const userCompleteSignup = asyncHandler(async (req, res) => {
-  const { signupId, pin, confirmPin, acceptedPolicies, fcmToken } = req.body;
-  const result = await authService.completeUserSignup({ signupId, pin, confirmPin, acceptedPolicies, fcmToken }, req);
+  const { signupId, pin, confirmPin, acceptedPolicies, fcmToken, deviceId } = req.body;
+  const result = await authService.completeUserSignup({ signupId, pin, confirmPin, acceptedPolicies, fcmToken, deviceId }, req);
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
@@ -30,8 +30,8 @@ const userVerifyOTP = asyncHandler(async (req, res) => {
 });
 
 const userLogin = asyncHandler(async (req, res) => {
-  const { phoneNumber, pin } = req.body;
-  const result = await authService.login(phoneNumber, pin, 'user', req);
+  const { phoneNumber, pin, fcmToken, deviceId } = req.body;
+  const result = await authService.login(phoneNumber, pin, 'user', req, fcmToken, deviceId);
   res.status(200).json(new ApiResponse(200, result, MESSAGES.AUTH.LOGIN_SUCCESS));
 });
 
@@ -69,11 +69,11 @@ const userResetPIN = asyncHandler(async (req, res) => {
 });
 
 const userLogout = asyncHandler(async (req, res) => {
-  // Clear the user's currentLoginId and FCM token to allow future logins and stop push notifications
+  // Clear the user's currentLoginId, FCM token, and deviceId to allow future logins and stop push notifications
   const userId = req.user?.id;
   if (userId) {
     await User.findByIdAndUpdate(userId, {
-      $unset: { currentLoginId: 1, fcmToken: 1 }
+      $unset: { currentLoginId: 1, fcmToken: 1, deviceId: 1 }
     });
   }
   res.status(200).json(new ApiResponse(200, null, MESSAGES.AUTH.LOGOUT_SUCCESS));
@@ -87,14 +87,14 @@ const vendorSignup = asyncHandler(async (req, res) => {
 });
 
 const vendorCompleteSignup = asyncHandler(async (req, res) => {
-  const { signupId, pin, confirmPin, acceptedTerms, acceptedPrivacyPolicy, fcmToken } = req.body;
-  const result = await authService.completeVendorSignup({ signupId, pin, confirmPin, acceptedTerms, acceptedPrivacyPolicy, fcmToken });
+  const { signupId, pin, confirmPin, acceptedTerms, acceptedPrivacyPolicy, fcmToken, deviceId } = req.body;
+  const result = await authService.completeVendorSignup({ signupId, pin, confirmPin, acceptedTerms, acceptedPrivacyPolicy, fcmToken, deviceId });
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
 const vendorLogin = asyncHandler(async (req, res) => {
-  const { phoneNumber, pin } = req.body;
-  const result = await authService.login(phoneNumber, pin, 'vendor', req);
+  const { phoneNumber, pin, fcmToken, deviceId } = req.body;
+  const result = await authService.login(phoneNumber, pin, 'vendor', req, fcmToken, deviceId);
   res.status(200).json(new ApiResponse(200, result, MESSAGES.AUTH.LOGIN_SUCCESS));
 });
 
@@ -122,11 +122,11 @@ const vendorResetPIN = asyncHandler(async (req, res) => {
 });
 
 const vendorLogout = asyncHandler(async (req, res) => {
-  // Clear the vendor's currentLoginId and FCM token to allow future logins and stop push notifications
+  // Clear the vendor's currentLoginId, FCM token, and deviceId to allow future logins and stop push notifications
   const vendorId = req.user?.id;
   if (vendorId) {
     await Vendor.findByIdAndUpdate(vendorId, {
-      $unset: { currentLoginId: 1, fcmToken: 1 }
+      $unset: { currentLoginId: 1, fcmToken: 1, deviceId: 1 }
     });
   }
   res.status(200).json(new ApiResponse(200, null, MESSAGES.AUTH.LOGOUT_SUCCESS));

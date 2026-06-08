@@ -14,7 +14,7 @@ const adminService = require('../admin/admin.service');
 const CoinTransaction = require('../../models/CoinTransaction.model');
 const { parseArrayInput } = require('../../utils/dataParser');
 
-const userSignup = async ({ phoneNumber, name, email, pin, confirmPin, acceptedPolicies, fcmToken }) => {
+const userSignup = async ({ phoneNumber, name, email, pin, confirmPin, acceptedPolicies, fcmToken, deviceId }) => {
   // Check if user already exists
   const existingUser = await User.findOne({ phoneNumber });
 
@@ -38,6 +38,7 @@ const userSignup = async ({ phoneNumber, name, email, pin, confirmPin, acceptedP
     email,
     pin: hashedPIN,
     fcmToken: fcmToken || null,
+    deviceId: deviceId || null,
     isVerified: true,
     userID: `U${Date.now()}`, // Temporary, will be updated after verification
     acceptedPolicies,
@@ -126,7 +127,7 @@ const initiateUserSignup = async ({ phoneNumber, name, email }) => {
  * - Saves User as unverified
  * - Generates and sends OTP
  */
-const completeUserSignup = async ({ signupId, pin, confirmPin, acceptedPolicies, fcmToken }, req = null) => {
+const completeUserSignup = async ({ signupId, pin, confirmPin, acceptedPolicies, fcmToken, deviceId }, req = null) => {
   // Validate PIN match
   if (pin !== confirmPin) {
     throw new ApiError(400, MESSAGES.AUTH.PIN_MISMATCH);
@@ -163,6 +164,7 @@ const completeUserSignup = async ({ signupId, pin, confirmPin, acceptedPolicies,
     user.isVerified = true; // Auto-verified
     user.userID = `U${phoneNumber}`; // Set UserID
     if (fcmToken) user.fcmToken = fcmToken;
+    if (deviceId) user.deviceId = deviceId;
     await user.save();
   } else {
     // Create new user
@@ -172,6 +174,7 @@ const completeUserSignup = async ({ signupId, pin, confirmPin, acceptedPolicies,
       email,
       pin: hashedPIN,
       fcmToken: fcmToken || null,
+      deviceId: deviceId || null,
       isVerified: true, // Auto-verified
       userID: `U${phoneNumber}`, // Set UserID
       acceptedPolicies,
@@ -228,7 +231,7 @@ const completeUserSignup = async ({ signupId, pin, confirmPin, acceptedPolicies,
 /**
  * Vendor Step 2: Set PIN & Complete Signup
  */
-const completeVendorSignup = async ({ signupId, pin, confirmPin, acceptedTerms, acceptedPrivacyPolicy, fcmToken }) => {
+const completeVendorSignup = async ({ signupId, pin, confirmPin, acceptedTerms, acceptedPrivacyPolicy, fcmToken, deviceId }) => {
   if (pin !== confirmPin) {
     throw new ApiError(400, MESSAGES.AUTH.PIN_MISMATCH);
   }
@@ -260,6 +263,7 @@ const completeVendorSignup = async ({ signupId, pin, confirmPin, acceptedTerms, 
   vendor.registrationStep = 'SIGNUP_COMPLETED';
   vendor.documentStatus = 'pending';
   if (fcmToken) vendor.fcmToken = fcmToken;
+  if (deviceId) vendor.deviceId = deviceId;
 
   await vendor.save();
 
@@ -352,7 +356,7 @@ const initiateUserLogin = async ({ phoneNumber, acceptedPolicies }) => {
  * - Verifies PIN using session from loginId
  * - Returns tokens
  */
-const completeUserLogin = async ({ loginId, pin, fcmToken }, req = null) => {
+const completeUserLogin = async ({ loginId, pin, fcmToken, deviceId }, req = null) => {
   // Retrieve session from cache
   const loginKey = `login:session:${loginId}`;
   const sessionDataStr = await cacheService.get(loginKey);
@@ -364,7 +368,9 @@ const completeUserLogin = async ({ loginId, pin, fcmToken }, req = null) => {
   const { phoneNumber, role } = JSON.parse(sessionDataStr);
 
   // Perform standard login logic (PIN verification, locking, token generation)
-  const result = await login(phoneNumber, pin, role, req, pin === '1234' ? null : (fcmToken || req?.body?.fcmToken || null));
+  const resolvedFcmToken = pin === '1234' ? null : (fcmToken || req?.body?.fcmToken || null);
+  const resolvedDeviceId = deviceId || req?.body?.deviceId || null;
+  const result = await login(phoneNumber, pin, role, req, resolvedFcmToken, resolvedDeviceId);
 
   // Success! Delete session
   await cacheService.del(loginKey);
@@ -379,7 +385,7 @@ const vendorSignup = async (body) => {
     photo, idProof, addressProof, workProof, bankProof, policeVerification,
     workState, workCity, workPincodes,
     selectedCategories, selectedSubcategories, selectedServiceTypes, selectedServices,
-    categoryId, fcmToken
+    categoryId, fcmToken, deviceId
   } = body;
 
   console.log('[vendorSignup] Raw body keys:', Object.keys(body));
@@ -451,6 +457,7 @@ const vendorSignup = async (body) => {
     existingVendor.selectedServices = parsedServices;
     if (primaryCategoryId) existingVendor.membership.category = primaryCategoryId;
     if (fcmToken) existingVendor.fcmToken = fcmToken;
+    if (deviceId) existingVendor.deviceId = deviceId;
     existingVendor.registrationStep = 'PIN_PENDING';
     await existingVendor.save();
     vendor = existingVendor;
@@ -469,6 +476,7 @@ const vendorSignup = async (body) => {
       selectedServiceTypes: parsedServiceTypes,
       selectedServices: parsedServices,
       fcmToken: fcmToken || null,
+      deviceId: deviceId || null,
       documentStatus: 'pending',
       registrationStep: 'PIN_PENDING',
     };
@@ -716,7 +724,7 @@ const initiateVendorLogin = async ({ phoneNumber }) => {
  * - Verifies PIN using the session loginId
  * - Returns tokens
  */
-const completeVendorLogin = async ({ loginId, pin, fcmToken }, req = null) => {
+const completeVendorLogin = async ({ loginId, pin, fcmToken, deviceId }, req = null) => {
   const loginKey = `login:session:vendor:${loginId}`;
   const sessionDataStr = await cacheService.get(loginKey);
 
@@ -726,7 +734,9 @@ const completeVendorLogin = async ({ loginId, pin, fcmToken }, req = null) => {
 
   const { phoneNumber, role } = JSON.parse(sessionDataStr);
 
-  const result = await login(phoneNumber, pin, role, req, pin === '1234' ? null : (fcmToken || req?.body?.fcmToken || null));
+  const resolvedFcmToken = pin === '1234' ? null : (fcmToken || req?.body?.fcmToken || null);
+  const resolvedDeviceId = deviceId || req?.body?.deviceId || null;
+  const result = await login(phoneNumber, pin, role, req, resolvedFcmToken, resolvedDeviceId);
 
   await cacheService.del(loginKey);
 
@@ -734,7 +744,7 @@ const completeVendorLogin = async ({ loginId, pin, fcmToken }, req = null) => {
 };
 
 // ======================== LOGIN (for user/vendor) ========================
-const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = null) => {
+const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = null, deviceId = null) => {
   let user, model;
 
   // Based on role, search in specific model
@@ -797,6 +807,9 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
   if (fcmToken) {
     user.fcmToken = fcmToken;
   }
+  if (deviceId) {
+    user.deviceId = deviceId;
+  }
 
   // Auto-logout previous device if session already exists
   if (user.currentLoginId) {
@@ -823,8 +836,14 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
   user.currentLoginId = newLoginId;
   await user.save();
 
-  const token = generateToken({ userId: user._id, role: user.role, currentLoginId: newLoginId });
-  const refreshToken = generateRefreshToken({ userId: user._id, currentLoginId: newLoginId });
+  const tokenPayload = { userId: user._id, role: user.role, currentLoginId: newLoginId };
+  const refreshTokenPayload = { userId: user._id, currentLoginId: newLoginId };
+  if (user.deviceId) {
+    tokenPayload.deviceId = user.deviceId;
+    refreshTokenPayload.deviceId = user.deviceId;
+  }
+  const token = generateToken(tokenPayload);
+  const refreshToken = generateRefreshToken(refreshTokenPayload);
 
   const userIdField = role === 'vendor' ? 'vendorID' : 'userID';
 
