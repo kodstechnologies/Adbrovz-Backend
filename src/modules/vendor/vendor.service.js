@@ -1201,6 +1201,10 @@ const purchaseMembership = async (vendorId) => {
         vendor.registrationStep = 'MEMBERSHIP_PAID';
     }
 
+    // Mark membership payment as verified and vendor as registered
+    vendor.membershipVerifyPayment = true;
+    vendor.isRegistered = true;
+
     // Ensure membership metadata is populated if missing
     if (!vendor.membership.totalAmount || !vendor.membership.category) {
         try {
@@ -1235,7 +1239,9 @@ const purchaseMembership = async (vendorId) => {
     return {
         message: vendor.isVerified
             ? 'Membership payment successful. Your plan is now active.'
-            : 'Membership payment successful. Your account is being reviewed by Admin. Plan will start once verified.'
+            : 'Membership payment successful. Your account is being reviewed by Admin. Plan will start once verified.',
+        isRegistered: vendor.isRegistered,
+        membershipVerifyPayment: vendor.membershipVerifyPayment,
     };
 };
 
@@ -3260,13 +3266,19 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
     vendor.membership.gstAmount = paymentRecord.gstAmount;
     vendor.membership.membershipFee = paymentRecord.amount;
 
+    // Ensure registration flags are set on renewal too
+    vendor.membershipVerifyPayment = true;
+    vendor.isRegistered = true;
+
     await vendor.save();
 
     return {
         success: true,
         message: `Membership renewal payment verified successfully. Validity extended by ${validityDays} days.`,
         expiryDate: vendor.membership.expiryDate,
-        planId: plan.id
+        planId: plan.id,
+        isRegistered: vendor.isRegistered,
+        membershipVerifyPayment: vendor.membershipVerifyPayment,
     };
 };
 
