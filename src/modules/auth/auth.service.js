@@ -798,9 +798,24 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
     user.fcmToken = fcmToken;
   }
 
-  // Enforce single-device login: if a session already exists, reject login
+  // Auto-logout previous device if session already exists
   if (user.currentLoginId) {
-    throw new ApiError(403, 'Please logout from the previous device before logging in on this device.');
+    try {
+      const { emitToUser, emitToVendor } = require('../../socket');
+      const { sendPush } = require('../../utils/pushNotification');
+      const targetModel = role === 'vendor' ? 'Vendor' : 'User';
+      const emitter = role === 'vendor' ? emitToVendor : emitToUser;
+
+      emitter(user._id.toString(), 'force_logout', {
+        message: 'You have been logged out because you logged in on another device.',
+        reason: 'new_login',
+        previousLoginId: user.currentLoginId
+      });
+
+      sendPush(user._id, targetModel, 'force_logout', 'Logged Out', 'You have been logged out because you logged in on another device.', { reason: 'new_login' });
+    } catch (err) {
+      console.error('Failed to notify previous device about logout:', err.message);
+    }
   }
 
   // Generate a new login session identifier
@@ -808,8 +823,8 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
   user.currentLoginId = newLoginId;
   await user.save();
 
-  const token = generateToken({ userId: user._id, role: user.role });
-  const refreshToken = generateRefreshToken({ userId: user._id });
+  const token = generateToken({ userId: user._id, role: user.role, currentLoginId: newLoginId });
+  const refreshToken = generateRefreshToken({ userId: user._id, currentLoginId: newLoginId });
 
   const userIdField = role === 'vendor' ? 'vendorID' : 'userID';
 
@@ -1053,8 +1068,8 @@ const refreshToken = async (refreshToken) => {
     throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
   }
 
-  const token = generateToken({ userId: user._id, role: user.role });
-  const newRefreshToken = generateRefreshToken({ userId: user._id });
+  const token = generateToken({ userId: user._id, role: user.role, currentLoginId: user.currentLoginId });
+  const newRefreshToken = generateRefreshToken({ userId: user._id, currentLoginId: user.currentLoginId });
 
   return {
     token,

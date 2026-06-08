@@ -104,16 +104,6 @@ const createBookingRequest = async (
     const subcategory = await mongoose.model('Subcategory').findById(subcategoryId).populate('category');
     const leadCategory = subcategory?.category?._id;
 
-    // ── Time Slot Validation ──
-    if (scheduledDate && scheduledTime) {
-        const [hour, minute] = scheduledTime.split(':').map(Number);
-        const y = new Date(scheduledDate).getFullYear();
-        const m = new Date(scheduledDate).getMonth();
-        const d = new Date(scheduledDate).getDate();
-        // Construct date in IST (assuming IST since the app uses +05:30 in other places)
-        const slotDate = new Date(`${new Date(scheduledDate).toISOString().split('T')[0]}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+05:30`);
-    }
-
     // Find all services under this subcategory so we can also match vendors by selectedServices
     const servicesInSubcategory = await Service.find({ subcategory: subcategoryId }).select('_id');
     const serviceIdsInSubcategory = servicesInSubcategory.map(s => s._id);
@@ -1230,19 +1220,6 @@ const createBooking = async (userId, bookingData) => {
         throw new ApiError(403, `You are temporarily banned from making bookings until ${user.bannedUntil.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} due to multiple cancellations.`);
     }
 
-    // ── 30-Minute Buffer Validation ──
-    if (bookingDate && bookingTime) {
-        const [hour, minute] = bookingTime.split(':').map(Number);
-        // Construct date in IST
-        const slotDate = new Date(`${new Date(bookingDate).toISOString().split('T')[0]}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+05:30`);
-        
-        console.log(`[TRACKING-FLOW] [STEP 1.5] Scheduled time slot constructed: ${slotDate.toISOString()}, Local Now: ${new Date().toISOString()}`);
-        if ((slotDate.getTime() - Date.now()) < 30 * 60000) {
-            console.error("[TRACKING-FLOW] [ERROR] Booking scheduled less than 30 minutes in advance");
-            throw new ApiError(400, 'Bookings must be scheduled at least 30 minutes in advance');
-        }
-    }
-
     const existingBookingsCount = await Booking.countDocuments({ user: userId });
     console.log(`[TRACKING-FLOW] [STEP 1.6] User's existing bookings count: ${existingBookingsCount}`);
 
@@ -1269,22 +1246,6 @@ const createBooking = async (userId, bookingData) => {
         if (i === 0 && serviceData) {
             leadCategory = serviceData.category?._id;
             console.log(`[TRACKING-FLOW] [STEP 1.9] Resolved Lead Category ID: ${leadCategory}`);
-        }
-
-        // ── Time Slot Validation ──
-        if (serviceData?.timeSlots && serviceData.timeSlots.length > 0) {
-            const activeSlots = serviceData.timeSlots.filter(s => s.isActive);
-            if (activeSlots.length > 0) {
-                const normalizedTime = String(bookingTime || '').slice(0, 5);
-                const isValid = activeSlots.some(s => s.startTime.slice(0, 5) === normalizedTime);
-                console.log(`[TRACKING-FLOW] [STEP 1.10] Service ${item.serviceId} time slot check: normalized=${normalizedTime}, valid=${isValid}`);
-                
-                if (!isValid) {
-                    const slotLabels = activeSlots.map(s => s.label || s.startTime).join(', ');
-                    console.error(`[TRACKING-FLOW] [ERROR] Time slot ${normalizedTime} is invalid for ${serviceData.title}`);
-                    throw new ApiError(400, `The selected time ${normalizedTime} is not valid for "${serviceData.title}". Please choose from: ${slotLabels}`);
-                }
-            }
         }
 
         if (adminPrice === 0) {
