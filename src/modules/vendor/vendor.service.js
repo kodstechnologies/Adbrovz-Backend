@@ -233,10 +233,7 @@ const _getMembershipCharge = (item, type = 'service') => {
     // We'll keep the fallback but make it lower priority than any non-zero serviceCharge.
     
     if (svcCharge === 0 && memCharge > 0) {
-        // Return 0 if they strictly want serviceCharge only, 
-        // but usually we need a value if available.
-        // Given "serviceCharge this only", I'll return svcCharge (0)
-        return svcCharge;
+        return memCharge;
     }
 
     return svcCharge;
