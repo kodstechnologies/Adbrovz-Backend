@@ -78,6 +78,19 @@ const serviceTypeSchema = new mongoose.Schema(
   }
 );
 
+// ── Post-save hooks: cascade isAdminPriced update to related services ──
+const Service = require('./Service.model');
+
+serviceTypeSchema.post('save', async function (doc) {
+  await Service.updateServicesIsAdminPriced({ serviceType: doc._id });
+});
+
+serviceTypeSchema.post('findOneAndUpdate', async function (doc) {
+  if (doc) {
+    await Service.updateServicesIsAdminPriced({ serviceType: doc._id });
+  }
+});
+
 // Indexes
 serviceTypeSchema.index({ subcategory: 1 });
 serviceTypeSchema.index({ order: 1 });

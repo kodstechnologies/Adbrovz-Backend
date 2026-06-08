@@ -86,6 +86,19 @@ const subcategorySchema = new mongoose.Schema(
   }
 );
 
+// ── Post-save hooks: cascade isAdminPriced update to related services ──
+const Service = require('./Service.model');
+
+subcategorySchema.post('save', async function (doc) {
+  await Service.updateServicesIsAdminPriced({ subcategory: doc._id });
+});
+
+subcategorySchema.post('findOneAndUpdate', async function (doc) {
+  if (doc) {
+    await Service.updateServicesIsAdminPriced({ subcategory: doc._id });
+  }
+});
+
 // Indexes
 subcategorySchema.index({ category: 1 });
 

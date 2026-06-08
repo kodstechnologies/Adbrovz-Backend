@@ -103,18 +103,35 @@ const serviceSchema = new mongoose.Schema(
   }
 );
 
-// Pre-save hook to set isAdminPriced automatically
+// ── Helper: compute total hierarchical price for a (populated) service ──
+const computeTotalHierarchicalPrice = (service) => {
+  const categoryPrice =
+    service.category && typeof service.category === 'object'
+      ? (service.category.bookingPrice || 0)
+      : 0;
+  const subcategoryPrice =
+    service.subcategory && typeof service.subcategory === 'object'
+      ? (service.subcategory.bookingPrice || 0)
+      : 0;
+  const serviceTypePrice =
+    service.serviceType && typeof service.serviceType === 'object'
+      ? (service.serviceType.bookingPrice || 0)
+      : 0;
+  const servicePrice =
+    service.bookingPrice !== undefined && service.bookingPrice !== null
+      ? service.bookingPrice
+      : (service.serviceCharge || 0);
+
+  return categoryPrice + subcategoryPrice + serviceTypePrice + servicePrice;
+};
+
+// Pre-save hook to set isAdminPriced automatically from hierarchy
 serviceSchema.pre('save', function (next) {
-  const hasServiceCharge = this.serviceCharge !== undefined && this.serviceCharge !== null && this.serviceCharge > 0;
-  const hasBookingPrice = this.bookingPrice !== undefined && this.bookingPrice !== null && this.bookingPrice > 0;
-  
-  if (hasServiceCharge || hasBookingPrice) {
-    this.isAdminPriced = true;
-  } else {
-    this.isAdminPriced = false;
-    if (this.serviceCharge === undefined || this.serviceCharge === null) {
-      this.serviceCharge = 0;
-    }
+  const total = computeTotalHierarchicalPrice(this);
+  this.isAdminPriced = total > 0;
+
+  if (this.serviceCharge === undefined || this.serviceCharge === null) {
+    this.serviceCharge = 0;
   }
   next();
 });
@@ -123,6 +140,34 @@ serviceSchema.pre('save', function (next) {
 serviceSchema.index({ category: 1, subcategory: 1, serviceType: 1 });
 
 const Service = mongoose.model('Service', serviceSchema);
+
+// ── Async helper: update isAdminPriced on all matching services ──
+// Called by Category / Subcategory / ServiceType post-save hooks
+Service.updateServicesIsAdminPriced = async function (filter) {
+  try {
+    const services = await Service.find(filter)
+      .populate('category', 'bookingPrice')
+      .populate('subcategory', 'bookingPrice')
+      .populate('serviceType', 'bookingPrice')
+      .lean();
+
+    const bulkOps = services.map((s) => {
+      const total = computeTotalHierarchicalPrice(s);
+      return {
+        updateOne: {
+          filter: { _id: s._id },
+          update: { $set: { isAdminPriced: total > 0 } },
+        },
+      };
+    });
+
+    if (bulkOps.length > 0) {
+      await Service.bulkWrite(bulkOps);
+    }
+  } catch (err) {
+    console.error('[Service.updateServicesIsAdminPriced] Error:', err.message);
+  }
+};
 
 module.exports = Service;
 
