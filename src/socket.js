@@ -498,12 +498,13 @@ const initSocket = (server) => {
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
+                const { serviceIds } = data || {};
 
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
                 const bookingService = require('./modules/booking/booking.service');
-                const result = await bookingService.confirmBookingPrice(userId, bookingId);
+                const result = await bookingService.confirmBookingPrice(userId, bookingId, serviceIds);
                 socket.emit('booking_update_price_success', result);
             } catch (error) {
                 socket.emit('booking_error', { action: 'confirm_booking_price', message: error.message });
@@ -514,13 +515,13 @@ const initSocket = (server) => {
             try {
                 const userId = stringifyId(data?.userId || socket.userId);
                 const bookingId = stringifyId(data?.bookingId);
-                const { reason } = data || {};
+                const { reason, serviceIds } = data || {};
 
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
                 const bookingService = require('./modules/booking/booking.service');
-                const result = await bookingService.rejectBookingPrice(userId, bookingId, reason);
+                const result = await bookingService.rejectBookingPrice(userId, bookingId, reason, serviceIds);
                 socket.emit('booking_reject_price_success', result);
             } catch (error) {
                 socket.emit('booking_error', { action: 'reject_booking_price', message: error.message });

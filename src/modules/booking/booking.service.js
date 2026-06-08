@@ -2613,23 +2613,50 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
 /**
  * User confirms the updated price
  */
-const confirmBookingPrice = async (userId, bookingId) => {
+const confirmBookingPrice = async (userId, bookingId, serviceIds = []) => {
     const booking = await Booking.findOne({ _id: bookingId, user: userId });
     if (!booking) throw new ApiError(404, 'Booking not found');
 
-    booking.isPriceConfirmed = true;
-    booking.services.forEach(s => s.isPriceConfirmed = true);
+    // Normalize serviceIds to strings for comparison
+    const targetIds = (serviceIds || []).map(id => id.toString()).filter(Boolean);
+    const hasTargetIds = targetIds.length > 0;
 
-    // Also confirm any user-requested extra services that were priced
+    const isTargetService = (serviceId) => {
+        if (!hasTargetIds) return true;
+        return targetIds.includes(serviceId.toString());
+    };
+
+    // Confirm matching main services
+    let confirmedMainCount = 0;
+    booking.services.forEach(s => {
+        if (!s.isPriceConfirmed && isTargetService(s.service)) {
+            s.isPriceConfirmed = true;
+            confirmedMainCount++;
+        }
+    });
+
+    // Confirm matching user-requested extra services that were priced
+    let confirmedExtraCount = 0;
     if (booking.userRequestedServices && booking.userRequestedServices.length > 0) {
         booking.userRequestedServices.forEach(s => {
-            if (s.status === 'priced') {
+            if (s.status === 'priced' && !s.isPriceConfirmed && isTargetService(s.service)) {
                 s.isPriceConfirmed = true;
                 s.status = 'accepted';
+                confirmedExtraCount++;
             }
         });
         booking.markModified('userRequestedServices');
     }
+
+    if (hasTargetIds && confirmedMainCount === 0 && confirmedExtraCount === 0) {
+        throw new ApiError(400, 'No matching unconfirmed services found for the given service IDs');
+    }
+
+    // Sync booking-level flag: true if all remaining services are confirmed
+    const remainingAllConfirmed = (booking.services || []).length > 0
+        ? (booking.services || []).every(s => s.isPriceConfirmed)
+        : true;
+    booking.isPriceConfirmed = remainingAllConfirmed;
 
     // Recalculate total price now that it's confirmed
     await recalculateBookingPrice(booking);
@@ -2637,11 +2664,14 @@ const confirmBookingPrice = async (userId, bookingId) => {
     // Log confirmation
     booking.statusHistory.push({
         status: 'price_confirmed',
-        reason: 'Price confirmed by user',
+        reason: hasTargetIds
+            ? `Price confirmed by user for ${confirmedMainCount} service(s) and ${confirmedExtraCount} extra service(s)`
+            : 'Price confirmed by user',
         actor: 'user',
         timestamp: new Date()
     });
     booking.markModified('statusHistory');
+    booking.markModified('services');
 
     await booking.save();
 
@@ -2657,19 +2687,32 @@ const confirmBookingPrice = async (userId, bookingId) => {
     // ── Send Push Notification to Vendor ──
     sendPush(booking.vendor, 'Vendor', 'price_confirmed', 'Price Confirmed', `User has confirmed the proposed price for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
+    // Specific notification event with confirmed service IDs
+    emitToVendor(booking.vendor, 'booking_price_confirmed', {
+        ...vendorPayload,
+        confirmedServiceIds: targetIds,
+        confirmedMainCount,
+        confirmedExtraCount
+    });
 
-    // Specific notification event
-    emitToVendor(booking.vendor, 'booking_price_confirmed', vendorPayload);
-
-    return { booking: userPayload, message: 'Price confirmed successfully' };
+    return { booking: userPayload, message: 'Price confirmed successfully', confirmedServiceIds: targetIds };
 };
 
 /**
  * User rejects the updated price
  */
-const rejectBookingPrice = async (userId, bookingId, reason) => {
+const rejectBookingPrice = async (userId, bookingId, reason, serviceIds = []) => {
     const booking = await findBookingByUser(bookingId, userId);
     if (!booking) throw new ApiError(404, 'Booking not found');
+
+    // Normalize serviceIds to strings for comparison
+    const targetIds = (serviceIds || []).map(id => id.toString()).filter(Boolean);
+    const hasTargetIds = targetIds.length > 0;
+
+    const isTargetService = (serviceId) => {
+        if (!hasTargetIds) return true;
+        return targetIds.includes(serviceId.toString());
+    };
 
     // Derive from per-service flags: if ALL services already have isPriceConfirmed=true,
     // there is nothing left to reject.
@@ -2681,12 +2724,12 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
         throw new ApiError(400, 'Cannot reject price — all service prices are already confirmed');
     }
 
-    // Identify unconfirmed services in main services array
-    const unconfirmedServices = booking.services.filter(s => !s.isPriceConfirmed);
+    // Identify unconfirmed services in main services array that match targetIds
+    const unconfirmedServices = booking.services.filter(s => !s.isPriceConfirmed && isTargetService(s.service));
     
     // Identify unconfirmed extra services (those priced by vendor but not yet accepted by user)
     const unconfirmedExtraServices = (booking.userRequestedServices || []).filter(
-        s => s.status === 'priced' && !s.isPriceConfirmed
+        s => s.status === 'priced' && !s.isPriceConfirmed && isTargetService(s.service)
     );
 
     if (unconfirmedServices.length === 0 && unconfirmedExtraServices.length === 0) {
@@ -2725,13 +2768,24 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
         });
     });
 
-    // Remove rejected services from both arrays
-    booking.services = booking.services.filter(s => s.isPriceConfirmed);
-    
-    if (booking.userRequestedServices) {
-        booking.userRequestedServices = booking.userRequestedServices.filter(
-            s => !(s.status === 'priced' && !s.isPriceConfirmed)
-        );
+    // Remove rejected services from both arrays (only remove matching targetIds if specified)
+    if (hasTargetIds) {
+        // When specific IDs are given, only remove those that were rejected
+        const rejectedIds = new Set([...unconfirmedServices.map(s => s.service.toString()), ...unconfirmedExtraServices.map(s => s.service.toString())]);
+        booking.services = booking.services.filter(s => !rejectedIds.has(s.service.toString()) || s.isPriceConfirmed);
+        if (booking.userRequestedServices) {
+            booking.userRequestedServices = booking.userRequestedServices.filter(
+                s => !rejectedIds.has(s.service.toString()) || !(s.status === 'priced' && !s.isPriceConfirmed)
+            );
+        }
+    } else {
+        // Original behavior: remove all unconfirmed
+        booking.services = booking.services.filter(s => s.isPriceConfirmed);
+        if (booking.userRequestedServices) {
+            booking.userRequestedServices = booking.userRequestedServices.filter(
+                s => !(s.status === 'priced' && !s.isPriceConfirmed)
+            );
+        }
     }
 
     // If no main services left, the booking should be cancelled
@@ -2779,6 +2833,7 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
         emitToVendor(booking.vendor, 'booking_price_rejected', {
             bookingId: booking._id,
             reason: reason || 'Price rejected by user',
+            rejectedServiceIds: targetIds,
             message: booking.status === 'cancelled' 
                 ? 'User rejected the price and the booking was cancelled.'
                 : 'User rejected the proposed price for some services.'
@@ -2786,7 +2841,8 @@ const rejectBookingPrice = async (userId, bookingId, reason) => {
     }
 
     return { 
-        booking: populatedBooking, 
+        booking: populatedBooking,
+        rejectedServiceIds: targetIds,
         message: booking.status === 'cancelled'
             ? 'Price rejected. Booking cancelled as no services remain.'
             : 'Price rejected for selected services. Booking remains active.' 

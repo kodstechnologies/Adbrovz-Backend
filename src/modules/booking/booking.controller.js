@@ -377,8 +377,9 @@ const updatePrice = asyncHandler(async (req, res) => {
 const confirmPrice = asyncHandler(async (req, res) => {
     const userId = req.user?._id || req.user?.userId;
     const { id } = req.params; // bookingId
+    const { serviceIds } = req.body;
 
-    const result = await bookingService.confirmBookingPrice(userId, id);
+    const result = await bookingService.confirmBookingPrice(userId, id, serviceIds);
 
     res.status(200).json(
         new ApiResponse(200, result.booking, result.message)
@@ -391,9 +392,9 @@ const confirmPrice = asyncHandler(async (req, res) => {
 const rejectPrice = asyncHandler(async (req, res) => {
     const userId = req.user?._id || req.user?.userId;
     const { id } = req.params; // bookingId
-    const { reason } = req.body;
+    const { reason, serviceIds } = req.body;
 
-    const result = await bookingService.rejectBookingPrice(userId, id, reason);
+    const result = await bookingService.rejectBookingPrice(userId, id, reason, serviceIds);
 
     res.status(200).json(
         new ApiResponse(200, result.booking, result.message)
