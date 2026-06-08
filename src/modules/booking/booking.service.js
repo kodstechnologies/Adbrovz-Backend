@@ -3492,60 +3492,44 @@ async function vendorRejectExtraServices(vendorId, bookingId, rejectedServiceIds
     const now = new Date();
     const rejectIds = rejectedServiceIds && rejectedServiceIds.length > 0 ? rejectedServiceIds.map(id => id.toString()) : null;
 
-    // Filter out rejected items from userRequestedServices
-    const originalLength = booking.userRequestedServices.length;
-    booking.userRequestedServices = booking.userRequestedServices.filter(item => {
+    // Identify items to reject before filtering them out
+    const toReject = [];
+    const remaining = [];
+    for (const item of booking.userRequestedServices) {
         const sid = item.service.toString();
         const shouldReject = (item.status === 'pending' || item.status === 'priced') && (!rejectIds || rejectIds.includes(sid));
-        return !shouldReject; // keep if not rejected
-    });
+        if (shouldReject) {
+            toReject.push(item);
+        } else {
+            remaining.push(item);
+        }
+    }
 
-    const removedCount = originalLength - booking.userRequestedServices.length;
-    if (removedCount === 0) {
+    if (toReject.length === 0) {
         throw new ApiError(400, 'Could not reject any services. Ensure valid service IDs were provided.');
     }
+
+    const actualRejectedIds = [];
+    for (const item of toReject) {
+        const sid = item.service.toString();
+        booking.rejectedServices.push({
+            service: item.service,
+            quantity: item.quantity,
+            adminPrice: item.adminPrice,
+            vendorPrice: item.vendorPrice,
+            finalPrice: item.finalPrice,
+            rejectedBy: 'vendor',
+            rejectionType: 'extra_service',
+            reason: reason || 'Vendor declined the requested extra services.',
+            rejectedAt: now
+        });
+        actualRejectedIds.push(sid);
+    }
+
+    // Replace userRequestedServices with only the remaining items
+    booking.userRequestedServices = remaining;
 
     // Log rejection in history
-    booking.statusHistory.push({
-        status: 'extra_services_rejected',
-        actor: 'vendor',
-        reason: reason || 'Vendor declined to perform the requested extra services.',
-        timestamp: now
-    });
-    booking.markModified('statusHistory');
-    booking.markModified('userRequestedServices');
-
-    await booking.save();
-    let hasRejected = false;
-    let actualRejectedIds = [];
-
-
-
-    booking.userRequestedServices.forEach(item => {
-        const sid = item.service.toString();
-        if ((item.status === 'pending' || item.status === 'priced') && (!rejectIds || rejectIds.includes(sid))) {
-            booking.rejectedServices.push({
-                service: item.service,
-                quantity: item.quantity,
-                adminPrice: item.adminPrice,
-                vendorPrice: item.vendorPrice,
-                finalPrice: item.finalPrice,
-                rejectedBy: 'vendor',
-                rejectionType: 'extra_service',
-                reason: reason || 'Vendor declined the requested extra services.',
-                rejectedAt: now
-            });
-            item.status = 'rejected';
-            actualRejectedIds.push(sid);
-            hasRejected = true;
-        }
-    });
-
-    if (!hasRejected) {
-        throw new ApiError(400, 'Could not reject any services. Ensure valid service IDs were provided.');
-    }
-
-    // Log in history
     booking.statusHistory.push({
         status: 'extra_services_rejected',
         actor: 'vendor',
@@ -3560,10 +3544,10 @@ async function vendorRejectExtraServices(vendorId, bookingId, rejectedServiceIds
 
     const { emitToUser, emitToVendor } = require('../../socket');
 
-    // Populate service details for socket payload before they get filtered out in getBookingDetails
-    await booking.populate('userRequestedServices.service');
-    const rejectedServicesList = booking.userRequestedServices
-        .filter(item => item.status === 'rejected' && actualRejectedIds.includes((item.service?._id || item.service)?.toString()))
+    // Populate service details for socket payload
+    await booking.populate('rejectedServices.service');
+    const rejectedServicesList = booking.rejectedServices
+        .filter(item => actualRejectedIds.includes((item.service?._id || item.service)?.toString()))
         .map(item => {
             const itemObj = item.toObject ? item.toObject() : item;
             return {
