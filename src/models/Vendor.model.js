@@ -201,6 +201,10 @@ const vendorSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isRegistered: {
+      type: Boolean,
+      default: false,
+    },
     isLocked: {
       type: Boolean,
       default: false,
@@ -405,6 +409,27 @@ vendorSchema.virtual('planStatus').get(function () {
 // Photo virtual mapping to document photo
 vendorSchema.virtual('photo').get(function () {
   return this.documents?.photo?.url || '';
+});
+
+// Auto-set isRegistered once vendor completes all registration stages
+vendorSchema.pre('save', function(next) {
+  if (!this.isRegistered) {
+    const now = new Date();
+    const memExp = this.membership?.expiryDate ? new Date(this.membership.expiryDate) : null;
+    const renExp = this.serviceRenewal?.expiryDate ? new Date(this.serviceRenewal.expiryDate) : null;
+
+    const hasActiveMembership = memExp && memExp > now;
+    const hasActiveRenewal = renExp && renExp > now;
+
+    if (
+      this.registrationStep === 'COMPLETED' &&
+      this.documentStatus === 'approved' &&
+      (hasActiveMembership || hasActiveRenewal)
+    ) {
+      this.isRegistered = true;
+    }
+  }
+  next();
 });
 
 // Indexes

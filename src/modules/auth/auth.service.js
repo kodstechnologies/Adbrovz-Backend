@@ -300,6 +300,7 @@ const completeVendorSignup = async ({ signupId, pin, confirmPin, acceptedTerms, 
     isMembership: !!(vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) > new Date()),
     serviceApproval: vendor.serviceApprovalStatus === 'approved',
     documentStatus: vendor.documentStatus,
+    isRegistered: vendor.isRegistered || false,
     message: 'Vendor registration completed successfully. Please wait for document approval.',
   };
 };
@@ -498,6 +499,7 @@ const vendorSignup = async (body) => {
     phoneNumber: vendor.phoneNumber,
     isVerified: vendor.isVerified || false,
     isMembership: !!(vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) > new Date()),
+    isRegistered: vendor.isRegistered || false,
     message: 'Profile registered. Please set your PIN.',
   };
 };
@@ -842,10 +844,29 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
     responsePayload.isMembership = !!(user.membership?.expiryDate && new Date(user.membership.expiryDate) > new Date());
     responsePayload.serviceApproval = user.serviceApprovalStatus === 'approved';
 
+    // Compute isRegistered for existing vendors that haven't been saved since schema update
+    let isRegistered = user.isRegistered || false;
+    if (!isRegistered) {
+      const now = new Date();
+      const memExp = user.membership?.expiryDate ? new Date(user.membership.expiryDate) : null;
+      const renExp = user.serviceRenewal?.expiryDate ? new Date(user.serviceRenewal.expiryDate) : null;
+      const hasActiveMembership = memExp && memExp > now;
+      const hasActiveRenewal = renExp && renExp > now;
+      if (
+        user.registrationStep === 'COMPLETED' &&
+        user.documentStatus === 'approved' &&
+        (hasActiveMembership || hasActiveRenewal)
+      ) {
+        isRegistered = true;
+      }
+    }
+    responsePayload.isRegistered = isRegistered;
+
     responsePayload.verificationStatus = {
       isVerified: user.isVerified || false,
       documentStatus: user.documentStatus || 'pending',
       isMembership: responsePayload.isMembership,
+      isRegistered: responsePayload.isRegistered,
       membership: {
         expiryDate: user.membership?.expiryDate || null,
       },
