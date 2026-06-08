@@ -2018,7 +2018,7 @@ const toggleVendorSuspension = async (vendorId, { isSuspended }) => {
     const title = isSuspended ? 'Account Suspended' : 'Account Reactivated';
     const message = isSuspended ? 'Your account has been suspended.' : 'Your account has been reactivated.';
     
-    sendPush(vendor._id, 'Vendor', 'account_status', title, message, { isSuspended });
+    await sendPush(vendor._id, 'Vendor', 'account_status', title, message, { isSuspended });
     const verificationPayload = _getVerificationPayload(vendor);
     verificationPayload.message = message;
 
@@ -2061,11 +2061,11 @@ const rejectVendorAccount = async (vendorId, { reason }) => {
     vendor.markModified('documents');
     await vendor.save();
 
-    // Notify Vendor
-    sendPush(vendor._id, 'Vendor', 'verification_update', 'Account Rejected', message, { documentStatus: 'rejected', isVerified: false });
-
-
     const message = `Your account has been rejected. Reason: ${reason || 'No reason provided'}`;
+
+    // Notify Vendor
+    await sendPush(vendor._id, 'Vendor', 'verification_update', 'Account Rejected', message, { documentStatus: 'rejected', isVerified: false });
+
     const verificationPayload = _getVerificationPayload(vendor);
     verificationPayload.message = message;
 

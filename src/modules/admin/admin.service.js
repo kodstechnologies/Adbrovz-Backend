@@ -343,7 +343,7 @@ const updateUserStatus = async (userId, status, adminId) => {
     body = 'Your account has been reactivated. Welcome back!';
   }
 
-  sendPush(user._id, 'User', type, title, body, { status });
+  await sendPush(user._id, 'User', type, title, body, { status });
 
   return user;
 };
