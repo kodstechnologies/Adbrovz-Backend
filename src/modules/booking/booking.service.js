@@ -2128,7 +2128,7 @@ const getAvailableSlots = async (vendorId, date, excludeBookingId) => {
                 Math.max(slotStart, w.start) < Math.min(slotEnd, w.end)
             );
 
-            const isAvailable = (slotStart.getTime() - Date.now()) >= 30 * 60000;
+            const isAvailable = slotStart.getTime() > Date.now();
             if (!overlaps && isAvailable) {
                 slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
             }
