@@ -3201,37 +3201,6 @@ async function requestExtraServices(userId, bookingId, newServices) {
                 }
             }
 
-        // ── Check if this service was already price-confirmed in the main services list ──
-        // If so, reuse the previously approved price and skip vendor approval entirely.
-        const approvedEntry = booking.services.find(
-            s => s.service.toString() === requestedServiceId && s.isPriceConfirmed === true
-        );
-
-        let adminPrice, vendorPrice, finalPrice, isPriceConfirmed, status;
-
-        if (approvedEntry) {
-            // Reuse the per-unit price from the already-confirmed service entry
-            const approvedUnitPrice = approvedEntry.quantity > 0
-                ? approvedEntry.finalPrice / approvedEntry.quantity
-                : approvedEntry.finalPrice;
-
-            adminPrice   = approvedEntry.adminPrice   || 0;
-            vendorPrice  = approvedEntry.vendorPrice  || 0;
-            finalPrice   = approvedUnitPrice * qty;
-            isPriceConfirmed = true;   // No re-approval needed
-            status       = 'accepted'; // Skip vendor pricing step
-        } else {
-            adminPrice  = (serviceDoc.bookingPrice !== undefined && serviceDoc.bookingPrice !== null && serviceDoc.bookingPrice > 0)
-                ? serviceDoc.bookingPrice
-                : (serviceDoc.serviceCharge || 0);
-            vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
-            finalPrice  = adminPrice > 0
-                ? adminPrice * qty
-                : (vendorPrice > 0 ? vendorPrice * qty : 0);
-            isPriceConfirmed = false;
-            status       = 'pending';
-        }
-
         booking.userRequestedServices.push({
             service: serviceDoc._id,
             quantity: qty,
