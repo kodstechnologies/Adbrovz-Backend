@@ -2550,7 +2550,7 @@ const getDashboardMetrics = async (vendorId) => {
     // 2. Get pending jobs (Awaiting Confirmation)
     const pendingJobs = await Booking.countDocuments({
         vendor: vendorIdObj,
-        status: 'pending_acceptance'
+        status: 'pending'
     });
 
     // 3. Get ongoing jobs (In Progress)
