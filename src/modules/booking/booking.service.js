@@ -2092,7 +2092,7 @@ const vendorCancelBooking = async (vendorId, bookingId, reason) => {
 };
 
 /**
- * Get available 1-hour time slots for a vendor on a given date (08:00–20:00)
+ * Get available 30-minute time slots for a vendor on a given date (08:00–20:00)
  * excluding windows that overlap with existing bookings.
  */
 const getAvailableSlots = async (vendorId, date, excludeBookingId) => {
@@ -2118,7 +2118,7 @@ const getAvailableSlots = async (vendorId, date, excludeBookingId) => {
 
     // Generate candidate slots every 30 mins from 08:00 to 20:00
     const slots = [];
-    const slotDurationMs = 60 * 60 * 1000; // 1 hour window to check
+    const slotDurationMs = 30 * 60 * 1000; // 30 minute window to check
     for (let h = 8; h < 20; h++) {
         for (let m = 0; m < 60; m += 30) {
             const slotStart = new Date(`${istDateStr}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+05:30`);
