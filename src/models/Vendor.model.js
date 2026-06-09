@@ -244,6 +244,12 @@ const vendorSchema = new mongoose.Schema(
       category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
       subcategories: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subcategory' }],
       services: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Service' }],
+      serviceStatuses: [{
+        serviceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Service' },
+        status: { type: String, enum: ['pending', 'approved', 'disapproved'], default: 'pending' },
+        reviewedAt: { type: Date },
+        adminRemark: { type: String, default: '' }
+      }],
       approvalStatus: { type: String, enum: ['pending', 'approved', 'disapproved'], default: 'pending' },
       adminRemark: { type: String, default: '' },
       reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },

@@ -3969,7 +3969,7 @@ const getExtraServiceApprovalRequests = async (vendorId) => {
     };
 };
 
-const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, { approvalStatus, adminRemark } = {}) => {
+const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, { approvalStatus, adminRemark, serviceId, serviceIds } = {}) => {
     const normalized = String(approvalStatus || '').toLowerCase();
     if (!['approved', 'disapproved', 'pending'].includes(normalized)) {
         throw new ApiError(400, 'approvalStatus must be approved, disapproved or pending');
@@ -3981,11 +3981,100 @@ const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, {
     const request = (vendor.extraServiceRequests || []).id(requestId);
     if (!request) throw new ApiError(404, 'Approval request not found');
 
-    request.approvalStatus = normalized;
-    request.adminRemark = adminRemark || '';
-    request.reviewedBy = adminId || null;
-    request.reviewedAt = new Date();
+    // Normalize target service IDs
+    const targetServiceIds = [];
+    if (serviceId) targetServiceIds.push(String(serviceId));
+    if (serviceIds && Array.isArray(serviceIds)) {
+        serviceIds.forEach(id => targetServiceIds.push(String(id)));
+    }
+    // Deduplicate
+    const uniqueTargetIds = [...new Set(targetServiceIds)];
+
+    const requestServiceIds = (request.services || []).map(s => String(s));
+
+    // Initialize serviceStatuses if not present
+    if (!request.serviceStatuses) {
+        request.serviceStatuses = requestServiceIds.map(sid => ({
+            serviceId: sid,
+            status: request.approvalStatus || 'pending',
+            reviewedAt: request.reviewedAt || null,
+            adminRemark: request.adminRemark || ''
+        }));
+    }
+
+    const now = new Date();
+
+    if (uniqueTargetIds.length > 0) {
+        // Individual service approval
+        const allowedIds = uniqueTargetIds.filter(id => requestServiceIds.includes(id));
+        if (allowedIds.length === 0) {
+            throw new ApiError(400, 'Provided service IDs do not belong to this request');
+        }
+
+        // Update serviceStatuses for targeted services
+        allowedIds.forEach(id => {
+            const existing = request.serviceStatuses.find(s => String(s.serviceId) === id);
+            if (existing) {
+                existing.status = normalized;
+                existing.reviewedAt = now;
+                existing.adminRemark = adminRemark || '';
+            } else {
+                request.serviceStatuses.push({
+                    serviceId: id,
+                    status: normalized,
+                    reviewedAt: now,
+                    adminRemark: adminRemark || ''
+                });
+            }
+        });
+
+        // Derive overall approvalStatus from serviceStatuses
+        const allStatuses = request.serviceStatuses.map(s => s.status);
+        const hasPending = allStatuses.some(s => s === 'pending');
+        const allApproved = allStatuses.every(s => s === 'approved');
+        const allDisapproved = allStatuses.every(s => s === 'disapproved');
+
+        if (allApproved) {
+            request.approvalStatus = 'approved';
+        } else if (allDisapproved) {
+            request.approvalStatus = 'disapproved';
+        } else {
+            request.approvalStatus = 'pending';
+        }
+
+        request.reviewedBy = adminId || null;
+        request.reviewedAt = now;
+    } else {
+        // Request-level approval (backward compatible)
+        request.approvalStatus = normalized;
+        request.adminRemark = adminRemark || '';
+        request.reviewedBy = adminId || null;
+        request.reviewedAt = now;
+
+        // Sync all serviceStatuses
+        requestServiceIds.forEach(sid => {
+            const existing = request.serviceStatuses.find(s => String(s.serviceId) === sid);
+            if (existing) {
+                existing.status = normalized;
+                existing.reviewedAt = now;
+                existing.adminRemark = adminRemark || '';
+            } else {
+                request.serviceStatuses.push({
+                    serviceId: sid,
+                    status: normalized,
+                    reviewedAt: now,
+                    adminRemark: adminRemark || ''
+                });
+            }
+        });
+    }
+
+    request.markModified('serviceStatuses');
     await vendor.save();
+
+    const disapprovedServiceIds = request.serviceStatuses
+        .filter(s => s.status === 'disapproved')
+        .map(s => String(s.serviceId));
 
     const payload = {
         vendorId: vendor._id,
@@ -3994,10 +4083,9 @@ const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, {
         approvalStatus: request.approvalStatus,
         adminRemark: request.adminRemark,
         reviewedAt: request.reviewedAt,
-        serviceIds: (request.services || []).map((svcId) => String(svcId)),
-        disapprovedServiceIds: request.approvalStatus === 'disapproved'
-            ? (request.services || []).map((svcId) => String(svcId))
-            : []
+        serviceIds: requestServiceIds,
+        disapprovedServiceIds,
+        serviceStatuses: request.serviceStatuses
     };
     emitToVendor(vendor._id, 'extra_service_approval_update', payload);
 

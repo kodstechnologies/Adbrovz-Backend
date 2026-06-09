@@ -126,12 +126,23 @@ const getSelectedServices = asyncHandler(async (req, res) => {
 
         vendor.extraServiceRequests.forEach(request => {
             if (request.services && request.services.length > 0) {
-                // Each request has its own independent approvalStatus
-                const reqApprovalStatus = request.approvalStatus || 'pending';
-
                 request.services.forEach(svc => {
                     if (!svc) return;
                     const svcId = svc._id ? svc._id.toString() : String(svc.id || svc);
+
+                    // Determine individual service status
+                    let serviceStatus = request.approvalStatus || 'pending';
+                    if (request.serviceStatuses && request.serviceStatuses.length > 0) {
+                        const serviceStatusEntry = request.serviceStatuses.find(
+                            s => String(s.serviceId) === svcId
+                        );
+                        if (serviceStatusEntry) {
+                            serviceStatus = serviceStatusEntry.status;
+                        }
+                    }
+
+                    // Skip disapproved services entirely
+                    if (serviceStatus === 'disapproved') return;
 
                     // Only include extra-service entries that are NOT already in primary selectedServices
                     // (approved extra services that got merged into selectedServices don't show twice)
@@ -139,7 +150,7 @@ const getSelectedServices = asyncHandler(async (req, res) => {
                         services.push({
                             id: svcId,
                             title: `${svc.title} (Extra Service)`,
-                            approvalStatus: reqApprovalStatus,
+                            approvalStatus: serviceStatus,
                             isExtraService: true,
                             requestId: request._id ? request._id.toString() : undefined
                         });
