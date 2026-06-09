@@ -3384,35 +3384,6 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
 
         isUpdated = true;
     }
-    
-
-// Duplicate pricing block removed - logic handled above
-
-
-// Duplicate pricing block removed - earlier logic consolidated above
-        );
-
-        if (requestItem) {
-            const serviceDoc = await Service.findById(item.serviceId);
-            if (!serviceDoc) continue;
-
-            const qty = requestItem.quantity || 1;
-            const adminPrice = (serviceDoc.bookingPrice !== undefined && serviceDoc.bookingPrice !== null && serviceDoc.bookingPrice > 0)
-                ? serviceDoc.bookingPrice
-                : (serviceDoc.serviceCharge || 0);
-            const vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
-
-            requestItem.adminPrice = adminPrice;
-            requestItem.vendorPrice = vendorPrice;
-            requestItem.finalPrice = adminPrice > 0
-                ? adminPrice * qty
-                : (vendorPrice > 0 ? vendorPrice * qty : 0);
-            requestItem.isPriceConfirmed = false; // Still needs user approval
-            requestItem.status = 'priced';
-            
-            isUpdated = true;
-        }
-    }
 
     if (!isUpdated) {
         throw new ApiError(400, 'None of the provided services matched the user requests');
