@@ -3465,7 +3465,7 @@ async function vendorAcceptExtraServices(vendorId, bookingId, acceptedServiceIds
         }) 
         : null;
 
-    // Mark pending services as accepted
+    // Mark pending services as accepted and set pricing
     let anyAccepted = false;
     for (const item of booking.userRequestedServices) {
         const sid = (item.service && (item.service._id || item.service)).toString();
@@ -3473,6 +3473,24 @@ async function vendorAcceptExtraServices(vendorId, bookingId, acceptedServiceIds
             if (item.status === 'pending' || !item.status) {
                 item.status = 'accepted';
                 anyAccepted = true;
+
+                // Set pricing if not already populated
+                if (!item.finalPrice || item.finalPrice === 0) {
+                    const serviceDoc = await Service.findById(sid).select('bookingPrice serviceCharge');
+                    if (serviceDoc) {
+                        const qty = item.quantity || 1;
+                        const adminPrice = (serviceDoc.bookingPrice !== undefined && serviceDoc.bookingPrice !== null && serviceDoc.bookingPrice > 0)
+                            ? serviceDoc.bookingPrice
+                            : (serviceDoc.serviceCharge || 0);
+                        const vendorPrice = adminPrice > 0 ? 0 : 0;
+
+                        item.adminPrice = adminPrice;
+                        item.vendorPrice = vendorPrice;
+                        item.finalPrice = adminPrice > 0
+                            ? adminPrice * qty
+                            : (vendorPrice > 0 ? vendorPrice * qty : 0);
+                    }
+                }
             } else if (item.status === 'accepted') {
                 // If already accepted, treat it as a successful match to prevent throwing errors
                 anyAccepted = true;
