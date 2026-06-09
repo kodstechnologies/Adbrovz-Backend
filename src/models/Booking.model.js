@@ -50,6 +50,7 @@ const bookingSchema = new mongoose.Schema(
         'ongoing',
         'completed',
         'cancelled',
+        'auto_cancelled',
       ],
       default: 'pending_acceptance',
     },

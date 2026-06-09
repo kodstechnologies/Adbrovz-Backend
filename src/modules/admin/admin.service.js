@@ -54,7 +54,7 @@ const getDashboardStats = async (query = {}) => {
 
     // 1. Stat Cards
     // Total Revenue
-    const revenueMatch = hasFilter ? { status: { $ne: 'cancelled' }, createdAt: dateFilter } : { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfThisMonth } };
+    const revenueMatch = hasFilter ? { status: { $nin: ['cancelled', 'auto_cancelled'] }, createdAt: dateFilter } : { status: { $nin: ['cancelled', 'auto_cancelled'] }, createdAt: { $gte: startOfThisMonth } };
     
     const [thisMonthRevenue, lastMonthRevenue] = await Promise.all([
       Booking.aggregate([
@@ -62,7 +62,7 @@ const getDashboardStats = async (query = {}) => {
         { $group: { _id: null, total: { $sum: '$pricing.totalPrice' } } }
       ]).then(res => res[0]?.total || 0),
       hasFilter ? Promise.resolve(0) : Booking.aggregate([
-        { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfLastMonth, $lt: startOfThisMonth } } },
+        { $match: { status: { $nin: ['cancelled', 'auto_cancelled'] }, createdAt: { $gte: startOfLastMonth, $lt: startOfThisMonth } } },
         { $group: { _id: null, total: { $sum: '$pricing.totalPrice' } } }
       ]).then(res => res[0]?.total || 0)
     ]);
@@ -70,11 +70,11 @@ const getDashboardStats = async (query = {}) => {
     // Weekly Revenue (Show filtered revenue if filter exists, otherwise rolling 7 days)
     const [thisWeekRevenue, lastWeekRevenue] = await Promise.all([
       Booking.aggregate([
-        { $match: hasFilter ? revenueMatch : { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfThisWeek } } },
+        { $match: hasFilter ? revenueMatch : { status: { $nin: ['cancelled', 'auto_cancelled'] }, createdAt: { $gte: startOfThisWeek } } },
         { $group: { _id: null, total: { $sum: '$pricing.totalPrice' } } }
       ]).then(res => res[0]?.total || 0),
       hasFilter ? Promise.resolve(0) : Booking.aggregate([
-        { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startOfLastWeek, $lt: startOfThisWeek } } },
+        { $match: { status: { $nin: ['cancelled', 'auto_cancelled'] }, createdAt: { $gte: startOfLastWeek, $lt: startOfThisWeek } } },
         { $group: { _id: null, total: { $sum: '$pricing.totalPrice' } } }
       ]).then(res => res[0]?.total || 0)
     ]);
@@ -110,7 +110,7 @@ const getDashboardStats = async (query = {}) => {
     const chartStart = hasFilter && dateFilter.$gte ? new Date(dateFilter.$gte) : last7Days;
     const chartEnd = hasFilter && dateFilter.$lte ? new Date(dateFilter.$lte) : now;
     
-    const chartMatch = hasFilter ? { status: { $ne: 'cancelled' }, createdAt: dateFilter } : { status: { $ne: 'cancelled' }, createdAt: { $gte: last7Days } };
+    const chartMatch = hasFilter ? { status: { $nin: ['cancelled', 'auto_cancelled'] }, createdAt: dateFilter } : { status: { $nin: ['cancelled', 'auto_cancelled'] }, createdAt: { $gte: last7Days } };
 
     const weekBookings = await Booking.aggregate([
       { $match: chartMatch },
@@ -177,7 +177,7 @@ const getDashboardStats = async (query = {}) => {
     ];
 
     // 4. Category Distribution (Respects filters)
-    const catMatch = hasFilter ? { status: { $ne: 'cancelled' }, createdAt: dateFilter } : { status: { $ne: 'cancelled' }, createdAt: { $gte: last30Days } };
+    const catMatch = hasFilter ? { status: { $nin: ['cancelled', 'auto_cancelled'] }, createdAt: dateFilter } : { status: { $nin: ['cancelled', 'auto_cancelled'] }, createdAt: { $gte: last30Days } };
     const categoryDistribution = await Booking.aggregate([
         { $match: catMatch },
         {

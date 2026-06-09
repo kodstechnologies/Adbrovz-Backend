@@ -227,7 +227,7 @@ const acceptBooking = async (vendorId, bookingId) => {
         const existingBooking = await Booking.findOne(query);
         if (existingBooking) {
             // Provide status-specific error messages
-            if (existingBooking.status === 'cancelled') {
+            if (['cancelled', 'auto_cancelled'].includes(existingBooking.status)) {
                 throw new ApiError(400, 'This booking request is no longer available (cancelled by user).');
             } else if (existingBooking.status === 'completed') {
                 throw new ApiError(400, 'This booking has already been completed.');
@@ -245,7 +245,7 @@ const acceptBooking = async (vendorId, bookingId) => {
         vendor: vendorId,
         scheduledDate: booking.scheduledDate,
         scheduledTime: booking.scheduledTime,
-        status: { $nin: ['cancelled', 'completed'] },
+        status: { $nin: ['cancelled', 'auto_cancelled', 'completed'] },
         _id: { $ne: booking._id }
     });
     if (overlapping) {
@@ -793,7 +793,7 @@ const _formatBooking = (bookingDoc, role) => {
     if (createdAtIST) bookingObj.createdAt = createdAtIST;
     if (updatedAtIST) bookingObj.updatedAt = updatedAtIST;
 
-    if (bookingObj.status === 'cancelled') {
+    if (['cancelled', 'auto_cancelled'].includes(bookingObj.status)) {
         bookingObj.cancelledBy = bookingObj.cancellation?.cancelledBy || 'unknown';
         bookingObj.cancelledAtIST = bookingObj.cancellation?.cancelledAt ? new Date(bookingObj.cancellation.cancelledAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null;
     }
@@ -912,7 +912,7 @@ const _formatBooking = (bookingDoc, role) => {
                 if (h.status === 'pending_acceptance') return false;
 
                 // 2. Only show 'cancelled' status in the history if it was cancelled after acceptance (i.e., there is an assigned vendor)
-                if (h.status === 'cancelled' && !bookingObj.vendor) return false;
+                if (['cancelled', 'auto_cancelled'].includes(h.status) && !bookingObj.vendor) return false;
 
                 return true;
             })
@@ -932,7 +932,7 @@ const _formatBooking = (bookingDoc, role) => {
     const rescheduleAllowed = bookingObj.status === 'pending' && (bookingObj.rescheduleCount || 0) < maxReschedule;
     let rescheduleReason = "";
     if (bookingObj.status === 'completed') rescheduleReason = "Booking already completed";
-    else if (bookingObj.status === 'cancelled') rescheduleReason = "Booking already cancelled";
+    else if (['cancelled', 'auto_cancelled'].includes(bookingObj.status)) rescheduleReason = "Booking already cancelled";
     else if (['on_the_way', 'arrived', 'ongoing'].includes(bookingObj.status)) rescheduleReason = "Work in progress";
     else if (bookingObj.status === 'pending_acceptance') rescheduleReason = "Vendor acceptance pending";
     else if ((bookingObj.rescheduleCount || 0) >= maxReschedule) rescheduleReason = "Maximum reschedule limit reached";
@@ -1901,7 +1901,7 @@ const getVendorBookingHistory = async (vendorId) => {
     // 4. Cancelled
     const activeAndHistoryBookings = await Booking.find({
         vendor: vendorIdObj,
-        status: { $in: ['pending', 'ongoing', 'completed', 'on_the_way', 'arrived', 'cancelled'] }
+        status: { $in: ['pending', 'ongoing', 'completed', 'on_the_way', 'arrived', 'cancelled', 'auto_cancelled'] }
     })
         .select('-rejectedVendors -laterVendors')
         .populate('services.service', 'title serviceCharge photo')
@@ -1912,7 +1912,7 @@ const getVendorBookingHistory = async (vendorId) => {
         pending: activeAndHistoryBookings.filter(b => ['pending', 'on_the_way', 'arrived'].includes(b.status)),
         ongoing: activeAndHistoryBookings.filter(b => b.status === 'ongoing'),
         completed: activeAndHistoryBookings.filter(b => b.status === 'completed'),
-        cancelled: activeAndHistoryBookings.filter(b => b.status === 'cancelled').map(b => {
+        cancelled: activeAndHistoryBookings.filter(b => ['cancelled', 'auto_cancelled'].includes(b.status)).map(b => {
             const obj = b.toObject();
             obj.cancelledBy = obj.cancellation?.cancelledBy || 'unknown';
             return obj;
@@ -2037,7 +2037,7 @@ const vendorCancelBooking = async (vendorId, bookingId, reason) => {
     const booking = await Booking.findOne({ _id: bookingId, vendor: vendorId });
     if (!booking) throw new ApiError(404, 'Booking not found');
 
-    if (['completed', 'cancelled'].includes(booking.status)) {
+    if (['completed', 'cancelled', 'auto_cancelled'].includes(booking.status)) {
         throw new ApiError(400, 'Cannot cancel a booking that is already completed or cancelled');
     }
 
@@ -2105,8 +2105,9 @@ const getAvailableSlots = async (vendorId, date, excludeBookingId) => {
         vendor: vendorId,
         _id: { $ne: excludeBookingId },
         scheduledDate: { $gte: dayStart, $lte: dayEnd },
-        status: { $nin: ['cancelled', 'completed', 'pending_acceptance'] }
+        status: { $nin: ['cancelled', 'auto_cancelled', 'completed', 'pending_acceptance'] }
     }).populate('services.service');
+
 
     // Build busy windows
     const busyWindows = [];
@@ -2152,7 +2153,7 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
         throw new ApiError(400, `Max reschedule limit of ${rescheduleLimit} reached`);
     }
 
-    if (['completed', 'cancelled'].includes(booking.status)) {
+    if (['completed', 'cancelled', 'auto_cancelled'].includes(booking.status)) {
         throw new ApiError(400, 'Cannot reschedule a completed or cancelled booking');
     }
 
@@ -2190,7 +2191,7 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
                 vendor: booking.vendor,
                 _id: { $ne: booking._id },
                 scheduledDate: { $gte: dayStart, $lte: dayEnd },
-                status: { $nin: ['cancelled', 'completed', 'pending_acceptance'] }
+        status: { $nin: ['cancelled', 'auto_cancelled', 'completed', 'pending_acceptance'] }
             }).populate('services.service');
 
             for (const vb of vendorBookings) {
@@ -2332,7 +2333,7 @@ const getCompletedBookingsByUser = async (userId) => {
  * Get cancelled bookings (Admin or User/Vendor)
  */
 const getCancelledBookings = async (userId, role) => {
-    let query = { status: 'cancelled' };
+    let query = { status: { $in: ['cancelled', 'auto_cancelled'] } };
     
     if (role === 'vendor') {
         query.vendor = userId;
@@ -2872,7 +2873,7 @@ const gracePeriodCancel = async (userId, bookingId) => {
     const booking = await findBookingByUser(bookingId, userId);
     if (!booking) throw new ApiError(404, 'Booking not found');
 
-    if (['completed', 'cancelled'].includes(booking.status)) {
+    if (['completed', 'cancelled', 'auto_cancelled'].includes(booking.status)) {
         throw new ApiError(400, 'Cannot cancel a completed or already cancelled booking');
     }
 

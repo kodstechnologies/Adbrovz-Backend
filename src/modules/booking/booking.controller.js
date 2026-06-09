@@ -149,13 +149,14 @@ const getMyBookings = asyncHandler(async (req, res) => {
         'arrived': 'Vendor Arrived',
         'ongoing': 'Working',
         'completed': 'Completed',
-        'cancelled': 'Cancelled'
+        'cancelled': 'Cancelled',
+        'auto_cancelled': 'Auto Cancelled'
     };
 
     const enhanceBooking = (b) => {
         const obj = b.toObject ? b.toObject() : b;
         obj.displayStatus = statusMap[obj.status] || obj.status;
-        if (obj.status === 'cancelled') {
+        if (['cancelled', 'auto_cancelled'].includes(obj.status)) {
             obj.cancelledBy = obj.cancellation?.cancelledBy || 'unknown';
         }
         return obj;
@@ -172,7 +173,7 @@ const getMyBookings = asyncHandler(async (req, res) => {
             .filter(b => b.status === 'completed')
             .map(enhanceBooking),
         cancelled: rawBookings
-            .filter(b => b.status === 'cancelled')
+            .filter(b => ['cancelled', 'auto_cancelled'].includes(b.status))
             .map(enhanceBooking)
     };
 
