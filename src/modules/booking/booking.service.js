@@ -361,36 +361,10 @@ const acceptBooking = async (vendorId, bookingId) => {
     // ── Send Push Notification to User ──
     sendPush(booking.user, 'User', 'booking_accepted', 'Booking Accepted', `A vendor has accepted your booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
-    const io = getIo();
-    console.log(`[SOCKET] Notifying other vendors about acceptance`);
-    const vendorIdStr = vendorId.toString();
-    activeVendors.forEach((socketIds, otherVendorId) => {
-        if (otherVendorId.toString() !== vendorIdStr) {
-            socketIds.forEach(socketId => {
-                io.to(socketId).emit('booking_already_accepted', {
-                    bookingId: booking._id,
-                    bookingID: booking.bookingID,
-                    message: 'You missed your order! This booking has already been accepted by another vendor.'
-                });
-            });
-        }
-    });
-
-    // Send silent FCM push notification to other notified vendors to clear their active background notifications
-    if (booking.notifiedVendors && booking.notifiedVendors.length > 0) {
-        booking.notifiedVendors.forEach(otherVendorId => {
-            if (otherVendorId.toString() !== vendorIdStr) {
-                sendPush(
-                    otherVendorId,
-                    'Vendor',
-                    'booking_already_accepted',
-                    'Booking Accepted By Another Vendor',
-                    'You missed your order! This booking has already been accepted by another vendor.',
-                    { bookingId: booking._id.toString(), bookingID: booking.bookingID }
-                );
-            }
-        });
-    }
+    // ── Removed broadcast of 'booking_already_accepted' to other vendors to avoid spamming all vendors.
+    // Previously, the server emitted a socket event to all other vendors when a booking was accepted.
+    // ── Removed push notifications to other vendors about acceptance, as only the attempting vendor should be informed.
+    // Previously, push notifications were sent to all vendors who had been notified.
 
     console.log(`[SOCKET] acceptBooking completed successfully for booking: ${bookingId}`);
     return {
@@ -3183,6 +3157,50 @@ async function requestExtraServices(userId, bookingId, newServices) {
         }
         const qty = item.quantity || 1;
 
+            // Check if this service was previously requested and price‑confirmed in userRequestedServices
+            const existingExtra = booking.userRequestedServices?.find(
+                s => s.service.toString() === requestedServiceId && s.isPriceConfirmed === true
+            );
+
+            let adminPrice, vendorPrice, finalPrice, isPriceConfirmed, status;
+
+            if (existingExtra) {
+                // Reuse the previously confirmed extra service pricing
+                adminPrice   = existingExtra.adminPrice || 0;
+                vendorPrice  = existingExtra.vendorPrice || 0;
+                finalPrice   = existingExtra.finalPrice;
+                isPriceConfirmed = true;
+                status = 'accepted';
+            } else {
+                // ── Check if this service was already price‑confirmed in the main services list ──
+                const approvedEntry = booking.services.find(
+                    s => s.service.toString() === requestedServiceId && s.isPriceConfirmed === true
+                );
+
+                if (approvedEntry) {
+                    // Reuse the per‑unit price from the already‑confirmed service entry
+                    const approvedUnitPrice = approvedEntry.quantity > 0
+                        ? approvedEntry.finalPrice / approvedEntry.quantity
+                        : approvedEntry.finalPrice;
+
+                    adminPrice   = approvedEntry.adminPrice || 0;
+                    vendorPrice  = approvedEntry.vendorPrice || 0;
+                    finalPrice   = approvedUnitPrice * qty;
+                    isPriceConfirmed = true;
+                    status = 'accepted';
+                } else {
+                    adminPrice  = (serviceDoc.bookingPrice !== undefined && serviceDoc.bookingPrice !== null && serviceDoc.bookingPrice > 0)
+                        ? serviceDoc.bookingPrice
+                        : (serviceDoc.serviceCharge || 0);
+                    vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
+                    finalPrice  = adminPrice > 0
+                        ? adminPrice * qty
+                        : (vendorPrice > 0 ? vendorPrice * qty : 0);
+                    isPriceConfirmed = false;
+                    status = 'pending';
+                }
+            }
+
         // ── Check if this service was already price-confirmed in the main services list ──
         // If so, reuse the previously approved price and skip vendor approval entirely.
         const approvedEntry = booking.services.find(
@@ -3362,12 +3380,47 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
 
     let isUpdated = false;
 
-    // Update the pricing for the requested services without moving them
+        // Update the pricing for the requested services without moving them
     for (const item of confirmedServices) {
         const itemIdStr = item.serviceId.toString();
         // Find matching service in userRequestedServices (check both service ID and requested item _id)
         const requestItem = booking.userRequestedServices.find(
             s => s.service.toString() === itemIdStr || (s._id && s._id.toString() === itemIdStr)
+        );
+
+        if (!requestItem) continue;
+
+        // If the extra service price is already confirmed by the user, skip any changes
+        if (requestItem.isPriceConfirmed) {
+            // keep existing price and status as accepted
+            continue;
+        }
+
+        const serviceDoc = await Service.findById(item.serviceId);
+        if (!serviceDoc) continue;
+
+        const qty = requestItem.quantity || 1;
+        const adminPrice = (serviceDoc.bookingPrice !== undefined && serviceDoc.bookingPrice !== null && serviceDoc.bookingPrice > 0)
+            ? serviceDoc.bookingPrice
+            : (serviceDoc.serviceCharge || 0);
+        const vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
+
+        requestItem.adminPrice = adminPrice;
+        requestItem.vendorPrice = vendorPrice;
+        requestItem.finalPrice = adminPrice > 0
+            ? adminPrice * qty
+            : (vendorPrice > 0 ? vendorPrice * qty : 0);
+        requestItem.isPriceConfirmed = false; // Still needs user approval
+        requestItem.status = 'priced';
+
+        isUpdated = true;
+    }
+    
+
+// Duplicate pricing block removed - logic handled above
+
+
+// Duplicate pricing block removed - earlier logic consolidated above
         );
 
         if (requestItem) {
