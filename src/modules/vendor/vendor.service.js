@@ -527,15 +527,32 @@ const getAllVendors = async () => {
 
         const hasPendingDeletionApproval = Boolean(vendor.deletionRequest?.isRequested) && vendor.deletionRequest?.status === 'PENDING';
         const hasPendingServiceApproval = (vendor.serviceApprovalStatus || 'pending') === 'pending';
-        const hasPendingExtraServiceApproval = (vendor.extraServiceRequests || []).some((req) => req?.approvalStatus === 'pending');
+        
+        // ── Robust extra service request counting ──
+        // Count a request as pending ONLY if at least one individual service is pending.
+        // If all services have been resolved (approved/disapproved), the request is NOT pending.
+        const hasPendingExtraServiceApproval = (vendor.extraServiceRequests || []).some((req) => {
+            const serviceStatuses = req?.serviceStatuses || [];
+            if (serviceStatuses.length > 0) {
+                return serviceStatuses.some(s => (s.status || 'pending') === 'pending');
+            }
+            // Fallback: check request-level status (handles old data without serviceStatuses)
+            return (req?.approvalStatus || 'pending') === 'pending';
+        });
         const attentionReasons = [];
         if (hasPendingDeletionApproval) attentionReasons.push('DELETION_APPROVAL_PENDING');
         if (hasPendingServiceApproval) attentionReasons.push('SERVICE_APPROVAL_PENDING');
         if (hasPendingExtraServiceApproval) attentionReasons.push('EXTRA_SERVICE_APPROVAL_PENDING');
 
         // ── Admin UI Highlight for new service requests ──
-        const pendingRequestCount = (vendor.extraServiceRequests || []).filter(req => req?.approvalStatus === 'pending').length 
-            + (hasPendingServiceApproval ? 1 : 0);
+        const pendingExtraRequestCount = (vendor.extraServiceRequests || []).filter(req => {
+            const serviceStatuses = req?.serviceStatuses || [];
+            if (serviceStatuses.length > 0) {
+                return serviceStatuses.some(s => (s.status || 'pending') === 'pending');
+            }
+            return (req?.approvalStatus || 'pending') === 'pending';
+        }).length;
+        const pendingRequestCount = pendingExtraRequestCount + (hasPendingServiceApproval ? 1 : 0);
 
         vendor.hasPendingServiceRequest = pendingRequestCount > 0;
         vendor.pendingRequestCount = pendingRequestCount;
@@ -3992,15 +4009,37 @@ const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, {
 
     const requestServiceIds = (request.services || []).map(s => String(s));
 
-    // Initialize serviceStatuses if not present
-    if (!request.serviceStatuses) {
-        request.serviceStatuses = requestServiceIds.map(sid => ({
-            serviceId: sid,
-            status: request.approvalStatus || 'pending',
-            reviewedAt: request.reviewedAt || null,
-            adminRemark: request.adminRemark || ''
-        }));
+    // Normalize any legacy invalid status values (e.g. 'reject' -> 'disapproved')
+    const canonicalStatus = (status) => {
+        const s = String(status || '').toLowerCase().trim();
+        if (s.startsWith('reject')) return 'disapproved';
+        if (s === 'approve' || s === 'verified') return 'approved';
+        if (s === 'pending') return 'pending';
+        return 'pending'; // default fallback
+    };
+    if (request.approvalStatus) {
+        request.approvalStatus = canonicalStatus(request.approvalStatus);
     }
+
+    // Initialize serviceStatuses if not present, and ensure ALL services have an entry
+    if (!request.serviceStatuses) {
+        request.serviceStatuses = [];
+    }
+    const existingStatusIds = new Set(request.serviceStatuses.map(s => String(s.serviceId)));
+    requestServiceIds.forEach(sid => {
+        if (!existingStatusIds.has(sid)) {
+            request.serviceStatuses.push({
+                serviceId: sid,
+                status: canonicalStatus(request.approvalStatus) || 'pending',
+                reviewedAt: request.reviewedAt || null,
+                adminRemark: request.adminRemark || ''
+            });
+        }
+    });
+    // Also normalize any invalid statuses inside existing serviceStatuses
+    request.serviceStatuses.forEach(s => {
+        if (s.status) s.status = canonicalStatus(s.status);
+    });
 
     const now = new Date();
 
