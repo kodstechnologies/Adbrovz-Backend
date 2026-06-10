@@ -1385,6 +1385,17 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330, serviceId = nu
         // the slot start time reaches the category end time
         let currentMinutes = slotStartH * 60 + slotStartM;
 
+        // For today, skip any slots that are before the current time
+        if (dayOffset === 0) {
+            const nowLocalMs = now.getTime() + (timezoneOffset * 60000);
+            const nowLocal = new Date(nowLocalMs);
+            const nowMinutes = nowLocal.getUTCHours() * 60 + nowLocal.getUTCMinutes() + stepMinutes;
+            if (currentMinutes < nowMinutes) {
+                const remainder = nowMinutes % stepMinutes;
+                currentMinutes = nowMinutes + (remainder === 0 ? 0 : stepMinutes - remainder);
+            }
+        }
+
         while (true) {
             const slotStartUTCMs = loopDate.getTime() + (currentMinutes * 60000);
             
