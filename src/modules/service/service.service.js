@@ -1380,7 +1380,7 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330, serviceId = nu
         
         if (!dayLabel) {
             const options = { weekday: 'short', month: 'short', day: 'numeric' };
-            dayLabel = loopDate.toLocaleDateString('en-US', options);
+            dayLabel = localDateForLoop.toLocaleDateString('en-US', options);
         }
 
         const dailySlots = [];
@@ -1405,7 +1405,7 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330, serviceId = nu
                     dailySlots.push({
                         time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
                         endTime: `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`,
-                        displayTime: formatDisplayTime(h, m),
+                        displayTime: formatDisplayTime(endH, endM),
                         isAvailable
                     });
                 }
