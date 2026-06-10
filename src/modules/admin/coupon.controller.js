@@ -110,7 +110,7 @@ exports.verifyCoupon = async (req, res) => {
         } else {
             const isApplicable = (coupon.applicableUsers || []).some((u) => u.toString() === userId.toString());
             if (!isApplicable) {
-                return res.status(200).json({ success: true, valid: false, message: 'This coupon is not applicable for this user' });
+                return res.status(200).json({ success: true, valid: false, message: 'This coupon is not applicable for you. You do not have access to this coupon.' });
             }
         }
 
@@ -161,7 +161,7 @@ exports.applyCoupon = async (req, res) => {
         } else {
             const isApplicable = (coupon.applicableUsers || []).some((u) => u.toString() === userId.toString());
             if (!isApplicable) {
-                return res.status(400).json({ success: false, message: 'This coupon is not applicable for this user' });
+                return res.status(400).json({ success: false, message: 'This coupon is not applicable for you. You do not have access to this coupon.' });
             }
         }
 
