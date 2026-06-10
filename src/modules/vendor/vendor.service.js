@@ -4069,7 +4069,7 @@ const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, {
         });
     }
 
-    request.markModified('serviceStatuses');
+    vendor.markModified('extraServiceRequests');
     await vendor.save();
 
     const disapprovedServiceIds = request.serviceStatuses
