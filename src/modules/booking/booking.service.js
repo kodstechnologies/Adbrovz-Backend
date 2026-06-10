@@ -573,17 +573,32 @@ const requestCompletionOTP = async (vendorId, bookingId) => {
         throw new ApiError(400, 'Booking must be ongoing to request completion');
     }
 
-    // ── Lock OTP if vendor has pending proposed services not yet accepted by user ──
-    if (booking.proposedServices && booking.proposedServices.length > 0) {
-        throw new ApiError(400, 'Cannot request completion OTP: vendor has proposed services awaiting user confirmation');
-    }
-
-    // ── Lock OTP if extra services are unpriced or not yet accepted ──
+    // ── Lock OTP if vendor has pending proposed services or unconfirmed extra services ──
+    const hasPendingProposed = booking.proposedServices && booking.proposedServices.length > 0;
     const pendingExtraServices = (booking.userRequestedServices || []).filter(
         s => s.status === 'pending' || s.status === 'priced' || !s.finalPrice || s.finalPrice === 0
     );
-    if (pendingExtraServices.length > 0) {
-        throw new ApiError(400, `Cannot request completion OTP: ${pendingExtraServices.length} extra service(s) still pending pricing or confirmation`);
+    const isLocked = hasPendingProposed || pendingExtraServices.length > 0;
+
+    if (isLocked) {
+        // Do NOT generate or send OTP. Just sync state and notify vendor that it is locked.
+        const userPayload = await getBookingDetails(bookingId, booking.user, 'user');
+        const vendorPayload = await getBookingDetails(bookingId, vendorId, 'vendor');
+
+        const { emitToUser, emitToVendor } = require('../../socket');
+        emitToUser(booking.user, 'booking_status_updated', userPayload);
+        emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
+
+        emitToVendor(vendorId, 'booking_completion_otp_locked', {
+            booking: vendorPayload,
+            locked: true,
+            reason: hasPendingProposed
+                ? 'Vendor has proposed services awaiting user confirmation'
+                : `${pendingExtraServices.length} extra service(s) still pending pricing or confirmation`,
+            message: 'Completion OTP is locked'
+        });
+
+        return { booking: vendorPayload, locked: true, message: 'Completion OTP is locked' };
     }
 
     const completionOTP = '4321';
@@ -901,6 +916,8 @@ const _formatBooking = (bookingDoc, role) => {
                     bookingObj.currentOTP.completionOTP.instruction = hasPendingProposed
                         ? 'Vendor has proposed services awaiting your confirmation'
                         : 'Extra services pricing confirmation pending';
+                    // Hide the raw OTP so it cannot leak through any other field
+                    bookingObj.otp.completionOTP = 'Locked';
                 }
             }
 
