@@ -1334,14 +1334,8 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330, serviceId = nu
     const category = await Category.findById(categoryId);
     if (!category) throw new ApiError(404, 'Category not found');
 
-    let stepMinutes = 30; // Default
-    if (serviceId) {
-        const service = await Service.findById(serviceId);
-        if (service && service.approxCompletionTime) {
-            // Use service duration as the interval, but capped between 30 and 120 mins for UI sanity
-            stepMinutes = Math.max(30, Math.min(service.approxCompletionTime, 120));
-        }
-    }
+    // Use category slotDuration instead of default 30 mins or service duration
+    const stepMinutes = category.slotDuration || 30;
 
     const parseTime = (timeStr, fallbackH) => {
         if (!timeStr) return [fallbackH, 0];
@@ -1385,31 +1379,39 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330, serviceId = nu
 
         const dailySlots = [];
         const categoryEndMs = (slotEndH * 60 + slotEndM) * 60000;
+        const categoryEndUTCMs = loopDate.getTime() + categoryEndMs;
 
-        for (let h = slotStartH; h <= slotEndH; h++) {
-            for (let m = (h === slotStartH ? slotStartM : 0); m < 60; m += stepMinutes) {
-                const currentMinutes = h * 60 + m;
-                const slotStartUTCMs = loopDate.getTime() + (currentMinutes * 60000);
-                const categoryEndUTCMs = loopDate.getTime() + categoryEndMs;
-                if (slotStartUTCMs >= categoryEndUTCMs) break;
-                const slotEndUTCMs = slotStartUTCMs + slotDurationMs;
+        // Start from the category start time and keep adding slots until
+        // the slot start time reaches the category end time
+        let currentMinutes = slotStartH * 60 + slotStartM;
+
+        while (true) {
+            const slotStartUTCMs = loopDate.getTime() + (currentMinutes * 60000);
+            
+            // Stop if slot start time reaches or exceeds the category end time
+            if (slotStartUTCMs >= categoryEndUTCMs) break;
+
+            const slotEndUTCMs = slotStartUTCMs + slotDurationMs;
+            const actualSlotEndUTCMs = Math.min(slotEndUTCMs, categoryEndUTCMs);
+
+            const isAvailable = (slotStartUTCMs - now.getTime()) >= 0;
+            if (isAvailable) {
+                const startH = Math.floor(currentMinutes / 60);
+                const startM = currentMinutes % 60;
+                const actualEndMinutes = Math.floor((actualSlotEndUTCMs - loopDate.getTime()) / 60000);
+                const endH = Math.floor(actualEndMinutes / 60);
+                const endM = actualEndMinutes % 60;
                 
-                // Adjust end time if it exceeds the configured category end
-                const actualSlotEndUTCMs = Math.min(slotEndUTCMs, categoryEndUTCMs);
-
-                const isAvailable = (slotStartUTCMs - now.getTime()) >= 0;
-                if (isAvailable) {
-                    const actualEndMinutes = Math.floor((actualSlotEndUTCMs - loopDate.getTime()) / 60000);
-                    const endH = Math.floor(actualEndMinutes / 60);
-                    const endM = actualEndMinutes % 60;
-                    dailySlots.push({
-                        time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
-                        endTime: `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`,
-                        displayTime: formatDisplayTime(endH, endM),
-                        isAvailable
-                    });
-                }
+                dailySlots.push({
+                    time: `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`,
+                    endTime: `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`,
+                    displayTime: formatDisplayTime(startH, startM),
+                    isAvailable
+                });
             }
+
+            // Move to next slot by adding the category duration
+            currentMinutes += stepMinutes;
         }
 
         daysList.push({
