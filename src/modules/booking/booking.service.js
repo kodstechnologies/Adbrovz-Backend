@@ -4,6 +4,7 @@ const Service = require('../../models/Service.model');
 const User = require('../../models/User.model');
 const Dispute = require('../../models/Dispute.model');
 const Feedback = require('../../models/Feedback.model');
+const Category = require('../../models/Category.model');
 const { ROLES } = require('../../constants/roles');
 const { calculateDistance } = require('../../utils/location');
 
@@ -572,6 +573,19 @@ const requestCompletionOTP = async (vendorId, bookingId) => {
         throw new ApiError(400, 'Booking must be ongoing to request completion');
     }
 
+    // ── Lock OTP if vendor has pending proposed services not yet accepted by user ──
+    if (booking.proposedServices && booking.proposedServices.length > 0) {
+        throw new ApiError(400, 'Cannot request completion OTP: vendor has proposed services awaiting user confirmation');
+    }
+
+    // ── Lock OTP if extra services are unpriced or not yet accepted ──
+    const pendingExtraServices = (booking.userRequestedServices || []).filter(
+        s => s.status === 'pending' || s.status === 'priced' || !s.finalPrice || s.finalPrice === 0
+    );
+    if (pendingExtraServices.length > 0) {
+        throw new ApiError(400, `Cannot request completion OTP: ${pendingExtraServices.length} extra service(s) still pending pricing or confirmation`);
+    }
+
     const completionOTP = '4321';
     if (!booking.otp) {
         booking.otp = { startOTP: '1234', completionOTP };
@@ -608,6 +622,19 @@ const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
 
     if (booking.status !== 'ongoing') {
         throw new ApiError(400, 'Booking must be ongoing to complete');
+    }
+
+    // ── Block completion if vendor has pending proposed services not yet accepted by user ──
+    if (booking.proposedServices && booking.proposedServices.length > 0) {
+        throw new ApiError(400, 'Cannot complete work: vendor has proposed services awaiting user confirmation');
+    }
+
+    // ── Block completion if extra services are unpriced or not yet accepted ──
+    const pendingExtraServices = (booking.userRequestedServices || []).filter(
+        s => s.status === 'pending' || s.status === 'priced' || !s.finalPrice || s.finalPrice === 0
+    );
+    if (pendingExtraServices.length > 0) {
+        throw new ApiError(400, `Cannot complete work: ${pendingExtraServices.length} extra service(s) still pending pricing or confirmation`);
     }
 
     if (!booking.otp?.completionOTP) {
@@ -858,7 +885,23 @@ const _formatBooking = (bookingDoc, role) => {
                     bookingObj.currentOTP.startOTP.instruction = 'Price confirmation pending';
                 }
             } else if (bookingObj.status === 'ongoing') {
-                bookingObj.activeOTP = bookingObj.currentOTP.completionOTP;
+                // ── Lock completion OTP if vendor has pending proposed services or unconfirmed extra services ──
+                const hasPendingProposed = bookingObj.proposedServices && bookingObj.proposedServices.length > 0;
+                const hasPendingExtra = (bookingObj.userRequestedServices || []).some(
+                    s => s.status === 'pending' || s.status === 'priced' || !s.finalPrice || s.finalPrice === 0
+                );
+                const canComplete = !hasPendingProposed && !hasPendingExtra;
+
+                if (canComplete) {
+                    bookingObj.activeOTP = bookingObj.currentOTP.completionOTP;
+                } else {
+                    bookingObj.activeOTP = { label: 'Completion OTP', code: 'Locked', instruction: 'Visible once all extra services are confirmed and priced' };
+                    bookingObj.currentOTP.completionOTP.code = 'Locked';
+                    bookingObj.currentOTP.completionOTP.status = 'locked';
+                    bookingObj.currentOTP.completionOTP.instruction = hasPendingProposed
+                        ? 'Vendor has proposed services awaiting your confirmation'
+                        : 'Extra services pricing confirmation pending';
+                }
             }
 
             if (!allPricesConfirmed) bookingObj.otp.startOTP = 'Locked (Price Pending)';
@@ -2092,10 +2135,28 @@ const vendorCancelBooking = async (vendorId, bookingId, reason) => {
 };
 
 /**
- * Get available 30-minute time slots for a vendor on a given date (08:00–20:00)
+ * Get available time slots for a vendor on a given date
+ * based on category slot configuration (or defaults 08:00–20:00 / 30 min),
  * excluding windows that overlap with existing bookings.
  */
-const getAvailableSlots = async (vendorId, date, excludeBookingId) => {
+const getAvailableSlots = async (vendorId, date, excludeBookingId, categoryId = null) => {
+    // Fetch category slot config if available
+    let slotDuration = 30;
+    let slotStartTime = '08:00';
+    let slotEndTime = '20:00';
+
+    if (categoryId) {
+        const category = await Category.findById(categoryId).select('slotDuration slotStartTime slotEndTime');
+        if (category) {
+            slotDuration = category.slotDuration || 30;
+            slotStartTime = category.slotStartTime || '08:00';
+            slotEndTime = category.slotEndTime || '20:00';
+        }
+    }
+
+    const [startH, startM] = slotStartTime.split(':').map(Number);
+    const [endH, endM] = slotEndTime.split(':').map(Number);
+
     const istDateStr = new Date(date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     const dayStart = new Date(`${istDateStr}T00:00:00+05:30`);
     const dayEnd = new Date(`${istDateStr}T23:59:59.999+05:30`);
@@ -2116,26 +2177,29 @@ const getAvailableSlots = async (vendorId, date, excludeBookingId) => {
         if (range) busyWindows.push(range);
     }
 
-    // Generate candidate slots every 30 mins from 08:00 to 20:00
+    // Generate candidate slots based on category duration
     const slots = [];
-    const slotDurationMs = 30 * 60 * 1000; // 30 minute window to check
-    for (let h = 8; h < 21; h++) {
-        for (let m = 0; m < 60; m += 30) {
-            // Skip 20:30, only include up to 20:00
-            if (h === 20 && m === 30) continue;
-            
-            const slotStart = new Date(`${istDateStr}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+05:30`);
-            const slotEnd = new Date(slotStart.getTime() + slotDurationMs);
+    const slotDurationMs = slotDuration * 60 * 1000;
+    let currentMinutes = startH * 60 + startM;
+    const endMinutes = endH * 60 + endM;
 
-            const overlaps = busyWindows.some(w =>
-                Math.max(slotStart, w.start) < Math.min(slotEnd, w.end)
-            );
+    while (currentMinutes <= endMinutes) {
+        const h = Math.floor(currentMinutes / 60);
+        const m = currentMinutes % 60;
 
-            const isAvailable = slotStart.getTime() > Date.now();
-            if (!overlaps && isAvailable) {
-                slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-            }
+        const slotStart = new Date(`${istDateStr}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+05:30`);
+        const slotEnd = new Date(slotStart.getTime() + slotDurationMs);
+
+        const overlaps = busyWindows.some(w =>
+            Math.max(slotStart, w.start) < Math.min(slotEnd, w.end)
+        );
+
+        const isAvailable = slotStart.getTime() > Date.now();
+        if (!overlaps && isAvailable) {
+            slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
         }
+
+        currentMinutes += slotDuration;
     }
 
     return slots;
@@ -2203,7 +2267,7 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
                 const overlaps = Math.max(newRange.start, range.start) < Math.min(newRange.end, range.end);
                 if (overlaps) {
                     // Vendor is busy — return available slots instead
-                    const availableSlots = await getAvailableSlots(booking.vendor, newDate, booking._id);
+                    const availableSlots = await getAvailableSlots(booking.vendor, newDate, booking._id, booking.category);
                     return {
                         vendorBusy: true,
                         message: 'Vendor has bookings at that time. Please choose from the available slots.',
