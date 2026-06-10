@@ -1388,19 +1388,17 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330, serviceId = nu
         while (true) {
             const slotStartUTCMs = loopDate.getTime() + (currentMinutes * 60000);
             
-            // Stop if slot start time reaches or exceeds the category end time
-            if (slotStartUTCMs >= categoryEndUTCMs) break;
-
-            const slotEndUTCMs = slotStartUTCMs + slotDurationMs;
-            const actualSlotEndUTCMs = Math.min(slotEndUTCMs, categoryEndUTCMs);
+            // Stop if slot start time exceeds the category end time
+            // Allow one slot to start exactly at the end time
+            if (slotStartUTCMs > categoryEndUTCMs) break;
 
             const isAvailable = (slotStartUTCMs - now.getTime()) >= 0;
             if (isAvailable) {
                 const startH = Math.floor(currentMinutes / 60);
                 const startM = currentMinutes % 60;
-                const actualEndMinutes = Math.floor((actualSlotEndUTCMs - loopDate.getTime()) / 60000);
-                const endH = Math.floor(actualEndMinutes / 60);
-                const endM = actualEndMinutes % 60;
+                const endMinutes = currentMinutes + stepMinutes;
+                const endH = Math.floor(endMinutes / 60);
+                const endM = endMinutes % 60;
                 
                 dailySlots.push({
                     time: `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`,
