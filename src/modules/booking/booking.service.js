@@ -615,6 +615,12 @@ const requestCompletionOTP = async (vendorId, bookingId) => {
         return { booking: vendorPayload, locked: true, message: 'Completion OTP is locked' };
     }
 
+    // ── Block OTP if any main services have zero amount ──
+    const zeroAmountMainServices = (booking.services || []).filter(s => !s.finalPrice || s.finalPrice === 0);
+    if (zeroAmountMainServices.length > 0) {
+        throw new ApiError(400, `${zeroAmountMainServices.length} service(s) have zero amount. Please propose a price first.`);
+    }
+
     const completionOTP = '4321';
     if (!booking.otp) {
         booking.otp = { startOTP: '1234', completionOTP };
@@ -664,6 +670,12 @@ const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
     );
     if (pendingExtraServices.length > 0) {
         throw new ApiError(400, `Cannot complete work: ${pendingExtraServices.length} extra service(s) still pending pricing or confirmation`);
+    }
+
+    // ── Block completion if any main services have zero amount ──
+    const zeroAmountMainServices = (booking.services || []).filter(s => !s.finalPrice || s.finalPrice === 0);
+    if (zeroAmountMainServices.length > 0) {
+        throw new ApiError(400, `Cannot complete work: ${zeroAmountMainServices.length} service(s) have zero amount. Please propose a price first.`);
     }
 
     if (!booking.otp?.completionOTP) {
