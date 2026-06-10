@@ -44,10 +44,12 @@ const startServer = async () => {
   const { initAutoCancelJob } = require('./jobs/bookingAutoCancel.job');
   const { initMembershipRenewalJob } = require('./jobs/membershipRenewal.job');
   const { initVendorNoShowAutoCancelJob } = require('./jobs/vendorNoShowAutoCancel.job');
+  const { initUserCancelLockJob } = require('./jobs/userCancelLock.job');
   
   initAutoCancelJob();
   initMembershipRenewalJob();
   initVendorNoShowAutoCancelJob();
+  initUserCancelLockJob();
 
   /**
    * Port already in use
