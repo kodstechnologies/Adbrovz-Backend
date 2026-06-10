@@ -4042,6 +4042,7 @@ const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, {
             request.approvalStatus = 'pending';
         }
 
+        request.adminRemark = adminRemark || '';
         request.reviewedBy = adminId || null;
         request.reviewedAt = now;
     } else {

@@ -31,6 +31,7 @@ const notificationSchema = new mongoose.Schema(
         'extra_services_priced',
         'extra_services_accepted',
         'extra_services_rejected',
+        'extra_service_approval',
         'verification_update',
         'account_status',
         'dispute_update',
