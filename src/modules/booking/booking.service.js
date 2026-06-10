@@ -523,6 +523,20 @@ const startWork = async (vendorId, bookingId, enteredOTP) => {
     if (unconfirmedServices.length > 0) {
         throw new ApiError(400, `Price must be confirmed by the user for all services before starting work (${unconfirmedServices.length} service(s) still pending).`);
     }
+
+    // ── Block start if vendor has pending proposed services not yet accepted by user ──
+    if (booking.proposedServices && booking.proposedServices.length > 0) {
+        throw new ApiError(400, 'Cannot start work: vendor has proposed services awaiting user confirmation');
+    }
+
+    // ── Block start if extra services are unpriced or not yet accepted ──
+    const pendingExtraServices = (booking.userRequestedServices || []).filter(
+        s => s.status === 'pending' || s.status === 'priced' || !s.finalPrice || s.finalPrice === 0
+    );
+    if (pendingExtraServices.length > 0) {
+        throw new ApiError(400, `Cannot start work: ${pendingExtraServices.length} extra service(s) still pending pricing or confirmation`);
+    }
+
     if (!enteredOTP || enteredOTP.toString() !== validStartOTP) {
         throw new ApiError(400, 'Invalid Start OTP');
     }
@@ -922,7 +936,17 @@ const _formatBooking = (bookingDoc, role) => {
             }
 
             if (!allPricesConfirmed) bookingObj.otp.startOTP = 'Locked (Price Pending)';
-            if (!completionOTPCode) bookingObj.otp.completionOTP = 'Hidden (Pending)';
+
+            // If completion is locked due to pending services, always show Locked; otherwise show Hidden (Pending) when not yet generated
+            const isCompletionLocked = bookingObj.status === 'ongoing' && (
+                (bookingObj.proposedServices && bookingObj.proposedServices.length > 0) ||
+                (bookingObj.userRequestedServices || []).some(s => s.status === 'pending' || s.status === 'priced' || !s.finalPrice || s.finalPrice === 0)
+            );
+            if (isCompletionLocked) {
+                bookingObj.otp.completionOTP = 'Locked';
+            } else if (!completionOTPCode) {
+                bookingObj.otp.completionOTP = 'Hidden (Pending)';
+            }
         } else if (isVendorRole) {
             delete bookingObj.otp;
             delete bookingObj.currentOTP;
