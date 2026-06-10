@@ -1403,7 +1403,7 @@ const getCategorySlots = async (categoryId, timezoneOffset = 330, serviceId = nu
                 dailySlots.push({
                     time: `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`,
                     endTime: `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`,
-                    displayTime: formatDisplayTime(startH, startM),
+                    displayTime: formatDisplayTime(endH, endM),
                     isAvailable
                 });
             }
