@@ -4109,8 +4109,36 @@ const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, {
         });
     }
 
-    vendor.markModified('extraServiceRequests');
-    await vendor.save();
+    // Find the request index for positional update
+    const requestIndex = vendor.extraServiceRequests.findIndex(
+        r => String(r._id) === String(requestId)
+    );
+
+    if (requestIndex === -1) {
+        throw new ApiError(404, 'Approval request index not found');
+    }
+
+    // Build plain objects for the update to avoid Mongoose subdocument serialization issues
+    const plainServiceStatuses = request.serviceStatuses.map(s => ({
+        serviceId: s.serviceId,
+        status: s.status,
+        reviewedAt: s.reviewedAt,
+        adminRemark: s.adminRemark || ''
+    }));
+
+    // Use findOneAndUpdate with positional $set to ensure nested array changes persist
+    await Vendor.findOneAndUpdate(
+        { _id: vendorId },
+        {
+            $set: {
+                [`extraServiceRequests.${requestIndex}.serviceStatuses`]: plainServiceStatuses,
+                [`extraServiceRequests.${requestIndex}.approvalStatus`]: request.approvalStatus,
+                [`extraServiceRequests.${requestIndex}.adminRemark`]: request.adminRemark || '',
+                [`extraServiceRequests.${requestIndex}.reviewedBy`]: adminId || null,
+                [`extraServiceRequests.${requestIndex}.reviewedAt`]: now,
+            }
+        }
+    );
 
     const disapprovedServiceIds = request.serviceStatuses
         .filter(s => s.status === 'disapproved')
