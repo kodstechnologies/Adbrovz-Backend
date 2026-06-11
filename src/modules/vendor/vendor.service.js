@@ -1146,6 +1146,7 @@ const getServiceApprovalStatus = async (vendorId) => {
         serviceIds: vendor.selectedServices.map(s => s._id)
     });
 
+    // Primary selected services — use vendor-level approval status (one flag covers all)
     const services = vendor.selectedServices.map(svc => ({
         id: svc._id,
         name: svc.name || svc.title,
@@ -1168,78 +1169,58 @@ const getServiceApprovalStatus = async (vendorId) => {
             serviceCharge: svc.serviceCharge || 0
         }));
 
-    // Gather extra services status: include approved/pending ones, exclude disapproved ones
+    // Extra service requests — each service gets its OWN status from serviceStatuses.
+    // Disapproved services are excluded entirely from all lists.
     const primaryServiceIds = new Set(vendor.selectedServices.map(s => String(s._id)));
-    
+
     (vendor.extraServiceRequests || []).forEach(req => {
+        const requestServices = req.services || [];
+        const serviceStatusMap = new Map(); // serviceId (string) → individual status
+
         if (req.serviceStatuses && req.serviceStatuses.length > 0) {
+            // Per-service granularity exists — build a map of individual statuses
             req.serviceStatuses.forEach(s => {
-                const svc = (req.services || []).find(service => String(service._id || service) === String(s.serviceId));
-                if (svc && !primaryServiceIds.has(String(svc._id))) {
-                    if (s.status === 'approved') {
-                        approvedServices.push({
-                            id: svc._id,
-                            name: svc.name || svc.title,
-                            serviceCharge: svc.serviceCharge || 0,
-                            isExtra: true
-                        });
-                        services.push({
-                            id: svc._id,
-                            name: svc.name || svc.title,
-                            status: 'approved',
-                            isExtra: true
-                        });
-                    } else if (s.status === 'pending') {
-                        notApprovedServices.push({
-                            id: svc._id,
-                            name: svc.name || svc.title,
-                            serviceCharge: svc.serviceCharge || 0,
-                            isExtra: true
-                        });
-                        services.push({
-                            id: svc._id,
-                            name: svc.name || svc.title,
-                            status: 'pending',
-                            isExtra: true
-                        });
-                    }
-                }
-            });
-        } else if (req.approvalStatus === 'approved') {
-            (req.services || []).forEach(svc => {
-                if (svc && !primaryServiceIds.has(String(svc._id))) {
-                    approvedServices.push({
-                        id: svc._id,
-                        name: svc.name || svc.title,
-                        serviceCharge: svc.serviceCharge || 0,
-                        isExtra: true
-                    });
-                    services.push({
-                        id: svc._id,
-                        name: svc.name || svc.title,
-                        status: 'approved',
-                        isExtra: true
-                    });
-                }
-            });
-        } else if (req.approvalStatus === 'pending') {
-            (req.services || []).forEach(svc => {
-                if (svc && !primaryServiceIds.has(String(svc._id))) {
-                    notApprovedServices.push({
-                        id: svc._id,
-                        name: svc.name || svc.title,
-                        serviceCharge: svc.serviceCharge || 0,
-                        isExtra: true
-                    });
-                    services.push({
-                        id: svc._id,
-                        name: svc.name || svc.title,
-                        status: 'pending',
-                        isExtra: true
-                    });
-                }
+                serviceStatusMap.set(String(s.serviceId), s.status || 'pending');
             });
         }
+
+        requestServices.forEach(svc => {
+            if (!svc || primaryServiceIds.has(String(svc._id))) return;
+
+            // Determine this specific service's status
+            let svcStatus;
+            if (serviceStatusMap.has(String(svc._id))) {
+                // Use the per-service status from serviceStatuses
+                svcStatus = serviceStatusMap.get(String(svc._id));
+            } else {
+                // No individual status entry yet — fall back to request-level status
+                svcStatus = req.approvalStatus || 'pending';
+            }
+
+            // Disapproved → skip entirely (do NOT include in any list)
+            if (svcStatus === 'disapproved') return;
+
+            const svcEntry = {
+                id: svc._id,
+                name: svc.name || svc.title,
+                serviceCharge: svc.serviceCharge || 0,
+                isExtra: true
+            };
+
+            if (svcStatus === 'approved') {
+                approvedServices.push(svcEntry);
+            } else {
+                // 'pending' or anything else goes to notApproved
+                notApprovedServices.push(svcEntry);
+            }
+
+            services.push({
+                id: svc._id,
+                name: svc.name || svc.title,
+                status: svcStatus,
+                isExtra: true
+            });
+        });
     });
 
     return {
