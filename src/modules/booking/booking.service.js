@@ -1104,7 +1104,7 @@ const getBookingDetails = async (bookingId, userId, role) => {
         .populate('userRequestedServices.service')
         .populate('rejectedServices.service')
         .populate('category')
-        .populate('vendor', 'name phoneNumber photo')
+        .populate('vendor', 'name phoneNumber photo documents.photo.url')
         .populate('user', 'name phoneNumber photo');
 
     if (!booking) {
@@ -2081,7 +2081,7 @@ const cancelBooking = async (userId, bookingId, reason) => {
         .populate('proposedServices.service', 'title serviceCharge photo')
         .populate('userRequestedServices.service', 'title serviceCharge photo')
         .populate('category')
-        .populate('vendor', 'name phoneNumber photo')
+        .populate('vendor', 'name phoneNumber photo documents.photo.url')
         .populate('user', 'name phoneNumber photo');
 
     const { emitToUser, emitToVendor } = require('../../socket');
@@ -2170,7 +2170,7 @@ const vendorCancelBooking = async (vendorId, bookingId, reason) => {
         .populate('proposedServices.service', 'title serviceCharge photo')
         .populate('userRequestedServices.service', 'title serviceCharge photo')
         .populate('category')
-        .populate('vendor', 'name phoneNumber photo')
+        .populate('vendor', 'name phoneNumber photo documents.photo.url')
         .populate('user', 'name phoneNumber photo');
 
     const { emitToUser, emitToVendor } = require('../../socket');
@@ -2383,7 +2383,7 @@ const getBookingsByUser = async (userId) => {
         .populate('services.service', 'title serviceCharge photo')
         .populate('proposedServices.service', 'title serviceCharge photo')
         .populate('userRequestedServices.service', 'title serviceCharge photo')
-        .populate('vendor', 'name phoneNumber photo')
+        .populate('vendor', 'name phoneNumber photo documents.photo.url')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
     
@@ -2414,7 +2414,7 @@ const getBookingsByVendor = async (vendorId) => {
         .populate('proposedServices.service', 'title serviceCharge photo')
         .populate('userRequestedServices.service', 'title serviceCharge photo')
         .populate('user', 'name phoneNumber photo')
-        .populate('vendor', 'name phoneNumber photo')
+        .populate('vendor', 'name phoneNumber photo documents.photo.url')
         .sort({ createdAt: -1 });
     return bookings.map(b => _formatBooking(b, 'vendor'));
 };
@@ -2430,7 +2430,7 @@ const getCompletedBookingsByUser = async (userId) => {
         .populate('services.service', 'title serviceCharge photo')
         .populate('proposedServices.service', 'title serviceCharge photo')
         .populate('userRequestedServices.service', 'title serviceCharge photo')
-        .populate('vendor', 'name phoneNumber photo')
+        .populate('vendor', 'name phoneNumber photo documents.photo.url')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
     
@@ -2463,7 +2463,7 @@ const getCancelledBookings = async (userId, role) => {
 
     const bookings = await Booking.find(query)
         .populate('services.service', 'title serviceCharge photo')
-        .populate('vendor', 'name phoneNumber photo')
+        .populate('vendor', 'name phoneNumber photo documents.photo.url')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
 
