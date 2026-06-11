@@ -1134,9 +1134,7 @@ const approveVendorServices = async (vendorId, serviceData) => {
  * Vendor: Get Service Approval Status and Amount
  */
 const getServiceApprovalStatus = async (vendorId) => {
-    const vendor = await Vendor.findById(vendorId)
-        .populate('selectedServices')
-        .populate('extraServiceRequests.services');
+    const vendor = await Vendor.findById(vendorId).populate('selectedServices');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const durationMonths = vendor.membership?.durationMonths || 3;
@@ -1146,17 +1144,16 @@ const getServiceApprovalStatus = async (vendorId) => {
         serviceIds: vendor.selectedServices.map(s => s._id)
     });
 
-    // Primary selected services — use vendor-level approval status (one flag covers all)
     const services = vendor.selectedServices.map(svc => ({
         id: svc._id,
-        name: svc.name || svc.title,
+        name: svc.name,
         status: vendor.serviceApprovalStatus || 'pending'
     }));
 
     const approvedServices = vendor.serviceApprovalStatus === 'approved'
         ? vendor.selectedServices.map((svc) => ({
             id: svc._id,
-            name: svc.name || svc.title,
+            name: svc.name,
             serviceCharge: svc.serviceCharge || 0
         }))
         : [];
@@ -1165,65 +1162,9 @@ const getServiceApprovalStatus = async (vendorId) => {
         ? []
         : vendor.selectedServices.map((svc) => ({
             id: svc._id,
-            name: svc.name || svc.title,
+            name: svc.name,
             serviceCharge: svc.serviceCharge || 0
         }));
-
-    // Extra service requests — each service gets its OWN status from serviceStatuses.
-    // Disapproved services are excluded entirely from all lists.
-    const primaryServiceIds = new Set(vendor.selectedServices.map(s => String(s._id)));
-
-    (vendor.extraServiceRequests || []).forEach(req => {
-        const requestServices = req.services || [];
-        const serviceStatusMap = new Map(); // serviceId (string) → individual status
-
-        if (req.serviceStatuses && req.serviceStatuses.length > 0) {
-            // Per-service granularity exists — build a map of individual statuses
-            req.serviceStatuses.forEach(s => {
-                serviceStatusMap.set(String(s.serviceId), s.status || 'pending');
-            });
-        }
-
-        requestServices.forEach(svc => {
-            // svc may be a populated Service doc OR a raw ObjectId (if populate failed/partial).
-            // Use (svc._id || svc) to get the real identifier in both cases.
-            const svcId = String(svc._id || svc);
-
-            if (!svc || primaryServiceIds.has(svcId)) return;
-
-            // Determine this specific service's individual status from the map.
-            // Only fall back to request-level approvalStatus if no per-service entry exists at all.
-            let svcStatus;
-            if (serviceStatusMap.has(svcId)) {
-                svcStatus = serviceStatusMap.get(svcId);
-            } else {
-                // No individual status entry — fall back to request-level status
-                svcStatus = req.approvalStatus || 'pending';
-            }
-
-            const svcEntry = {
-                id: svc._id || svc,
-                name: svc.name || svc.title || '',
-                serviceCharge: svc.serviceCharge || 0,
-                isExtra: true,
-                status: svcStatus
-            };
-
-            if (svcStatus === 'approved') {
-                approvedServices.push(svcEntry);
-            } else {
-                // 'pending' and 'disapproved' both go to notApprovedServices
-                notApprovedServices.push(svcEntry);
-            }
-
-            services.push({
-                id: svc._id || svc,
-                name: svc.name || svc.title || '',
-                status: svcStatus,
-                isExtra: true
-            });
-        });
-    });
 
     return {
         services,
@@ -2638,7 +2579,7 @@ const getDashboardMetrics = async (vendorId) => {
     // 3. Get ongoing jobs (In Progress)
     const ongoingJobs = await Booking.countDocuments({
         vendor: vendorIdObj,
-        status: { $in: [ 'on_the_way', 'arrived', 'ongoing'] }
+        status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] }
     });
 
     // 4. Get completed jobs THIS MONTH
