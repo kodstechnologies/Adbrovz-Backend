@@ -4183,14 +4183,6 @@ const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, {
         }
     );
 
-    const approvedServiceIds = request.serviceStatuses && request.serviceStatuses.length > 0
-        ? request.serviceStatuses
-            .filter(s => s.status === 'approved')
-            .map(s => String(s.serviceId))
-        : (request.approvalStatus === 'approved'
-            ? requestServiceIds
-            : []);
-
     const disapprovedServiceIds = request.serviceStatuses
         .filter(s => s.status === 'disapproved')
         .map(s => String(s.serviceId));
@@ -4202,7 +4194,7 @@ const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, {
         approvalStatus: request.approvalStatus,
         adminRemark: request.adminRemark,
         reviewedAt: request.reviewedAt,
-        serviceIds: approvedServiceIds,
+        serviceIds: requestServiceIds,
         disapprovedServiceIds,
         serviceStatuses: request.serviceStatuses
     };
