@@ -1201,19 +1201,18 @@ const getServiceApprovalStatus = async (vendorId) => {
                 svcStatus = req.approvalStatus || 'pending';
             }
 
-            // Disapproved → skip entirely (do NOT include in any list)
-            if (svcStatus === 'disapproved') return;
-
             const svcEntry = {
                 id: svc._id || svc,
                 name: svc.name || svc.title || '',
                 serviceCharge: svc.serviceCharge || 0,
-                isExtra: true
+                isExtra: true,
+                status: svcStatus
             };
 
             if (svcStatus === 'approved') {
                 approvedServices.push(svcEntry);
             } else {
+                // 'pending' and 'disapproved' both go to notApprovedServices
                 notApprovedServices.push(svcEntry);
             }
 
