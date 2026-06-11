@@ -4001,7 +4001,14 @@ const getExtraServiceApprovalRequests = async (vendorId) => {
             reviewedAt: req.reviewedAt || null,
             requestedAt: req.requestedAt,
             category: req.category ? { id: req.category._id, name: req.category.name } : null,
-            services: (req.services || []).map((svc) => ({ id: svc._id, title: svc.title })),
+            services: (req.services || []).filter((svc) => {
+                // If no serviceStatuses yet (old data), return all services
+                if (!req.serviceStatuses || req.serviceStatuses.length === 0) return true;
+                const svcId = String(svc?._id || svc);
+                const ss = req.serviceStatuses.find(s => String(s.serviceId) === svcId);
+                // Only include services that are approved (skip pending and disapproved)
+                return ss ? ss.status === 'approved' : false;
+            }).map((svc) => ({ id: svc._id, title: svc.title })),
             disapprovedServices: req.serviceStatuses && req.serviceStatuses.length > 0
                 ? (req.serviceStatuses || [])
                     .filter(s => s.status === 'disapproved')
