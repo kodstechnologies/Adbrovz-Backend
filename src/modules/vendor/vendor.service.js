@@ -1185,15 +1185,19 @@ const getServiceApprovalStatus = async (vendorId) => {
         }
 
         requestServices.forEach(svc => {
-            if (!svc || primaryServiceIds.has(String(svc._id))) return;
+            // svc may be a populated Service doc OR a raw ObjectId (if populate failed/partial).
+            // Use (svc._id || svc) to get the real identifier in both cases.
+            const svcId = String(svc._id || svc);
 
-            // Determine this specific service's status
+            if (!svc || primaryServiceIds.has(svcId)) return;
+
+            // Determine this specific service's individual status from the map.
+            // Only fall back to request-level approvalStatus if no per-service entry exists at all.
             let svcStatus;
-            if (serviceStatusMap.has(String(svc._id))) {
-                // Use the per-service status from serviceStatuses
-                svcStatus = serviceStatusMap.get(String(svc._id));
+            if (serviceStatusMap.has(svcId)) {
+                svcStatus = serviceStatusMap.get(svcId);
             } else {
-                // No individual status entry yet — fall back to request-level status
+                // No individual status entry — fall back to request-level status
                 svcStatus = req.approvalStatus || 'pending';
             }
 
@@ -1201,8 +1205,8 @@ const getServiceApprovalStatus = async (vendorId) => {
             if (svcStatus === 'disapproved') return;
 
             const svcEntry = {
-                id: svc._id,
-                name: svc.name || svc.title,
+                id: svc._id || svc,
+                name: svc.name || svc.title || '',
                 serviceCharge: svc.serviceCharge || 0,
                 isExtra: true
             };
@@ -1210,13 +1214,12 @@ const getServiceApprovalStatus = async (vendorId) => {
             if (svcStatus === 'approved') {
                 approvedServices.push(svcEntry);
             } else {
-                // 'pending' or anything else goes to notApproved
                 notApprovedServices.push(svcEntry);
             }
 
             services.push({
-                id: svc._id,
-                name: svc.name || svc.title,
+                id: svc._id || svc,
+                name: svc.name || svc.title || '',
                 status: svcStatus,
                 isExtra: true
             });
