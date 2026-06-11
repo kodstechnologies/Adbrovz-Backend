@@ -1134,7 +1134,9 @@ const approveVendorServices = async (vendorId, serviceData) => {
  * Vendor: Get Service Approval Status and Amount
  */
 const getServiceApprovalStatus = async (vendorId) => {
-    const vendor = await Vendor.findById(vendorId).populate('selectedServices');
+    const vendor = await Vendor.findById(vendorId)
+        .populate('selectedServices')
+        .populate('extraServiceRequests.services');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const durationMonths = vendor.membership?.durationMonths || 3;
@@ -1146,14 +1148,14 @@ const getServiceApprovalStatus = async (vendorId) => {
 
     const services = vendor.selectedServices.map(svc => ({
         id: svc._id,
-        name: svc.name,
+        name: svc.name || svc.title,
         status: vendor.serviceApprovalStatus || 'pending'
     }));
 
     const approvedServices = vendor.serviceApprovalStatus === 'approved'
         ? vendor.selectedServices.map((svc) => ({
             id: svc._id,
-            name: svc.name,
+            name: svc.name || svc.title,
             serviceCharge: svc.serviceCharge || 0
         }))
         : [];
@@ -1162,9 +1164,83 @@ const getServiceApprovalStatus = async (vendorId) => {
         ? []
         : vendor.selectedServices.map((svc) => ({
             id: svc._id,
-            name: svc.name,
+            name: svc.name || svc.title,
             serviceCharge: svc.serviceCharge || 0
         }));
+
+    // Gather extra services status: include approved/pending ones, exclude disapproved ones
+    const primaryServiceIds = new Set(vendor.selectedServices.map(s => String(s._id)));
+    
+    (vendor.extraServiceRequests || []).forEach(req => {
+        if (req.serviceStatuses && req.serviceStatuses.length > 0) {
+            req.serviceStatuses.forEach(s => {
+                const svc = (req.services || []).find(service => String(service._id || service) === String(s.serviceId));
+                if (svc && !primaryServiceIds.has(String(svc._id))) {
+                    if (s.status === 'approved') {
+                        approvedServices.push({
+                            id: svc._id,
+                            name: svc.name || svc.title,
+                            serviceCharge: svc.serviceCharge || 0,
+                            isExtra: true
+                        });
+                        services.push({
+                            id: svc._id,
+                            name: svc.name || svc.title,
+                            status: 'approved',
+                            isExtra: true
+                        });
+                    } else if (s.status === 'pending') {
+                        notApprovedServices.push({
+                            id: svc._id,
+                            name: svc.name || svc.title,
+                            serviceCharge: svc.serviceCharge || 0,
+                            isExtra: true
+                        });
+                        services.push({
+                            id: svc._id,
+                            name: svc.name || svc.title,
+                            status: 'pending',
+                            isExtra: true
+                        });
+                    }
+                }
+            });
+        } else if (req.approvalStatus === 'approved') {
+            (req.services || []).forEach(svc => {
+                if (svc && !primaryServiceIds.has(String(svc._id))) {
+                    approvedServices.push({
+                        id: svc._id,
+                        name: svc.name || svc.title,
+                        serviceCharge: svc.serviceCharge || 0,
+                        isExtra: true
+                    });
+                    services.push({
+                        id: svc._id,
+                        name: svc.name || svc.title,
+                        status: 'approved',
+                        isExtra: true
+                    });
+                }
+            });
+        } else if (req.approvalStatus === 'pending') {
+            (req.services || []).forEach(svc => {
+                if (svc && !primaryServiceIds.has(String(svc._id))) {
+                    notApprovedServices.push({
+                        id: svc._id,
+                        name: svc.name || svc.title,
+                        serviceCharge: svc.serviceCharge || 0,
+                        isExtra: true
+                    });
+                    services.push({
+                        id: svc._id,
+                        name: svc.name || svc.title,
+                        status: 'pending',
+                        isExtra: true
+                    });
+                }
+            });
+        }
+    });
 
     return {
         services,
