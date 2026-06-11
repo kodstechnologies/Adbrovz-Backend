@@ -4013,7 +4013,7 @@ const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, {
     const canonicalStatus = (status) => {
         const s = String(status || '').toLowerCase().trim();
         if (s.startsWith('reject')) return 'disapproved';
-        if (s === 'approve' || s === 'verified') return 'approved';
+        if (s === 'approved' || s === 'approve' || s === 'verified') return 'approved';
         if (s === 'pending') return 'pending';
         return 'pending'; // default fallback
     };
