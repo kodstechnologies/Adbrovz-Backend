@@ -4187,6 +4187,12 @@ const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, {
         .filter(s => s.status === 'disapproved')
         .map(s => String(s.serviceId));
 
+    const approvedServiceIds = request.serviceStatuses && request.serviceStatuses.length > 0
+        ? request.serviceStatuses
+            .filter(s => s.status === 'approved')
+            .map(s => String(s.serviceId))
+        : (request.approvalStatus === 'approved' ? requestServiceIds : []);
+
     const payload = {
         vendorId: vendor._id,
         requestId: request._id,
@@ -4194,7 +4200,7 @@ const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, {
         approvalStatus: request.approvalStatus,
         adminRemark: request.adminRemark,
         reviewedAt: request.reviewedAt,
-        serviceIds: requestServiceIds,
+        serviceIds: approvedServiceIds,
         disapprovedServiceIds,
         serviceStatuses: request.serviceStatuses
     };
