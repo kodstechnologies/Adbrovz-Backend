@@ -4002,8 +4002,10 @@ const getExtraServiceApprovalRequests = async (vendorId) => {
             requestedAt: req.requestedAt,
             category: req.category ? { id: req.category._id, name: req.category.name } : null,
             services: (req.services || []).filter((svc) => {
-                // If no serviceStatuses yet (old data), return all services
-                if (!req.serviceStatuses || req.serviceStatuses.length === 0) return true;
+                // If no serviceStatuses yet (old data), return all services only if the request was approved
+                if (!req.serviceStatuses || req.serviceStatuses.length === 0) {
+                    return req.approvalStatus === 'approved';
+                }
                 const svcId = String(svc?._id || svc);
                 const ss = req.serviceStatuses.find(s => String(s.serviceId) === svcId);
                 // Only include services that are approved (skip pending and disapproved)
@@ -4770,16 +4772,33 @@ const createPurchaseOrder = async (vendorId, { serviceIds = [], approvalRequestI
     } else {
         approvedRequest = (vendor.extraServiceRequests || []).find((req) => {
             if (req.approvalStatus !== 'approved') return false;
-            const reqIds = new Set((req.services || []).map((id) => String(id)));
-            return reqIds.size === payloadIds.size && [...payloadIds].every(id => reqIds.has(id));
+            const approvedSvcIds = new Set();
+            if (req.serviceStatuses && req.serviceStatuses.length > 0) {
+                req.serviceStatuses.forEach(s => {
+                    if (s.status === 'approved') approvedSvcIds.add(String(s.serviceId));
+                });
+            } else {
+                (req.services || []).forEach(id => approvedSvcIds.add(String(id)));
+            }
+            return payloadIds.size > 0 && [...payloadIds].every(id => approvedSvcIds.has(id));
         });
     }
 
     if (!approvedRequest) {
         throw new ApiError(403, 'Admin approval is required before purchasing extra services');
     }
-    const requestedIds = new Set((approvedRequest.services || []).map((id) => String(id)));
-    if (!serviceIds?.length || requestedIds.size !== payloadIds.size || [...payloadIds].some((id) => !requestedIds.has(id))) {
+    const approvedServiceIds = new Set();
+    if (approvedRequest.serviceStatuses && approvedRequest.serviceStatuses.length > 0) {
+        approvedRequest.serviceStatuses.forEach(s => {
+            if (s.status === 'approved') {
+                approvedServiceIds.add(String(s.serviceId));
+            }
+        });
+    } else {
+        (approvedRequest.services || []).forEach(id => approvedServiceIds.add(String(id)));
+    }
+
+    if (!serviceIds?.length || approvedServiceIds.size !== payloadIds.size || [...payloadIds].some((id) => !approvedServiceIds.has(id))) {
         throw new ApiError(403, 'Only approved services can be purchased');
     }
 
