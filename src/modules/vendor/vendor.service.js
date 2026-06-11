@@ -4012,7 +4012,7 @@ const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, {
     // Normalize any legacy invalid status values (e.g. 'reject' -> 'disapproved')
     const canonicalStatus = (status) => {
         const s = String(status || '').toLowerCase().trim();
-        if (s.startsWith('reject')) return 'disapproved';
+        if (s.startsWith('reject') || s === 'disapproved' || s === 'disapprove') return 'disapproved';
         if (s === 'approved' || s === 'approve' || s === 'verified') return 'approved';
         if (s === 'pending') return 'pending';
         return 'pending'; // default fallback
