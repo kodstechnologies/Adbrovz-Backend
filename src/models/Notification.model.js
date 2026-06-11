@@ -18,6 +18,7 @@ const notificationSchema = new mongoose.Schema(
         'new_booking',
         'booking_alert',
         'booking_accepted',
+        'booking_update',
         'booking_cancelled',
         'booking_completed',
         'booking_rescheduled',
