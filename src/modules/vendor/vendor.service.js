@@ -4258,7 +4258,16 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
         if (!approvalReq || approvalReq.approvalStatus !== 'approved') {
             throw new ApiError(403, 'Approval is not valid anymore. Payment cannot be processed.');
         }
-        const approvedIds = new Set((approvalReq.services || []).map((id) => String(id)));
+        const approvedIds = new Set();
+        if (approvalReq.serviceStatuses && approvalReq.serviceStatuses.length > 0) {
+            approvalReq.serviceStatuses.forEach(s => {
+                if (s.status === 'approved') {
+                    approvedIds.add(String(s.serviceId));
+                }
+            });
+        } else {
+            (approvalReq.services || []).forEach(id => approvedIds.add(String(id)));
+        }
         const paidIds = new Set((finalServices || []).map((id) => String(id)));
         if (!paidIds.size || approvedIds.size !== paidIds.size || [...paidIds].some((id) => !approvedIds.has(id))) {
             throw new ApiError(403, 'Payment contains non-approved services.');
