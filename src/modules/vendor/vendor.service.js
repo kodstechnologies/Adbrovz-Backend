@@ -2638,7 +2638,7 @@ const getDashboardMetrics = async (vendorId) => {
     // 3. Get ongoing jobs (In Progress)
     const ongoingJobs = await Booking.countDocuments({
         vendor: vendorIdObj,
-        status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] }
+        status: { $in: [ 'on_the_way', 'arrived', 'ongoing'] }
     });
 
     // 4. Get completed jobs THIS MONTH
