@@ -2230,7 +2230,13 @@ const getVendorProfile = async (vendorId) => {
 
     const hasPendingDeletionApproval = Boolean(vendor.deletionRequest?.isRequested) && vendor.deletionRequest?.status === 'PENDING';
     const hasPendingServiceApproval = (vendor.serviceApprovalStatus || 'pending') === 'pending';
-    const hasPendingExtraServiceApproval = (vendor.extraServiceRequests || []).some((req) => req?.approvalStatus === 'pending');
+    const hasPendingExtraServiceApproval = (vendor.extraServiceRequests || []).some((req) => {
+        const serviceStatuses = req?.serviceStatuses || [];
+        if (serviceStatuses.length > 0) {
+            return serviceStatuses.some(s => (s.status || 'pending') === 'pending');
+        }
+        return (req?.approvalStatus || 'pending') === 'pending';
+    });
     const attentionReasons = [];
     if (hasPendingDeletionApproval) attentionReasons.push('DELETION_APPROVAL_PENDING');
     if (hasPendingServiceApproval) attentionReasons.push('SERVICE_APPROVAL_PENDING');
@@ -3821,16 +3827,33 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
     } else {
         approvedRequest = (vendor.extraServiceRequests || []).find((req) => {
             if (req.approvalStatus !== 'approved') return false;
-            const reqIds = new Set((req.services || []).map((id) => String(id)));
-            return reqIds.size === payloadIds.size && [...payloadIds].every(id => reqIds.has(id));
+            const approvedSvcIds = new Set();
+            if (req.serviceStatuses && req.serviceStatuses.length > 0) {
+                req.serviceStatuses.forEach(s => {
+                    if (s.status === 'approved') approvedSvcIds.add(String(s.serviceId));
+                });
+            } else {
+                (req.services || []).forEach(id => approvedSvcIds.add(String(id)));
+            }
+            return payloadIds.size > 0 && [...payloadIds].every(id => approvedSvcIds.has(id));
         });
     }
 
     if (!approvedRequest) {
         throw new ApiError(403, 'Admin approval is required before purchasing extra services');
     }
-    const requestedIds = new Set((approvedRequest.services || []).map((id) => String(id)));
-    if (!serviceIds?.length || requestedIds.size !== payloadIds.size || [...payloadIds].some((id) => !requestedIds.has(id))) {
+    const approvedServiceIds = new Set();
+    if (approvedRequest.serviceStatuses && approvedRequest.serviceStatuses.length > 0) {
+        approvedRequest.serviceStatuses.forEach(s => {
+            if (s.status === 'approved') {
+                approvedServiceIds.add(String(s.serviceId));
+            }
+        });
+    } else {
+        (approvedRequest.services || []).forEach(id => approvedServiceIds.add(String(id)));
+    }
+
+    if (!serviceIds?.length || [...payloadIds].some((id) => !approvedServiceIds.has(id))) {
         throw new ApiError(403, 'Only approved services can be purchased');
     }
 
@@ -3979,9 +4002,16 @@ const getExtraServiceApprovalRequests = async (vendorId) => {
             requestedAt: req.requestedAt,
             category: req.category ? { id: req.category._id, name: req.category.name } : null,
             services: (req.services || []).map((svc) => ({ id: svc._id, title: svc.title })),
-            disapprovedServices: req.approvalStatus === 'disapproved'
-                ? (req.services || []).map((svc) => ({ id: svc._id, title: svc.title }))
-                : [],
+            disapprovedServices: req.serviceStatuses && req.serviceStatuses.length > 0
+                ? (req.serviceStatuses || [])
+                    .filter(s => s.status === 'disapproved')
+                    .map(s => {
+                        const svc = (req.services || []).find(service => String(service?._id || service) === String(s.serviceId));
+                        return svc ? { id: svc._id, title: svc.title } : { id: s.serviceId, title: 'Disapproved Service' };
+                    })
+                : (req.approvalStatus === 'disapproved'
+                    ? (req.services || []).map((svc) => ({ id: svc._id, title: svc.title }))
+                    : []),
         }))
     };
 };
@@ -4070,10 +4100,12 @@ const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, {
         // Derive overall approvalStatus from serviceStatuses
         const allStatuses = request.serviceStatuses.map(s => s.status);
         const hasPending = allStatuses.some(s => s === 'pending');
-        const allApproved = allStatuses.every(s => s === 'approved');
+        const hasApproved = allStatuses.some(s => s === 'approved');
         const allDisapproved = allStatuses.every(s => s === 'disapproved');
 
-        if (allApproved) {
+        if (hasPending) {
+            request.approvalStatus = 'pending';
+        } else if (hasApproved) {
             request.approvalStatus = 'approved';
         } else if (allDisapproved) {
             request.approvalStatus = 'disapproved';
@@ -4081,7 +4113,11 @@ const reviewExtraServiceApprovalRequest = async (adminId, vendorId, requestId, {
             request.approvalStatus = 'pending';
         }
 
-        request.adminRemark = adminRemark || '';
+        if (request.approvalStatus === 'pending') {
+            request.adminRemark = '';
+        } else {
+            request.adminRemark = adminRemark || '';
+        }
         request.reviewedBy = adminId || null;
         request.reviewedAt = now;
     } else {

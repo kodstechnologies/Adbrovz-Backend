@@ -472,9 +472,13 @@ const getExtraServiceApprovalRequests = async ({ status, vendorId, limit = 20, s
     reviewedBy: row.extraServiceRequests?.reviewedBy || null,
     reviewedAt: row.extraServiceRequests?.reviewedAt || null,
     requestedAt: row.extraServiceRequests?.requestedAt || null,
-    disapprovedServiceIds: (row.extraServiceRequests?.approvalStatus || 'pending') === 'disapproved'
-      ? (row.extraServiceRequests?.services || [])
-      : []
+    disapprovedServiceIds: row.extraServiceRequests?.serviceStatuses && row.extraServiceRequests.serviceStatuses.length > 0
+      ? row.extraServiceRequests.serviceStatuses
+          .filter(s => s.status === 'disapproved')
+          .map(s => String(s.serviceId))
+      : ((row.extraServiceRequests?.approvalStatus || 'pending') === 'disapproved'
+          ? (row.extraServiceRequests?.services || [])
+          : [])
   }));
 };
 
@@ -509,7 +513,13 @@ const getEligibleVendors = async () => {
     const vendor = vendorDoc.toObject ? vendorDoc.toObject() : vendorDoc;
     const hasPendingDeletionApproval = Boolean(vendor.deletionRequest?.isRequested) && vendor.deletionRequest?.status === 'PENDING';
     const hasPendingServiceApproval = (vendor.serviceApprovalStatus || 'pending') === 'pending';
-    const hasPendingExtraServiceApproval = (vendor.extraServiceRequests || []).some((req) => req?.approvalStatus === 'pending');
+    const hasPendingExtraServiceApproval = (vendor.extraServiceRequests || []).some((req) => {
+        const serviceStatuses = req?.serviceStatuses || [];
+        if (serviceStatuses.length > 0) {
+            return serviceStatuses.some(s => (s.status || 'pending') === 'pending');
+        }
+        return (req?.approvalStatus || 'pending') === 'pending';
+    });
     const attentionReasons = [];
     if (hasPendingDeletionApproval) attentionReasons.push('DELETION_APPROVAL_PENDING');
     if (hasPendingServiceApproval) attentionReasons.push('SERVICE_APPROVAL_PENDING');
