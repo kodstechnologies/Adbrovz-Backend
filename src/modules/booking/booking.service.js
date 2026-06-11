@@ -313,11 +313,6 @@ const acceptBooking = async (vendorId, bookingId) => {
         booking.markModified('pricing');
         await booking.save();
 
-    console.log(`[SOCKET] Booking ${bookingId} locked by vendor ${vendorId}`);
-
-    const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
-    const vendorPayload = await getBookingDetails(booking._id, vendorId, 'vendor');
-
     // ── Emit acceptance update IMMEDIATELY after locking ──
     try {
         const { emitToUser } = require('../../socket');
@@ -328,9 +323,7 @@ const acceptBooking = async (vendorId, bookingId) => {
             message: 'A vendor has accepted your booking request!',
             searchCompleted: true,
             vendorName: vendor.name,
-            vendorPhone: vendor.phoneNumber,
-            pricing: userPayload.pricing,
-            booking: userPayload
+            vendorPhone: vendor.phoneNumber
         });
         console.log(`[SOCKET] Emitted 'accepted' status update for user: ${booking.user}`);
     } catch (socketErr) {
@@ -343,6 +336,11 @@ const acceptBooking = async (vendorId, bookingId) => {
     await vendor.save();
     console.log(`[SOCKET] Deducted ${coinCost} coins from vendor ${vendorId}. New balance: ${vendor.coins}`);
     */
+
+    console.log(`[SOCKET] Booking ${bookingId} locked by vendor ${vendorId}`);
+
+    const userPayload = await getBookingDetails(booking._id, booking.user, 'user');
+    const vendorPayload = await getBookingDetails(booking._id, vendorId, 'vendor');
 
     const { emitToUser, emitToVendor, activeVendors, getIo } = require('../../socket');
 
