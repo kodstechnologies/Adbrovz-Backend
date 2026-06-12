@@ -3929,33 +3929,74 @@ const requestExtraServiceApproval = async (vendorId, { categoryId, subcategoryId
 
     vendor.extraServiceRequests = vendor.extraServiceRequests || [];
 
-    // Guard: prevent duplicate pending requests for the exact same set of service IDs.
-    // Each unique combination of services gets its own request, but the same combo
-    // should not stack up with multiple pending entries.
-    const normalizedNewIds = parseArrayInput(serviceIds).map(id => String(id)).sort();
-    const existingPending = vendor.extraServiceRequests.find(req => {
-        if (req.approvalStatus !== 'pending') return false;
-        const reqIds = (req.services || []).map(id => String(id)).sort();
-        if (reqIds.length !== normalizedNewIds.length) return false;
-        return reqIds.every((id, i) => id === normalizedNewIds[i]);
+    // Deduplicate incoming serviceIds in the payload itself
+    let finalServiceIds = [...new Set(parseArrayInput(serviceIds).map(id => String(id)))];
+
+    // Find services that the vendor has already purchased
+    const purchasedServiceIds = new Set((vendor.selectedServices || []).map(id => String(id)));
+    for (const catSub of (vendor.categorySubscriptions || [])) {
+        for (const svcId of (catSub.services || [])) {
+            purchasedServiceIds.add(String(svcId));
+        }
+    }
+
+    // Find services that are already pending or approved in other requests
+    const alreadyRequestedServiceIds = new Set();
+    (vendor.extraServiceRequests || []).forEach(req => {
+        if (req.approvalStatus !== 'disapproved') {
+            (req.services || []).forEach(svc => {
+                const svcId = String(svc?._id || svc);
+                let isDisapproved = false;
+                if (req.serviceStatuses && req.serviceStatuses.length > 0) {
+                    const statusEntry = req.serviceStatuses.find(s => String(s.serviceId) === svcId);
+                    if (statusEntry && statusEntry.status === 'disapproved') {
+                        isDisapproved = true;
+                    }
+                }
+                if (!isDisapproved) {
+                    alreadyRequestedServiceIds.add(svcId);
+                }
+            });
+        }
     });
 
-    if (existingPending) {
-        // A pending request for these exact services already exists; return it instead of duplicating
+    // Filter finalServiceIds to exclude purchased or already requested services
+    finalServiceIds = finalServiceIds.filter(id => !purchasedServiceIds.has(id) && !alreadyRequestedServiceIds.has(id));
+
+    if (!finalServiceIds.length) {
+        // All requested services are already purchased, pending, or approved.
+        // Return the most recent request details to satisfy the client without creating a duplicate.
+        const lastRequest = vendor.extraServiceRequests[vendor.extraServiceRequests.length - 1];
         return {
-            requestId: existingPending._id,
-            requestedBy: existingPending.requestedBy || vendor._id,
-            approvalStatus: existingPending.approvalStatus,
-            requestedAt: existingPending.requestedAt,
-            message: 'Extra service approval request already pending'
+            requestId: lastRequest ? lastRequest._id : null,
+            requestedBy: lastRequest ? (lastRequest.requestedBy || vendor._id) : vendor._id,
+            approvalStatus: lastRequest ? lastRequest.approvalStatus : 'approved',
+            requestedAt: lastRequest ? lastRequest.requestedAt : new Date(),
+            message: 'All selected services are already active, pending, or approved'
         };
     }
 
+    // Resolve category and subcategory corresponding only to the filtered services
+    const Service = require('../../models/Service.model');
+    const servicesData = await Service.find({ _id: { $in: finalServiceIds } }).lean();
+    const derivedSubcategoryIds = new Set();
+    const derivedCategoryIds = new Set();
+    servicesData.forEach(svc => {
+        if (svc.subcategory) derivedSubcategoryIds.add(svc.subcategory.toString());
+        if (svc.category) derivedCategoryIds.add(svc.category.toString());
+    });
+
+    const finalSubcategoryIds = parseArrayInput(subcategoryIds)
+        .map(id => String(id))
+        .filter(id => derivedSubcategoryIds.has(id));
+
+    const finalCategoryId = categoryId || (derivedCategoryIds.size > 0 ? Array.from(derivedCategoryIds)[0] : undefined);
+
     vendor.extraServiceRequests.push({
         requestedBy: vendor._id,
-        category: categoryId || undefined,
-        subcategories: parseArrayInput(subcategoryIds),
-        services: parseArrayInput(serviceIds),
+        category: finalCategoryId || undefined,
+        subcategories: finalSubcategoryIds,
+        services: finalServiceIds,
         approvalStatus: 'pending'
     });
     await vendor.save();
@@ -4000,7 +4041,6 @@ const getExtraServiceApprovalRequests = async (vendorId) => {
             adminRemark: req.adminRemark || '',
             reviewedAt: req.reviewedAt || null,
             requestedAt: req.requestedAt,
-            category: req.category ? { id: req.category._id, name: req.category.name } : null,
             services: (req.services || []).filter((svc) => {
                 // If no serviceStatuses yet (old data), return all services only if the request was approved
                 if (!req.serviceStatuses || req.serviceStatuses.length === 0) {
