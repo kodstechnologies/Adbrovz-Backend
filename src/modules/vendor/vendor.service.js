@@ -633,13 +633,17 @@ const getMembershipInfo = async ({ serviceIds, subcategoryIds, categoryId, durat
  */
 const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     const vendor = await Vendor.findById(vendorId)
-        .select('selectedCategories selectedSubcategories selectedServiceTypes selectedServices membership.durationMonths membership.membershipId categorySubscriptions registrationStep serviceApprovalStatus')
+        .select('selectedCategories selectedSubcategories selectedServiceTypes selectedServices membership categorySubscriptions registrationStep serviceApprovalStatus isVerified')
         .populate({ path: 'categorySubscriptions.category', select: 'name' })
         .populate({ path: 'categorySubscriptions.subcategories', select: 'name' })
         .populate({ path: 'categorySubscriptions.services', select: 'title' });
     
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
+    const PAID_STEPS = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED', 'SIGNUP_COMPLETED'];
+    const vendorAlreadyPaid = PAID_STEPS.includes(vendor.registrationStep) || vendor.isVerified;
+    // Only return locked amounts if no caller-supplied overrides are requesting a fresh calculation
+    const hasOverrides = overrides && Object.keys(overrides).length > 0;
 
     const normalizedCategoryId = overrides.categoryId || null;
     const normalizedSubcategoryIds = overrides.subcategoryIds || vendor.selectedSubcategories || [];
@@ -682,23 +686,33 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         serviceCharge: service.serviceCharge
     }));
 
+    // For already-paid vendors with no caller overrides, use the amounts locked
+    // at payment time so that admin price changes don't affect existing members.
+    const lockedTotal = vendor.membership?.totalAmount || vendor.membership?.fee;
+    const lockedSubtotal = vendor.membership?.subtotal;
+    const lockedMembershipFee = vendor.membership?.membershipFee;
+    const lockedServiceFee = vendor.membership?.serviceFee;
+    const lockedGstAmount = vendor.membership?.gstAmount;
+
+    const useLockedAmounts = vendorAlreadyPaid && !hasOverrides && lockedTotal;
+
     return {
         vendorId,
-        subtotal: calc.combinedSubtotal,
-        basePlanFee: calc.basePlanFee,
-        membershipAmount: calc.basePlanFee,
-        totalServiceFee: calc.servicesSubtotal,
-        serviceAmount: calc.servicesSubtotal,
+        subtotal: useLockedAmounts ? (lockedSubtotal ?? calc.combinedSubtotal) : calc.combinedSubtotal,
+        basePlanFee: useLockedAmounts ? (lockedMembershipFee ?? calc.basePlanFee) : calc.basePlanFee,
+        membershipAmount: useLockedAmounts ? (lockedMembershipFee ?? calc.basePlanFee) : calc.basePlanFee,
+        totalServiceFee: useLockedAmounts ? (lockedServiceFee ?? calc.servicesSubtotal) : calc.servicesSubtotal,
+        serviceAmount: useLockedAmounts ? (lockedServiceFee ?? calc.servicesSubtotal) : calc.servicesSubtotal,
         platformSubtotal: calc.platformSubtotal,
         gstPercent: calc.gstPercent,
-        gstAmount: calc.finalGst,
-        totalFee: calc.grandTotal,
-        totalAmount: calc.grandTotal,
+        gstAmount: useLockedAmounts ? (lockedGstAmount ?? calc.finalGst) : calc.finalGst,
+        totalFee: useLockedAmounts ? lockedTotal : calc.grandTotal,
+        totalAmount: useLockedAmounts ? lockedTotal : calc.grandTotal,
         duration: `${calc.validityDays} days`,
         durationMonths: calc.durationMonths,
         plans: plansInfo,
         services: calc.itemBreakdown,
-        serviceSelectionsTotal: calc.servicesSubtotal,
+        serviceSelectionsTotal: useLockedAmounts ? (lockedServiceFee ?? calc.servicesSubtotal) : calc.servicesSubtotal,
         selectedServices,
         selectedServiceNames: selectedServices.map((service) => service.title),
         selectedCategoryId: normalizedCategoryId,
@@ -710,7 +724,7 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         membershipId: vendor.membership?.membershipId || null,
         approvedServices,
         notApprovedServices: [],
-        amount: calc.grandTotal,
+        amount: useLockedAmounts ? lockedTotal : calc.grandTotal,
         serviceApprovalStatus: vendor.serviceApprovalStatus || 'pending',
         registrationStep: vendor.registrationStep || (vendor.serviceApprovalStatus === 'approved' ? 'SERVICES_APPROVED' : 'PENDING'),
         isServiceVerified: vendor.serviceApprovalStatus === 'approved'
@@ -1137,12 +1151,23 @@ const getServiceApprovalStatus = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId).populate('selectedServices');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    const durationMonths = vendor.membership?.durationMonths || 3;
-    const calc = await _calculateMembershipAmounts({
-        vendorId,
-        durationMonths,
-        serviceIds: vendor.selectedServices.map(s => s._id)
-    });
+    const PAID_STEPS = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED', 'SIGNUP_COMPLETED'];
+    const vendorAlreadyPaid = PAID_STEPS.includes(vendor.registrationStep) || vendor.isVerified;
+
+    // For already-paid vendors, use their locked membership amount instead of
+    // recalculating from the current CreditPlan price (which may have changed).
+    let amount;
+    if (vendorAlreadyPaid && (vendor.membership?.totalAmount || vendor.membership?.fee)) {
+        amount = vendor.membership.totalAmount || vendor.membership.fee;
+    } else {
+        const durationMonths = vendor.membership?.durationMonths || 3;
+        const calc = await _calculateMembershipAmounts({
+            vendorId,
+            durationMonths,
+            serviceIds: vendor.selectedServices.map(s => s._id)
+        });
+        amount = calc.grandTotal;
+    }
 
     const services = vendor.selectedServices.map(svc => ({
         id: svc._id,
@@ -1170,7 +1195,7 @@ const getServiceApprovalStatus = async (vendorId) => {
         services,
         approvedServices,
         notApprovedServices,
-        amount: calc.grandTotal,
+        amount,
         registrationStep: vendor.registrationStep,
         isServiceVerified: vendor.serviceApprovalStatus === 'approved'
     };
@@ -3822,18 +3847,19 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
     let approvedRequest = null;
     if (approvalRequestId) {
         approvedRequest = (vendor.extraServiceRequests || []).find((req) =>
-            String(req._id) === String(approvalRequestId) && req.approvalStatus === 'approved'
+            String(req._id) === String(approvalRequestId)
         );
     } else {
         approvedRequest = (vendor.extraServiceRequests || []).find((req) => {
-            if (req.approvalStatus !== 'approved') return false;
             const approvedSvcIds = new Set();
             if (req.serviceStatuses && req.serviceStatuses.length > 0) {
                 req.serviceStatuses.forEach(s => {
                     if (s.status === 'approved') approvedSvcIds.add(String(s.serviceId));
                 });
             } else {
-                (req.services || []).forEach(id => approvedSvcIds.add(String(id)));
+                if (req.approvalStatus === 'approved') {
+                    (req.services || []).forEach(id => approvedSvcIds.add(String(id)));
+                }
             }
             return payloadIds.size > 0 && [...payloadIds].every(id => approvedSvcIds.has(id));
         });
@@ -4890,18 +4916,19 @@ const createPurchaseOrder = async (vendorId, { serviceIds = [], approvalRequestI
     let approvedRequest = null;
     if (approvalRequestId) {
         approvedRequest = (vendor.extraServiceRequests || []).find((req) =>
-            String(req._id) === String(approvalRequestId) && req.approvalStatus === 'approved'
+            String(req._id) === String(approvalRequestId)
         );
     } else {
         approvedRequest = (vendor.extraServiceRequests || []).find((req) => {
-            if (req.approvalStatus !== 'approved') return false;
             const approvedSvcIds = new Set();
             if (req.serviceStatuses && req.serviceStatuses.length > 0) {
                 req.serviceStatuses.forEach(s => {
                     if (s.status === 'approved') approvedSvcIds.add(String(s.serviceId));
                 });
             } else {
-                (req.services || []).forEach(id => approvedSvcIds.add(String(id)));
+                if (req.approvalStatus === 'approved') {
+                    (req.services || []).forEach(id => approvedSvcIds.add(String(id)));
+                }
             }
             return payloadIds.size > 0 && [...payloadIds].every(id => approvedSvcIds.has(id));
         });
