@@ -4032,25 +4032,33 @@ const getExtraServiceApprovalRequests = async (vendorId) => {
     return {
         requests: visibleRequests.map((req) => ({
             requestId: req._id,
-            requestedBy: req.requestedBy ? {
-                id: req.requestedBy._id,
-                name: req.requestedBy.name || '',
-                phoneNumber: req.requestedBy.phoneNumber || '',
-                vendorID: req.requestedBy.vendorID || ''
-            } : { id: vendor._id },
+           
             approvalStatus: req.approvalStatus,
             adminRemark: req.adminRemark || '',
-            reviewedAt: req.reviewedAt || null,
-            requestedAt: req.requestedAt,
-            services: (req.services || []).filter((svc) => {
-                // If no serviceStatuses yet (old data), return all services only if the request was approved
-                if (!req.serviceStatuses || req.serviceStatuses.length === 0) {
-                    return req.approvalStatus === 'approved';
-                }
+            services: (req.services || []).map((svc) => {
                 const svcId = String(svc?._id || svc);
-                const ss = req.serviceStatuses.find(s => String(s.serviceId) === svcId);
-                // Only include services that are approved (skip pending and disapproved)
-                return ss ? ss.status === 'approved' : false;
+                let status = req.approvalStatus || 'pending';
+                if (req.serviceStatuses && req.serviceStatuses.length > 0) {
+                    const ss = req.serviceStatuses.find(s => String(s.serviceId) === svcId);
+                    status = ss ? ss.status : 'pending';
+                }
+                return { id: svc._id, title: svc.title, status };
+            }),
+            approvedServices: (req.services || []).filter((svc) => {
+                const svcId = String(svc?._id || svc);
+                if (req.serviceStatuses && req.serviceStatuses.length > 0) {
+                    const ss = req.serviceStatuses.find(s => String(s.serviceId) === svcId);
+                    return ss ? ss.status === 'approved' : req.approvalStatus === 'approved';
+                }
+                return req.approvalStatus === 'approved';
+            }).map((svc) => ({ id: svc._id, title: svc.title })),
+            pendingServices: (req.services || []).filter((svc) => {
+                const svcId = String(svc?._id || svc);
+                if (req.serviceStatuses && req.serviceStatuses.length > 0) {
+                    const ss = req.serviceStatuses.find(s => String(s.serviceId) === svcId);
+                    return ss ? ss.status === 'pending' : req.approvalStatus === 'pending';
+                }
+                return req.approvalStatus === 'pending';
             }).map((svc) => ({ id: svc._id, title: svc.title })),
             disapprovedServices: req.serviceStatuses && req.serviceStatuses.length > 0
                 ? (req.serviceStatuses || [])
