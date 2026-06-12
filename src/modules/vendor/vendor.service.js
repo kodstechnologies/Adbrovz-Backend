@@ -4022,7 +4022,8 @@ const getExtraServiceApprovalRequests = async (vendorId) => {
 
     const purchasedServiceIds = new Set((vendor.selectedServices || []).map((service) => String(service?._id || service)));
     const visibleRequests = (vendor.extraServiceRequests || []).filter((req) => {
-        if (req.approvalStatus === 'disapproved') return false;
+        // Include disapproved requests so vendors can see which services were rejected
+        if (req.approvalStatus === 'disapproved') return true;
         if (req.approvalStatus !== 'approved') return true;
         const requestServiceIds = (req.services || []).map((service) => String(service?._id || service));
         return !requestServiceIds.some((serviceId) => purchasedServiceIds.has(serviceId));
