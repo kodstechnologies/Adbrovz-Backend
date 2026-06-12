@@ -4574,12 +4574,12 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     const vendor = await Vendor.findById(vendorId).lean();
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    if (!serviceIds.length) {
-        return { items: [], subtotal: 0, gstPercent: 18, gstAmount: 0, total: 0 };
-    }
-
     const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
     const gstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 0;
+
+    if (!serviceIds.length) {
+        return { items: [], subtotal: 0, gstPercent, gstAmount: 0, total: 0 };
+    }
 
     const renewalDaysSetting = await adminService.getSetting('pricing.service_renewal_days');
     const adminRenewalDays = renewalDaysSetting ? Number(renewalDaysSetting) : 30;
@@ -4670,78 +4670,152 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
         const type = typeId ? typeMap.get(typeId) : null;
 
         // --- Category charge ---
-        // 0 if: already purchased OR already charged in this request
-        const catCharge = _getMembershipCharge(cat, 'category');
-        let catChargeToPay = 0;
-        let catOriginalCharge = 0;
-        let catIsProrated = false;
-        let catPurchasedDays = renewalDays;
-        if (cat && !finalPurchasedCategoryIds.has(catId) && !chargedCategoryIds.has(catId)) {
-            const proration = _calculateProration(vendor, catId, catCharge, renewalDays);
-            catChargeToPay = proration.amount;
-            catOriginalCharge = catCharge;
-            catIsProrated = proration.isProrated;
-            catPurchasedDays = proration.remainingDays;
-            summaryPurchasedDays = proration.remainingDays;
+        let catItem = null;
+        if (cat && !chargedCategoryIds.has(catId)) {
+            const catCharge = _getMembershipCharge(cat, 'category');
+            const isCatPurchased = finalPurchasedCategoryIds.has(catId);
+            let catChargeToPay = 0;
+            let catOriginalCharge = catCharge;
+            let catIsProrated = false;
+            let catPurchasedDays = renewalDays;
+
+            if (isCatPurchased) {
+                catChargeToPay = 0;
+                catOriginalCharge = 0;
+            } else {
+                const proration = _calculateProration(vendor, catId, catCharge, renewalDays);
+                catChargeToPay = proration.amount;
+                catIsProrated = proration.isProrated;
+                catPurchasedDays = proration.remainingDays;
+                summaryPurchasedDays = proration.remainingDays;
+            }
+
+            catItem = {
+                purchaseType: 'category',
+                id: cat._id.toString(),
+                name: cat.name,
+                serviceCharge: catChargeToPay,
+                originalCharge: catOriginalCharge,
+                isProrated: catIsProrated,
+                purchasedDays: catPurchasedDays
+            };
+            
+            subtotal += catChargeToPay;
+            originalSubtotal += catOriginalCharge;
             chargedCategoryIds.add(catId);
         }
 
         // --- Subcategory charge ---
-        const subCharge = _getMembershipCharge(sub, 'subcategory');
-        let subChargeToPay = 0;
-        let subOriginalCharge = 0;
-        let subIsProrated = false;
-        let subPurchasedDays = renewalDays;
-        if (sub && !finalPurchasedSubcategoryIds.has(subId) && !chargedSubcategoryIds.has(subId)) {
-            const proration = _calculateProration(vendor, catId, subCharge, renewalDays);
-            subChargeToPay = proration.amount;
-            subOriginalCharge = subCharge;
-            subIsProrated = proration.isProrated;
-            subPurchasedDays = proration.remainingDays;
-            summaryPurchasedDays = proration.remainingDays;
+        let subItem = null;
+        if (sub && !chargedSubcategoryIds.has(subId)) {
+            const subCharge = _getMembershipCharge(sub, 'subcategory');
+            const isSubPurchased = finalPurchasedSubcategoryIds.has(subId);
+            let subChargeToPay = 0;
+            let subOriginalCharge = subCharge;
+            let subIsProrated = false;
+            let subPurchasedDays = renewalDays;
+
+            if (isSubPurchased) {
+                subChargeToPay = 0;
+                subOriginalCharge = 0;
+            } else {
+                const proration = _calculateProration(vendor, catId, subCharge, renewalDays);
+                subChargeToPay = proration.amount;
+                subIsProrated = proration.isProrated;
+                subPurchasedDays = proration.remainingDays;
+                summaryPurchasedDays = proration.remainingDays;
+            }
+
+            subItem = {
+                purchaseType: 'subcategory',
+                id: sub._id.toString(),
+                name: sub.name,
+                serviceCharge: subChargeToPay,
+                originalCharge: subOriginalCharge,
+                isProrated: subIsProrated,
+                purchasedDays: subPurchasedDays
+            };
+
+            subtotal += subChargeToPay;
+            originalSubtotal += subOriginalCharge;
             chargedSubcategoryIds.add(subId);
         }
 
         // --- Type charge ---
-        const typeCharge = _getMembershipCharge(type, 'serviceType');
-        let typeChargeToPay = 0;
-        let typeOriginalCharge = 0;
-        let typeIsProrated = false;
-        let typePurchasedDays = renewalDays;
-        if (type && !finalPurchasedTypeIds.has(typeId) && !chargedTypeIds.has(typeId)) {
-            const proration = _calculateProration(vendor, catId, typeCharge, renewalDays);
-            typeChargeToPay = proration.amount;
-            typeOriginalCharge = typeCharge;
-            typeIsProrated = proration.isProrated;
-            typePurchasedDays = proration.remainingDays;
-            summaryPurchasedDays = proration.remainingDays;
+        let typeItem = null;
+        if (type && !chargedTypeIds.has(typeId)) {
+            const typeCharge = _getMembershipCharge(type, 'serviceType');
+            const isTypePurchased = finalPurchasedTypeIds.has(typeId);
+            let typeChargeToPay = 0;
+            let typeOriginalCharge = typeCharge;
+            let typeIsProrated = false;
+            let typePurchasedDays = renewalDays;
+
+            if (isTypePurchased) {
+                typeChargeToPay = 0;
+                typeOriginalCharge = 0;
+            } else {
+                const proration = _calculateProration(vendor, catId, typeCharge, renewalDays);
+                typeChargeToPay = proration.amount;
+                typeIsProrated = proration.isProrated;
+                typePurchasedDays = proration.remainingDays;
+                summaryPurchasedDays = proration.remainingDays;
+            }
+
+            typeItem = {
+                purchaseType: 'type',
+                id: type._id.toString(),
+                name: type.name,
+                serviceCharge: typeChargeToPay,
+                originalCharge: typeOriginalCharge,
+                isProrated: typeIsProrated,
+                purchasedDays: typePurchasedDays
+            };
+
+            subtotal += typeChargeToPay;
+            originalSubtotal += typeOriginalCharge;
             chargedTypeIds.add(typeId);
         }
 
         // --- Service charge ---
         const svcCharge = _getMembershipCharge(service, 'service');
         const isServicePurchased = purchasedServiceIds.has(service._id.toString());
+        let svcChargeToPay = 0;
+        let svcOriginalCharge = svcCharge;
+        let svcIsProrated = false;
+        let svcPurchasedDays = renewalDays;
 
-        // Skip already-purchased services entirely — do not include in the list.
-        // Parent charges already marked in chargedCategoryIds / chargedSubcategoryIds /
-        // chargedTypeIds so sibling services in this request don't double-count.
-        if (isServicePurchased) continue;
+        if (isServicePurchased) {
+            svcChargeToPay = 0;
+            svcOriginalCharge = 0;
+        } else {
+            const svcProration = _calculateProration(vendor, catId, svcCharge, renewalDays);
+            svcChargeToPay = svcProration.amount;
+            svcOriginalCharge = svcCharge;
+            svcIsProrated = svcProration.isProrated;
+            svcPurchasedDays = svcProration.remainingDays;
+            summaryPurchasedDays = svcProration.remainingDays;
+            if (svcProration.expiryDate) summaryExpiryDate = svcProration.expiryDate;
+        }
 
-        const svcProration = _calculateProration(vendor, catId, svcCharge, renewalDays);
-        const svcChargeToPay = svcProration.amount;
-        const svcOriginalCharge = svcCharge;
-        const lineSubtotal = catChargeToPay + subChargeToPay + typeChargeToPay + svcChargeToPay;
-        const lineOriginalSubtotal = catOriginalCharge + subOriginalCharge + typeOriginalCharge + svcOriginalCharge;
-        subtotal += lineSubtotal;
-        originalSubtotal += lineOriginalSubtotal;
-        summaryPurchasedDays = svcProration.remainingDays;
-        if (svcProration.expiryDate) summaryExpiryDate = svcProration.expiryDate;
+        const svcItem = {
+            purchaseType: 'service',
+            id: service._id.toString(),
+            name: service.title,
+            serviceCharge: svcChargeToPay,
+            originalCharge: svcOriginalCharge,
+            isProrated: svcIsProrated,
+            purchasedDays: svcPurchasedDays
+        };
 
-        // Flat line items — matching requested JSON format
-        if (catOriginalCharge > 0) items.push({ purchaseType: 'category', id: cat._id.toString(), name: cat.name, serviceCharge: catChargeToPay, originalCharge: catOriginalCharge, isProrated: catIsProrated, purchasedDays: catPurchasedDays });
-        if (subOriginalCharge > 0) items.push({ purchaseType: 'subcategory', id: sub._id.toString(), name: sub.name, serviceCharge: subChargeToPay, originalCharge: subOriginalCharge, isProrated: subIsProrated, purchasedDays: subPurchasedDays });
-        if (typeOriginalCharge > 0) items.push({ purchaseType: 'type', id: type._id.toString(), name: type.name, serviceCharge: typeChargeToPay, originalCharge: typeOriginalCharge, isProrated: typeIsProrated, purchasedDays: typePurchasedDays });
-        if (svcOriginalCharge > 0) items.push({ purchaseType: 'service', id: service._id.toString(), name: service.title, serviceCharge: svcChargeToPay, originalCharge: svcOriginalCharge, isProrated: svcProration.isProrated, purchasedDays: svcProration.remainingDays });
+        subtotal += svcChargeToPay;
+        originalSubtotal += svcOriginalCharge;
+
+        // Push to items list
+        if (catItem) items.push(catItem);
+        if (subItem) items.push(subItem);
+        if (typeItem) items.push(typeItem);
+        items.push(svcItem);
     }
 
     const gstAmount = Math.round(subtotal * (gstPercent / 100));
