@@ -2458,7 +2458,16 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     if (paymentRecord) {
         vendor.membership.totalAmount = paymentRecord.totalAmount;
         vendor.membership.gstAmount = paymentRecord.gstAmount;
-        vendor.membership.membershipFee = paymentRecord.amount;
+        vendor.membership.subtotal = paymentRecord.amount;
+        vendor.membership.fee = paymentRecord.totalAmount;
+        
+        if (paymentRecord.metadata) {
+            vendor.membership.membershipFee = paymentRecord.metadata.basePlanFee ?? paymentRecord.amount;
+            vendor.membership.serviceFee = paymentRecord.metadata.serviceSelectionsTotal ?? 0;
+        } else {
+            vendor.membership.membershipFee = paymentRecord.amount;
+            vendor.membership.serviceFee = 0;
+        }
     } else {
         // Fallback: recompute using membership details if needed
         try {
@@ -3312,7 +3321,16 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
     // Update vendor membership amounts based on payment record
     vendor.membership.totalAmount = paymentRecord.totalAmount;
     vendor.membership.gstAmount = paymentRecord.gstAmount;
-    vendor.membership.membershipFee = paymentRecord.amount;
+    vendor.membership.subtotal = paymentRecord.amount;
+    vendor.membership.fee = paymentRecord.totalAmount;
+    
+    if (paymentRecord.metadata) {
+        vendor.membership.membershipFee = paymentRecord.metadata.basePlanFee ?? paymentRecord.amount;
+        vendor.membership.serviceFee = paymentRecord.metadata.serviceSelectionsTotal ?? 0;
+    } else {
+        vendor.membership.membershipFee = paymentRecord.amount;
+        vendor.membership.serviceFee = 0;
+    }
 
     // Ensure registration flags are set on renewal too
     vendor.membershipVerifyPayment = true;
