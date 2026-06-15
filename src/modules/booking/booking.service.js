@@ -1400,7 +1400,11 @@ const createBooking = async (userId, bookingData) => {
 };
 
 const searchVendors = async (booking, broadcast = false, scheduleNextWave = true) => {
-    console.log(`[TRACKING-FLOW] [STEP 2] searchVendors CALLED for booking ID: ${booking._id}, broadcast: ${broadcast}`);
+    
+    // Safety check: only search if booking is actively looking for acceptance
+    if (booking.status !== 'pending_acceptance') {
+        return [];
+    }
     
     let currentSearchId = booking.searchId;
     if (!currentSearchId) {
@@ -1439,7 +1443,6 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
         adminService.getSetting('notifications.radius_row3_km'),
         adminService.getSetting('notifications.radius_row3_mins')
     ]);
-    console.log(`[TRACKING-FLOW] [STEP 2.4] Admin settings loaded: Row1=${r1_km}km/${r1_min}m, Row2=${r2_km}km/${r2_min}m, Row3=${r3_km}km/${r3_min}m`);
 
     const waves = [
         { km: Number(r1_km) || 1, mins: Number(r1_min) || 5 },
@@ -1450,7 +1453,6 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
     const totalSearchTimeMins = waves.reduce((sum, wave) => sum + wave.mins, 0);
     const currentWave = waves[Math.min(retryCount, waves.length - 1)];
     const radiusInKm = currentWave.km;
-    console.log(`[TRACKING-FLOW] [STEP 2.5] Active wave details: Radius=${radiusInKm}km, duration=${currentWave.mins} mins, totalSearchTimeMins=${totalSearchTimeMins}`);
     
     let categoryIds = [];
     if (booking.category) {
@@ -1780,13 +1782,13 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                     setTimeout(async () => {
                         console.log(`[TRACKING-FLOW] [STEP 3] Wave timer fired! Checking eligibility of booking ${booking._id}...`);
                         const current = await Booking.findById(booking._id);
-                        if (current && current.searchId === currentSearchId) {
+                        if (current && current.status === 'pending_acceptance' && current.searchId === currentSearchId) {
                             current.retryCount = (current.retryCount || 0) + 1;
                             await current.save();
                             console.log(`[TRACKING-FLOW] [STEP 3.1] Triggering next wave retry search... retryCount: ${current.retryCount}`);
                             searchVendors(current, true, true).catch(console.error);
                         } else {
-                            console.log(`[TRACKING-FLOW] [STEP 3.2] Wave ${retryCount + 1} skipped. Reason: searchId changed or booking missing.`);
+                            console.log(`[TRACKING-FLOW] [STEP 3.2] Wave ${retryCount + 1} skipped. Reason: status is ${current ? current.status : 'missing'} (expected 'pending_acceptance'), searchId changed, or booking missing.`);
                         }
                     }, delayMins * 60 * 1000);
                 } else if (retryCount === waves.length - 1) {
