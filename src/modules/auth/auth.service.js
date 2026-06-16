@@ -1088,10 +1088,20 @@ const refreshToken = async (refreshToken) => {
   }
 
   if (!user) {
+    user = await Admin.findById(decoded.userId);
+    if (user) role = user.role;
+  }
+
+  if (!user) {
     throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
   }
 
-  const token = generateToken({ userId: user._id, role: user.role, currentLoginId: user.currentLoginId });
+  const tokenPayload = { userId: user._id, role: user.role || role, currentLoginId: user.currentLoginId };
+  // Include permissions for sub-admins
+  if ((user.role || role) === 'sub_admin' && user.permissions && user.permissions.length > 0) {
+    tokenPayload.permissions = user.permissions;
+  }
+  const token = generateToken(tokenPayload);
   const newRefreshToken = generateRefreshToken({ userId: user._id, currentLoginId: user.currentLoginId });
 
   return {
