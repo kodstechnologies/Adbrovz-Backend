@@ -78,7 +78,7 @@ const authorize = (...roles) => {
       else if (url.includes('/notifications') || url.includes('/notification')) key = 'notifications';
       else if (url.includes('/settings')) key = 'settings';
 
-      if (key) {
+      if (key && key !== 'dashboard') {
         const perms = req.user.permissions || [];
         const isGet = req.method === 'GET';
         const hasView = perms.includes(key) || perms.includes(`${key}_view`);

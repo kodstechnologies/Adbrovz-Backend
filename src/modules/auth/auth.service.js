@@ -570,8 +570,12 @@ const adminLogin = async ({ username, password }, req = null) => {
     throw new ApiError(401, 'Invalid username or password');
   }
 
-  // Generate tokens
-  const token = generateToken({ userId: admin._id, role: admin.role });
+  // Generate tokens — include permissions for sub-admins so middleware can enforce them
+  const tokenPayload = { userId: admin._id, role: admin.role };
+  if (admin.role === 'sub_admin' && admin.permissions && admin.permissions.length > 0) {
+    tokenPayload.permissions = admin.permissions;
+  }
+  const token = generateToken(tokenPayload);
   const refreshToken = generateRefreshToken({ userId: admin._id });
 
   // Update last login and history
