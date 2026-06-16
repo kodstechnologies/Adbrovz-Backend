@@ -2,6 +2,7 @@ const asyncHandler = require('../../utils/asyncHandler');
 const ApiResponse = require('../../utils/ApiResponse');
 const ApiError = require('../../utils/ApiError');
 const serviceService = require('./service.service');
+const Booking = require('../../models/Booking.model');
 
 // Get all categories
 const getCategories = asyncHandler(async (req, res) => {
@@ -107,8 +108,21 @@ const getServicesByTypes = asyncHandler(async (req, res) => {
         search
     });
 
+    // ── canBook: false if user has any active/ongoing booking ──
+    let canBook = true;
+    const userId = req.user?.id || req.user?.userId;
+    if (userId) {
+        const activeBooking = await Booking.findOne({
+            user: userId,
+            status: { $in: ['pending_acceptance', 'pending', 'on_the_way', 'arrived', 'ongoing'] }
+        }).select('_id status').lean();
+        if (activeBooking) {
+            canBook = false;
+        }
+    }
+
     res.status(200).json(
-        new ApiResponse(200, result, 'Services retrieved successfully')
+        new ApiResponse(200, { ...result, canBook }, 'Services retrieved successfully')
     );
 });
 

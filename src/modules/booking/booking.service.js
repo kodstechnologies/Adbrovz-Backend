@@ -1471,8 +1471,13 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
     ].map(id => id.toString());
     console.log(`[TRACKING-FLOW] [STEP 2.7] Ignored/excluded vendor IDs (rejected/later/already-notified):`, ignoredVendors);
 
-    // ── Vendors can receive new requests even if they have ongoing bookings (Allow concurrent orders) ──
-    const busyVendorIds = []; // Initialized as empty to allow concurrent orders by default
+    // ── Find vendors who already have active bookings ──
+    // Exclude vendors who have ANY active booking (so they don't get new requests while busy)
+    const busyBookings = await Booking.find({
+        status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] },
+        vendor: { $exists: true, $ne: null }
+    }).select('vendor');
+    const busyVendorIds = busyBookings.map(b => b.vendor.toString());
 
     // ── Find services belonging to the booking's categories so we can match vendors by selectedServices too ──
     const servicesInCategories = await Service.find({ category: { $in: categoryIds } }).select('_id');

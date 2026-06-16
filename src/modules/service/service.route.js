@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const serviceController = require('./service.controller');
-const { authenticate, authorize } = require('../../middlewares/auth.middleware');
+const { authenticate, authorize, optionalAuth } = require('../../middlewares/auth.middleware');
 const { ROLES } = require('../../constants/roles');
 const { upload, uploadToCloudinary } = require('../../middlewares/cloudinary.middleware');
 
@@ -60,7 +60,7 @@ router.get('/all', serviceController.getAllServices);
 router.get('/catalogue', serviceController.getServiceCatalogue);
 router.get('/search', serviceController.globalSearch);
 router.get('/types-by-subcategories', serviceController.getServiceTypesBySubcategories);
-router.get('/by-types', serviceController.getServicesByTypes);
+router.get('/by-types', optionalAuth, serviceController.getServicesByTypes);
 router.get('/categories', serviceController.getCategories);
 router.get('/categories/:categoryId/slots', serviceController.getCategorySlots);
 router.get('/subcategories', serviceController.getSubcategoriesWithServices);

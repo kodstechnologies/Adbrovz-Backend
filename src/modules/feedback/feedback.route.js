@@ -16,7 +16,7 @@ router.get('/my', authenticate, authorize(ROLES.USER), feedbackController.getMyF
 // Get all feedback for a specific vendor (accessible by vendor, admin, or user)
 router.get('/vendor/:vendorId', authenticate, feedbackController.getVendorFeedback);
 
-// Admin sees all feedback across the platform
-router.get('/all', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN), feedbackController.getAllFeedback);
+// Admin and Sub-Admin see all feedback across the platform
+router.get('/all', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), feedbackController.getAllFeedback);
 
 module.exports = router;

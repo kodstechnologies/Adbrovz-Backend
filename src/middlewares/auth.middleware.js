@@ -63,6 +63,39 @@ const authorize = (...roles) => {
       throw new ApiError(403, MESSAGES.FORBIDDEN);
     }
 
+    // Dynamic permission check for sub-admins
+    if (req.user.role === 'sub_admin') {
+      const url = req.originalUrl || req.url || '';
+      let key = null;
+      if (url.includes('/users')) key = 'users';
+      else if (url.includes('/vendors') || url.includes('/vendor')) key = 'vendors';
+      else if (url.includes('/bookings') || url.includes('/booking')) key = 'bookings';
+      else if (url.includes('/services') || url.includes('/service')) key = 'services';
+      else if (url.includes('/dashboard-config') || url.includes('/dashboard/config')) key = 'dashboard_config';
+      else if (url.includes('/dashboard')) key = 'dashboard';
+      else if (url.includes('/disputes') || url.includes('/dispute')) key = 'disputes';
+      else if (url.includes('/feedback')) key = 'feedback';
+      else if (url.includes('/notifications') || url.includes('/notification')) key = 'notifications';
+      else if (url.includes('/settings')) key = 'settings';
+
+      if (key) {
+        const perms = req.user.permissions || [];
+        const isGet = req.method === 'GET';
+        const hasView = perms.includes(key) || perms.includes(`${key}_view`);
+        const hasEdit = perms.includes(key) || perms.includes(`${key}_edit`);
+        
+        if (isGet) {
+          if (!hasView && !hasEdit) {
+            throw new ApiError(403, `Forbidden: You do not have view permission for this module (${key})`);
+          }
+        } else {
+          if (!hasEdit) {
+            throw new ApiError(403, `Forbidden: You do not have edit permission for this module (${key})`);
+          }
+        }
+      }
+    }
+
     next();
   });
 };
