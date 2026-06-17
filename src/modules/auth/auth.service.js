@@ -599,6 +599,7 @@ const adminLogin = async ({ username, password }, req = null) => {
       email: admin.email,
       role: admin.role,
       permissions: admin.permissions || [],
+      createdAt: admin.createdAt,
     },
     token,
     refreshToken,
