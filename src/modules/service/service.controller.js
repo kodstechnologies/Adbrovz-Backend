@@ -108,21 +108,41 @@ const getServicesByTypes = asyncHandler(async (req, res) => {
         search
     });
 
-    // ── canBook: false if user has any active/ongoing booking ──
-    let canBook = true;
+    // ── canBook: per-service check ──
     const userId = req.user?.id || req.user?.userId;
+    const bookedServiceIds = new Set();
+
     if (userId) {
-        const activeBooking = await Booking.findOne({
-            user: userId,
-            status: { $in: ['pending_acceptance', 'pending', 'on_the_way', 'arrived', 'ongoing'] }
-        }).select('_id status').lean();
-        if (activeBooking) {
-            canBook = false;
+        const allServiceIds = [];
+        for (const group of result.data) {
+            for (const service of group.servicesGroup) {
+                allServiceIds.push(service._id);
+            }
+        }
+
+        if (allServiceIds.length > 0) {
+            const activeBookings = await Booking.find({
+                user: userId,
+                status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] },
+                'services.service': { $in: allServiceIds }
+            }).select('services.service').lean();
+
+            for (const booking of activeBookings) {
+                for (const svc of booking.services) {
+                    bookedServiceIds.add(svc.service.toString());
+                }
+            }
+        }
+    }
+
+    for (const group of result.data) {
+        for (const service of group.servicesGroup) {
+            service.canBook = !bookedServiceIds.has(service._id.toString());
         }
     }
 
     res.status(200).json(
-        new ApiResponse(200, { ...result, canBook }, 'Services retrieved successfully')
+        new ApiResponse(200, result, 'Services retrieved successfully')
     );
 });
 
