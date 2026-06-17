@@ -97,7 +97,7 @@ if (config.NODE_ENV !== 'test') {
 app.get('/', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'Adbrovhsgdz API Server',
+    message: 'Adbrovdz API Server',
     version: config.API_VERSION,
     endpoints: {
       health: '/health',
