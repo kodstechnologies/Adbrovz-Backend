@@ -362,10 +362,32 @@ const acceptBooking = async (vendorId, bookingId) => {
     // ── Send Push Notification to User ──
     sendPush(booking.user, 'User', 'booking_accepted', 'Booking Accepted', `A vendor has accepted your booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
-    // ── Removed broadcast of 'booking_already_accepted' to other vendors to avoid spamming all vendors.
-    // Previously, the server emitted a socket event to all other vendors when a booking was accepted.
-    // ── Removed push notifications to other vendors about acceptance, as only the attempting vendor should be informed.
-    // Previously, push notifications were sent to all vendors who had been notified.
+    // ── Notify other notified vendors that this booking is no longer available ──
+    try {
+        if (booking.notifiedVendors && booking.notifiedVendors.length > 0) {
+            booking.notifiedVendors.forEach(nVendorId => {
+                const nId = nVendorId.toString();
+                if (nId !== vendorId.toString()) {
+                    emitToVendor(nId, 'booking_already_accepted', {
+                        bookingId: booking._id,
+                        bookingID: booking.bookingID,
+                        message: 'This booking request has been accepted by another vendor.'
+                    });
+                    sendPush(
+                        nId,
+                        'Vendor',
+                        'booking_already_accepted',
+                        'Booking Already Accepted',
+                        `Booking ${booking.bookingID} has been accepted by another vendor.`,
+                        { bookingId: booking._id.toString(), bookingID: booking.bookingID }
+                    );
+                }
+            });
+            console.log(`[SOCKET] Notified ${booking.notifiedVendors.length - 1} other vendors that booking ${booking._id} is taken.`);
+        }
+    } catch (err) {
+        console.error(`[SOCKET] Failed to notify other vendors about acceptance: ${err.message}`);
+    }
 
     console.log(`[SOCKET] acceptBooking completed successfully for booking: ${bookingId}`);
     return {
@@ -1600,6 +1622,13 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
         try {
             let broadcastCount = 0;
             console.log(`[TRACKING-FLOW] [STEP 2.14] Initiating socket/push broadcast...`);
+
+            // Re-check booking status from DB before broadcasting
+            const freshBooking = await Booking.findById(booking._id).select('status');
+            if (!freshBooking || freshBooking.status !== 'pending_acceptance') {
+                console.log(`[TRACKING-FLOW] [STEP 2.14] Broadcast aborted — booking ${booking._id} status is now "${freshBooking?.status}"`);
+                return [];
+            }
 
             // Fetch populated booking for broadcast payload
             const populatedBooking = await Booking.findById(booking._id)
