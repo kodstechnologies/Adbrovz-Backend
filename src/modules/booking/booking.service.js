@@ -207,16 +207,13 @@ const createBookingRequest = async (
  */
 const acceptBooking = async (vendorId, bookingId) => {
     console.log(`[SOCKET] acceptBooking called for vendor: ${vendorId}, booking: ${bookingId}`);
-    
+
     const query = mongoose.isValidObjectId(bookingId)
         ? { $or: [{ _id: bookingId }, { bookingID: bookingId }] }
         : { bookingID: bookingId };
 
-    const vendor = await Vendor.findById(vendorId);
-    if (!vendor) throw new ApiError(404, 'Vendor not found');
-
-    // ── Atomic Lock: Try to find and claim a pending booking ──
-    // This ensures only one vendor can successfully "claim" the request.
+    // ── Atomic Lock: Kill immediately if booking already claimed ──
+    // This runs BEFORE any vendor lookup so second vendor's request dies fast.
     const booking = await Booking.findOneAndUpdate(
         { ...query, status: 'pending_acceptance' },
         { $set: { status: 'pending' } },
@@ -224,10 +221,8 @@ const acceptBooking = async (vendorId, bookingId) => {
     );
 
     if (!booking) {
-        // Check the actual status of the booking
         const existingBooking = await Booking.findOne(query);
         if (existingBooking) {
-            // Provide status-specific error messages
             if (['cancelled', 'auto_cancelled'].includes(existingBooking.status)) {
                 throw new ApiError(400, 'This booking request is no longer available (cancelled by user).');
             } else if (existingBooking.status === 'completed') {
@@ -239,6 +234,13 @@ const acceptBooking = async (vendorId, bookingId) => {
             }
         }
         throw new ApiError(404, 'Booking not found or already expired.');
+    }
+
+    // ── Now look up vendor (only if atomic lock succeeded) ──
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) {
+        await Booking.findByIdAndUpdate(booking._id, { status: 'pending_acceptance' });
+        throw new ApiError(404, 'Vendor not found');
     }
 
     // ── Schedule overlap check ──
