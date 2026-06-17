@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const sharp = require('sharp');
 
 // We no longer need the actual cloudinary module, but we export an empty object 
 // in case any service expects it to exist.
@@ -17,15 +18,13 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 /**
  * Generate a unique filename
  */
-const generateFilename = (originalName = '') => {
+const generateFilename = (originalName = '', ext = '.jpg') => {
     const uniqueSuffix = Date.now() + '-' + crypto.randomBytes(6).toString('hex');
-    let ext = '';
-    // Try to extract extension if originalName is provided, otherwise default to .png
     if (originalName && originalName.includes('.')) {
-        ext = path.extname(originalName);
-    }
-    if (!ext) {
-        ext = '.png'; // Default to png for buffers without name
+        const origExt = path.extname(originalName).toLowerCase();
+        if (!['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(origExt)) {
+            return `img_${uniqueSuffix}${origExt}`;
+        }
     }
     return `img_${uniqueSuffix}${ext}`;
 };
@@ -33,42 +32,70 @@ const generateFilename = (originalName = '') => {
 /**
  * Mock Cloudinary Result Object
  */
-const createMockResult = (filename, size = 0) => {
+const createMockResult = (filename, size = 0, width = 800, height = 800) => {
     return {
         secure_url: `${CDN_BASE_URL}${filename}`,
         public_id: filename,
-        width: 800, // mock width
-        height: 800, // mock height
-        format: path.extname(filename).replace('.', '') || 'png',
+        width,
+        height,
+        format: path.extname(filename).replace('.', '') || 'jpg',
         bytes: size
     };
 };
 
 /**
- * Upload file buffer locally (replacing Cloudinary)
+ * Compress and resize an image buffer using sharp.
+ * Non-image buffers (e.g. PDF) are returned unchanged.
+ */
+const compressImage = async (fileBuffer) => {
+    try {
+        const metadata = await sharp(fileBuffer).metadata();
+        if (!metadata.format || metadata.format === 'svg') {
+            return { buffer: fileBuffer, format: metadata.format, width: metadata.width, height: metadata.height };
+        }
+
+        const pipeline = sharp(fileBuffer)
+            .rotate() // auto-rotate based on EXIF orientation
+            .resize({
+                width: 1920,
+                height: 1920,
+                fit: 'inside',
+                withoutEnlargement: true
+            })
+            .jpeg({ quality: 80, mozjpeg: true });
+
+        const { data, info } = await pipeline.toBuffer({ resolveWithObject: true });
+        console.log(`[Image Compressor] Compressed: ${(fileBuffer.length / 1024).toFixed(1)}KB -> ${(info.size / 1024).toFixed(1)}KB (${metadata.format} -> jpeg, ${info.width}x${info.height})`);
+        return { buffer: data, format: 'jpeg', width: info.width, height: info.height };
+    } catch (err) {
+        console.log(`[Image Compressor] Skipped (not an image or unsupported format): ${err.message}`);
+        return { buffer: fileBuffer, format: null, width: null, height: null };
+    }
+};
+
+/**
+ * Upload file buffer locally (replacing Cloudinary) with automatic compression
  * @param {Buffer} fileBuffer - File buffer from multer
  * @param {string} folder - Ignored, all images go to root of CDN url
  * @param {string} publicId - Optional public ID
  * @returns {Promise<Object>} Mock Cloudinary upload result
  */
 const uploadToCloudinary = async (fileBuffer, folder, publicId = null) => {
-    return new Promise((resolve, reject) => {
-        try {
-            const filename = publicId ? `${publicId}.png` : generateFilename();
-            const filePath = path.join(UPLOAD_DIR, filename);
+    try {
+        const { buffer, format, width, height } = await compressImage(fileBuffer);
+        const isImage = format !== null;
+        const filename = publicId
+            ? `${publicId}.${isImage ? 'jpg' : 'png'}`
+            : generateFilename(null, isImage ? '.jpg' : '.png');
+        const filePath = path.join(UPLOAD_DIR, filename);
 
-            fs.writeFile(filePath, fileBuffer, (err) => {
-                if (err) {
-                    console.error('Local upload error:', err);
-                    return reject(err);
-                }
-                console.log(`[CDN Storage] Saved file locally to ${filePath}`);
-                resolve(createMockResult(filename, fileBuffer.length));
-            });
-        } catch (error) {
-            reject(error);
-        }
-    });
+        await fs.promises.writeFile(filePath, buffer);
+        console.log(`[CDN Storage] Saved file locally to ${filePath}`);
+        return createMockResult(filename, buffer.length, width || 800, height || 800);
+    } catch (error) {
+        console.error('Local upload error:', error);
+        throw error;
+    }
 };
 
 /**
@@ -127,9 +154,15 @@ const deleteFromCloudinary = async (publicId) => {
                     resolve({ result: 'ok' });
                 });
             } else {
-                // Check if they stored public_id without extension but it exists with .png
+                // Check if they stored public_id without extension but exists with .jpg or .png
+                const filePathJpg = filePath + '.jpg';
                 const filePathPng = filePath + '.png';
-                if (fs.existsSync(filePathPng)) {
+                if (fs.existsSync(filePathJpg)) {
+                    fs.unlink(filePathJpg, (err) => {
+                        if (err) return reject(err);
+                        resolve({ result: 'ok' });
+                    });
+                } else if (fs.existsSync(filePathPng)) {
                     fs.unlink(filePathPng, (err) => {
                         if (err) return reject(err);
                         resolve({ result: 'ok' });
