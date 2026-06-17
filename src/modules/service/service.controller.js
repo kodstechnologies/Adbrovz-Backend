@@ -116,7 +116,7 @@ const getServicesByTypes = asyncHandler(async (req, res) => {
         const allServiceIds = [];
         for (const group of result.data) {
             for (const service of group.servicesGroup) {
-                allServiceIds.push(service._id);
+                allServiceIds.push(service.id || service._id);
             }
         }
 
@@ -129,7 +129,7 @@ const getServicesByTypes = asyncHandler(async (req, res) => {
 
             for (const booking of activeBookings) {
                 for (const svc of booking.services) {
-                    bookedServiceIds.add(svc.service.toString());
+                    if (svc?.service) bookedServiceIds.add(svc.service.toString());
                 }
             }
         }
@@ -137,7 +137,8 @@ const getServicesByTypes = asyncHandler(async (req, res) => {
 
     for (const group of result.data) {
         for (const service of group.servicesGroup) {
-            service.canBook = !bookedServiceIds.has(service._id.toString());
+            const serviceId = (service.id || service._id);
+            service.canBook = !bookedServiceIds.has(serviceId.toString());
         }
     }
 
