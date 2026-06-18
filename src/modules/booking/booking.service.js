@@ -1573,13 +1573,22 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
     ].map(id => id.toString());
     console.log(`[TRACKING-FLOW] [STEP 2.7] Ignored/excluded vendor IDs (rejected/later/already-notified):`, ignoredVendors);
 
-    // ── Find vendors who already have active bookings ──
-    // Exclude vendors who have ANY active booking (so they don't get new requests while busy)
-    const busyBookings = await Booking.find({
-        status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] },
-        vendor: { $exists: true, $ne: null }
-    }).select('vendor');
-    const busyVendorIds = busyBookings.map(b => b.vendor.toString());
+    // ── Find vendors whose bookings overlap with this booking's time range ──
+    // Only exclude vendors whose existing booking's time slot conflicts with the new booking
+    const busyVendorIds = [];
+    const newBookingRange = await getBookingTimeRange(booking);
+    if (newBookingRange) {
+        const activeBookings = await Booking.find({
+            vendor: { $exists: true, $ne: null },
+            scheduledDate: booking.scheduledDate
+        }).populate('services.service');
+        for (const activeBooking of activeBookings) {
+            const activeRange = await getBookingTimeRange(activeBooking);
+            if (activeRange && activeRange.start < newBookingRange.end && activeRange.end > newBookingRange.start) {
+                busyVendorIds.push(activeBooking.vendor.toString());
+            }
+        }
+    }
 
     // ── Find services belonging to the booking's categories so we can match vendors by selectedServices too ──
     const servicesInCategories = await Service.find({ category: { $in: categoryIds } }).select('_id');
