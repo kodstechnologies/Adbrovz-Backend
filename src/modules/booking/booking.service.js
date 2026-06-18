@@ -845,6 +845,21 @@ const _formatBooking = (bookingDoc, role) => {
         bookingObj = JSON.parse(JSON.stringify(bookingDoc));
     }
 
+    // Override standard GST pricing with user GST pricing for user and vendor views
+    if (bookingObj.pricing && (role === 'user' || role === 'vendor' || role === 'Vendor')) {
+        const userGstPercent = bookingObj.pricing.userGstPercent !== undefined ? bookingObj.pricing.userGstPercent : bookingObj.pricing.gstPercent;
+        const userGstAmount = bookingObj.pricing.userGstAmount !== undefined ? bookingObj.pricing.userGstAmount : bookingObj.pricing.gstAmount;
+        
+        const base = bookingObj.pricing.basePrice || 0;
+        const travel = bookingObj.pricing.travelCharge || 0;
+        const add = bookingObj.pricing.additionalCharges || 0;
+        const taxable = base + travel + add;
+        
+        bookingObj.pricing.gstPercent = userGstPercent;
+        bookingObj.pricing.gstAmount = userGstAmount;
+        bookingObj.pricing.totalPrice = Math.round((taxable + userGstAmount) * 100) / 100;
+    }
+
     // User friendly status mapping
     const statusMap = {
         'pending_acceptance': 'Pending Acceptance',
@@ -2609,14 +2624,20 @@ const recalculateBookingPrice = async (booking) => {
 
     const rawGstPercent = await adminService.getSetting('pricing.booking_gst_percent');
     const gstPercent = (rawGstPercent !== undefined && rawGstPercent !== null) ? Number(rawGstPercent) : 0;
+    
+    const rawUserGstPercent = await adminService.getSetting('pricing.user_gst_percent');
+    const userGstPercent = (rawUserGstPercent !== undefined && rawUserGstPercent !== null) ? Number(rawUserGstPercent) : 18;
+
     const travelCharge = booking.pricing?.travelCharge || 0;
     const additionalCharges = booking.pricing?.additionalCharges || 0;
     
     const taxableAmount = basePrice + travelCharge + additionalCharges;
     const gstAmount = Math.round((taxableAmount * (gstPercent / 100)) * 100) / 100;
+    const userGstAmount = Math.round((taxableAmount * (userGstPercent / 100)) * 100) / 100;
+    
     const totalPrice = Math.round((taxableAmount + gstAmount) * 100) / 100;
 
-    console.log(`[GST DEBUG] Booking ${booking._id} | rawGstPercent: ${rawGstPercent} (type: ${typeof rawGstPercent}) | gstPercent: ${gstPercent} | taxableAmount: ${taxableAmount} | gstAmount: ${gstAmount} | totalPrice: ${totalPrice}`);
+    console.log(`[GST DEBUG] Booking ${booking._id} | rawGstPercent: ${rawGstPercent} (type: ${typeof rawGstPercent}) | gstPercent: ${gstPercent} | taxableAmount: ${taxableAmount} | gstAmount: ${gstAmount} | totalPrice: ${totalPrice} | userGstPercent: ${userGstPercent} | userGstAmount: ${userGstAmount}`);
 
     // Properly spread Mongoose subdocument to preserve existing fields
     const existingPricing = booking.pricing?.toObject ? booking.pricing.toObject() : (booking.pricing || {});
@@ -2627,6 +2648,8 @@ const recalculateBookingPrice = async (booking) => {
         additionalCharges,
         gstPercent,
         gstAmount,
+        userGstPercent,
+        userGstAmount,
         totalPrice
     };
     booking.markModified('pricing');

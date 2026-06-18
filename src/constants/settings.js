@@ -123,6 +123,10 @@ const DEFAULT_SETTINGS = {
         value: null,
         description: 'GST percentage applied to booking total price.',
     },
+    'pricing.user_gst_percent': {
+        value: 18,
+        description: 'GST percentage applied to bookings for user calculation.',
+    },
 };
 
 module.exports = {

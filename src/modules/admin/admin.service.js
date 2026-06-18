@@ -635,6 +635,7 @@ const getMembershipPricing = async () => {
     
     const gstPercent = await getSetting('pricing.membership_gst_percent');
     const bookingGstPercent = await getSetting('pricing.booking_gst_percent');
+    const userGstPercent = await getSetting('pricing.user_gst_percent');
 
     return {
         // Original keys for backward compatibility (duration-mapped)
@@ -644,6 +645,7 @@ const getMembershipPricing = async () => {
         fee12Months: elite.price,
         gstPercent: (gstPercent !== undefined && gstPercent !== null) ? Number(gstPercent) : 0,
         bookingGstPercent: (bookingGstPercent !== undefined && bookingGstPercent !== null) ? Number(bookingGstPercent) : 0,
+        userGstPercent: (userGstPercent !== undefined && userGstPercent !== null) ? Number(userGstPercent) : 0,
 
         // UI-friendly keys for Basic/Pro/Elite mapping
         basicPrice: basic.price,
@@ -670,7 +672,7 @@ const updateMembershipPricing = async (data, adminId) => {
     const { 
         basicPrice, proPrice, elitePrice,
         basicValidity, proValidity, eliteValidity,
-        gstPercent, bookingGstPercent 
+        gstPercent, bookingGstPercent, userGstPercent 
     } = data;
     
     const updates = [];
@@ -724,6 +726,10 @@ const updateMembershipPricing = async (data, adminId) => {
 
     if (bookingGstPercent !== undefined) {
         await updateGlobalSettings({ 'pricing.booking_gst_percent': Number(bookingGstPercent) }, adminId);
+    }
+
+    if (userGstPercent !== undefined) {
+        await updateGlobalSettings({ 'pricing.user_gst_percent': Number(userGstPercent) }, adminId);
     }
 
     if (updates.length > 0) {
