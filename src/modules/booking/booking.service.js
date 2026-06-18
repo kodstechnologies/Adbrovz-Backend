@@ -5,6 +5,7 @@ const User = require('../../models/User.model');
 const Dispute = require('../../models/Dispute.model');
 const Feedback = require('../../models/Feedback.model');
 const Category = require('../../models/Category.model');
+const Coupon = require('../../models/Coupon.model');
 const { ROLES } = require('../../constants/roles');
 const { calculateDistance } = require('../../utils/location');
 
@@ -1306,7 +1307,8 @@ const createBooking = async (userId, bookingData) => {
         longitude,
         pincode,
         confirmation,
-        otp
+        otp,
+        couponCode
     } = bookingData;
 
     const bookingDate = date || scheduledDate;
@@ -1388,6 +1390,59 @@ const createBooking = async (userId, bookingData) => {
     const calculatedBasePrice = processedServices.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
     const calculatedTotalPrice = calculatedBasePrice + calculatedTravelCharge;
 
+    // ── Coupon Validation & Discount Calculation ──
+    let couponDiscount = 0;
+    let couponDiscountType = null;
+    let couponDiscountValue = 0;
+    let validatedCouponCode = null;
+
+    if (couponCode) {
+        console.log(`[TRACKING-FLOW] [STEP 1.10] Validating coupon code: ${couponCode}`);
+        const coupon = await Coupon.findOne({ code: couponCode.toUpperCase() });
+
+        if (!coupon || !coupon.isActive) {
+            console.warn(`[TRACKING-FLOW] [COUPON] Invalid or inactive coupon: ${couponCode}`);
+            throw new ApiError(400, 'Invalid or inactive coupon code');
+        }
+
+        // Check expiry
+        const now = new Date();
+        const validityEnd = new Date(coupon.createdAt);
+        validityEnd.setDate(validityEnd.getDate() + coupon.validityDays);
+        if (now > validityEnd) {
+            console.warn(`[TRACKING-FLOW] [COUPON] Coupon expired: ${couponCode}`);
+            throw new ApiError(400, 'Coupon has expired');
+        }
+
+        // Check user eligibility
+        if (coupon.isForAllUsers) {
+            if (user.createdAt > coupon.createdAt) {
+                throw new ApiError(400, 'This coupon is not applicable for your account');
+            }
+        } else {
+            const isApplicable = (coupon.applicableUsers || []).some(u => u.toString() === userId.toString());
+            if (!isApplicable) {
+                throw new ApiError(400, 'This coupon is not applicable for you');
+            }
+        }
+
+        // Calculate discount
+        couponDiscountType = coupon.discountType;
+        couponDiscountValue = coupon.discountValue;
+        validatedCouponCode = coupon.code;
+
+        if (coupon.discountType === 'amount') {
+            couponDiscount = coupon.discountValue;
+        } else if (coupon.discountType === 'percent') {
+            couponDiscount = (calculatedBasePrice * coupon.discountValue) / 100;
+        }
+        // Ensure discount doesn't exceed the base price
+        couponDiscount = Math.min(couponDiscount, calculatedBasePrice);
+        couponDiscount = Math.round(couponDiscount * 100) / 100;
+
+        console.log(`[TRACKING-FLOW] [COUPON] Applied coupon ${validatedCouponCode}: type=${couponDiscountType}, value=${couponDiscountValue}, discount=₹${couponDiscount}`);
+    }
+
     const bookingID = generateBookingID();
     console.log(`[TRACKING-FLOW] [STEP 1.11] Creating booking object in Database... bookingID: ${bookingID}`);
     const booking = await Booking.create({
@@ -1400,7 +1455,11 @@ const createBooking = async (userId, bookingData) => {
         location: { address, latitude, longitude, pincode },
         pricing: { 
             basePrice: calculatedBasePrice,
-            travelCharge: calculatedTravelCharge 
+            travelCharge: calculatedTravelCharge,
+            couponCode: validatedCouponCode || undefined,
+            couponDiscountType: couponDiscountType || undefined,
+            couponDiscountValue: couponDiscountValue || undefined,
+            couponDiscount: couponDiscount
         },
         status: 'pending_acceptance',
         statusHistory: [{ status: 'pending_acceptance', timestamp: new Date(), actor: 'user' }],
@@ -2632,12 +2691,14 @@ const recalculateBookingPrice = async (booking) => {
     const travelCharge = booking.pricing?.travelCharge || 0;
     const additionalCharges = booking.pricing?.additionalCharges || 0;
     
-    const taxableAmount = basePrice + travelCharge + additionalCharges;
+    const couponDiscount = booking.pricing?.couponDiscount || 0;
+
+    const taxableAmount = basePrice + travelCharge + additionalCharges - couponDiscount;
     const gstAmount = Math.round((taxableAmount * (gstPercent / 100)) * 100) / 100;
     
     const totalPrice = Math.round((taxableAmount + gstAmount) * 100) / 100;
 
-    console.log(`[GST DEBUG] Booking ${booking._id} | rawGstPercent: ${rawGstPercent} (type: ${typeof rawGstPercent}) | gstPercent: ${gstPercent} | taxableAmount: ${taxableAmount} | gstAmount: ${gstAmount} | totalPrice: ${totalPrice}`);
+    console.log(`[GST DEBUG] Booking ${booking._id} | rawGstPercent: ${rawGstPercent} (type: ${typeof rawGstPercent}) | gstPercent: ${gstPercent} | couponDiscount: ${couponDiscount} | taxableAmount: ${taxableAmount} | gstAmount: ${gstAmount} | totalPrice: ${totalPrice}`);
 
     // Properly spread Mongoose subdocument to preserve existing fields
     const existingPricing = booking.pricing?.toObject ? booking.pricing.toObject() : (booking.pricing || {});
@@ -2646,6 +2707,7 @@ const recalculateBookingPrice = async (booking) => {
         basePrice,
         travelCharge,
         additionalCharges,
+        couponDiscount,
         gstPercent,
         gstAmount,
         userGstPercent: gstPercent,

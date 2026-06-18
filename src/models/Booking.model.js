@@ -92,6 +92,10 @@ const bookingSchema = new mongoose.Schema(
       userGstPercent: { type: Number, default: 0 },
       userGstAmount: { type: Number, default: 0 },
       additionalCharges: { type: Number, default: 0 },
+      couponCode: { type: String },
+      couponDiscountType: { type: String, enum: ['amount', 'percent'] },
+      couponDiscountValue: { type: Number, default: 0 },
+      couponDiscount: { type: Number, default: 0 },
       totalPrice: { type: Number, default: 0 },
     },
     payment: {
