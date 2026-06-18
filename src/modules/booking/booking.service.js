@@ -847,8 +847,12 @@ const _formatBooking = (bookingDoc, role) => {
 
     // Override standard GST pricing with user GST pricing for user and vendor views
     if (bookingObj.pricing && (role === 'user' || role === 'vendor' || role === 'Vendor')) {
-        const userGstPercent = bookingObj.pricing.userGstPercent !== undefined ? bookingObj.pricing.userGstPercent : bookingObj.pricing.gstPercent;
-        const userGstAmount = bookingObj.pricing.userGstAmount !== undefined ? bookingObj.pricing.userGstAmount : bookingObj.pricing.gstAmount;
+        const userGstPercent = bookingObj.pricing.userGstPercent > 0
+            ? bookingObj.pricing.userGstPercent
+            : (bookingObj.pricing.gstPercent > 0 ? bookingObj.pricing.gstPercent : 0);
+        const userGstAmount = bookingObj.pricing.userGstAmount > 0
+            ? bookingObj.pricing.userGstAmount
+            : (bookingObj.pricing.gstAmount > 0 ? bookingObj.pricing.gstAmount : 0);
         
         const base = bookingObj.pricing.basePrice || 0;
         const travel = bookingObj.pricing.travelCharge || 0;
@@ -2644,6 +2648,8 @@ const recalculateBookingPrice = async (booking) => {
         additionalCharges,
         gstPercent,
         gstAmount,
+        userGstPercent: gstPercent,
+        userGstAmount: gstAmount,
         totalPrice
     };
     booking.markModified('pricing');
