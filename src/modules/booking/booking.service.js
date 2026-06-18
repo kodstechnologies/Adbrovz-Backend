@@ -2671,16 +2671,16 @@ const getBookingStatusHistory = async (bookingId, userId, role) => {
 };
 
 const recalculateBookingPrice = async (booking) => {
-    let basePrice = (booking.services || []).reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+    let rawBasePrice = (booking.services || []).reduce((sum, s) => sum + (s.finalPrice || 0), 0);
 
     // Add vendor proposed services
     if (booking.proposedServices && booking.proposedServices.length > 0) {
-        basePrice += booking.proposedServices.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
+        rawBasePrice += booking.proposedServices.reduce((sum, s) => sum + (s.finalPrice || 0), 0);
     }
 
     // Add user requested extra services that have been priced by vendor
     if (booking.userRequestedServices && booking.userRequestedServices.length > 0) {
-        basePrice += booking.userRequestedServices
+        rawBasePrice += booking.userRequestedServices
             .filter(s => s.status === 'priced' || s.status === 'accepted' || s.isPriceConfirmed)
             .reduce((sum, s) => sum + (s.finalPrice || 0), 0);
     }
@@ -2693,12 +2693,15 @@ const recalculateBookingPrice = async (booking) => {
     
     const couponDiscount = booking.pricing?.couponDiscount || 0;
 
-    const taxableAmount = basePrice + travelCharge + additionalCharges - couponDiscount;
+    // Apply coupon discount directly to basePrice
+    const basePrice = Math.max(0, rawBasePrice - couponDiscount);
+
+    const taxableAmount = basePrice + travelCharge + additionalCharges;
     const gstAmount = Math.round((taxableAmount * (gstPercent / 100)) * 100) / 100;
     
     const totalPrice = Math.round((taxableAmount + gstAmount) * 100) / 100;
 
-    console.log(`[GST DEBUG] Booking ${booking._id} | rawGstPercent: ${rawGstPercent} (type: ${typeof rawGstPercent}) | gstPercent: ${gstPercent} | couponDiscount: ${couponDiscount} | taxableAmount: ${taxableAmount} | gstAmount: ${gstAmount} | totalPrice: ${totalPrice}`);
+    console.log(`[GST DEBUG] Booking ${booking._id} | rawBasePrice: ${rawBasePrice} | couponDiscount: ${couponDiscount} | basePrice: ${basePrice} | gstPercent: ${gstPercent} | taxableAmount: ${taxableAmount} | gstAmount: ${gstAmount} | totalPrice: ${totalPrice}`);
 
     // Properly spread Mongoose subdocument to preserve existing fields
     const existingPricing = booking.pricing?.toObject ? booking.pricing.toObject() : (booking.pricing || {});
