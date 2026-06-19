@@ -149,8 +149,12 @@ const getMyBookings = asyncHandler(async (req, res) => {
         'arrived': 'Vendor Arrived',
         'ongoing': 'Working',
         'completed': 'Completed',
-        'cancelled': 'Cancelled',
-        'auto_cancelled': 'Auto Cancelled'
+    };
+
+    const cancelledStatusMap = {
+        'user': role === 'vendor' ? 'Cancelled by User' : 'Cancelled by You',
+        'vendor': role === 'user' ? 'Cancelled by Vendor' : 'Cancelled by You',
+        'system': 'Auto Cancelled'
     };
 
     const enhanceBooking = (b) => {
@@ -158,6 +162,7 @@ const getMyBookings = asyncHandler(async (req, res) => {
         obj.displayStatus = statusMap[obj.status] || obj.status;
         if (['cancelled', 'auto_cancelled'].includes(obj.status)) {
             obj.cancelledBy = obj.cancellation?.cancelledBy || 'unknown';
+            obj.displayStatus = cancelledStatusMap[obj.cancelledBy] || 'Cancelled';
         }
         return obj;
     };

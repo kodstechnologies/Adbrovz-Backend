@@ -908,6 +908,12 @@ const _formatBooking = (bookingDoc, role) => {
     if (['cancelled', 'auto_cancelled'].includes(bookingObj.status)) {
         bookingObj.cancelledBy = bookingObj.cancellation?.cancelledBy || 'unknown';
         bookingObj.cancelledAtIST = bookingObj.cancellation?.cancelledAt ? new Date(bookingObj.cancellation.cancelledAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : null;
+        const cancelledByLabel = {
+            'user': role === 'vendor' ? 'Cancelled by User' : 'Cancelled by You',
+            'vendor': role === 'user' ? 'Cancelled by Vendor' : 'Cancelled by You',
+            'system': 'Auto Cancelled'
+        };
+        bookingObj.displayStatus = cancelledByLabel[bookingObj.cancelledBy] || 'Cancelled';
     }
 
     // Role specific IST timestamps
@@ -2136,6 +2142,12 @@ const getVendorBookingHistory = async (vendorId) => {
         cancelled: activeAndHistoryBookings.filter(b => ['cancelled', 'auto_cancelled'].includes(b.status)).map(b => {
             const obj = b.toObject();
             obj.cancelledBy = obj.cancellation?.cancelledBy || 'unknown';
+            const cancelledByLabel = {
+                'user': 'Cancelled by User',
+                'vendor': 'Cancelled by You',
+                'system': 'Auto Cancelled'
+            };
+            obj.displayStatus = cancelledByLabel[obj.cancelledBy] || 'Cancelled';
             return obj;
         })
     };
@@ -2594,8 +2606,13 @@ const getCancelledBookings = async (userId, role) => {
 
     return bookings.map(b => {
         const obj = _formatBooking(b, role);
-        obj.displayStatus = 'Cancelled';
+        const cancelledByLabel = {
+            'user': role === 'vendor' ? 'Cancelled by User' : 'Cancelled by You',
+            'vendor': role === 'user' ? 'Cancelled by Vendor' : 'Cancelled by You',
+            'system': 'Auto Cancelled'
+        };
         obj.cancelledBy = obj.cancellation?.cancelledBy || 'unknown';
+        obj.displayStatus = cancelledByLabel[obj.cancelledBy] || 'Cancelled';
         return obj;
     });
 };
