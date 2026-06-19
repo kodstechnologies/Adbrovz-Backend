@@ -12,8 +12,8 @@ const ApiError = require('../../utils/ApiError');
 const getDashboardData = async () => {
     const { isCategoryValid, isSubcategoryValid, isServiceTypeValid } = require('../service/service.service');
 
-    // Get banners
-    const banners = await Banner.find({ type: 'user' })
+    // Get banners (include legacy banners that may not have type field)
+    const banners = await Banner.find({ $or: [{ type: 'user' }, { type: { $exists: false } }] })
         .sort({ order: 1 })
         .populate('category')
         .select('title description image category order');
@@ -212,11 +212,14 @@ const deleteServiceSection = async (id) => {
 const getAllBanners = async (query = {}) => {
     const filter = {};
 
-    if (query.type) {
+    if (query.type === 'user') {
+        // Include legacy banners that may not have type field
+        filter.$or = [{ type: 'user' }, { type: { $exists: false } }];
+    } else if (query.type) {
         filter.type = query.type;
     } else if (query.fetchAll !== 'true') {
-        // Default to user banners
-        filter.type = 'user';
+        // Default to user banners (including legacy banners without type)
+        filter.$or = [{ type: 'user' }, { type: { $exists: false } }];
     }
 
     const banners = await Banner.find(filter)
