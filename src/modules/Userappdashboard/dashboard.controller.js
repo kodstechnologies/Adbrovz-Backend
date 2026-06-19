@@ -1,5 +1,6 @@
 const asyncHandler = require('../../utils/asyncHandler');
 const ApiResponse = require('../../utils/ApiResponse');
+const ApiError = require('../../utils/ApiError');
 const dashboardService = require('./dashboard.service');
 
 // USER: Get dashboard data
@@ -54,19 +55,18 @@ const createBanner = asyncHandler(async (req, res) => {
     const data = { ...req.body };
     if (req.file && req.file.cloudinary) {
         data.image = req.file.cloudinary.url;
-    } else if (req.file) {
-        data.image = req.file.path.replace(/\\/g, '/');
     }
     const banner = await dashboardService.createBanner(data);
     res.status(201).json(new ApiResponse(201, banner, 'Banner created successfully'));
 });
 
 const updateBanner = asyncHandler(async (req, res) => {
+    if (!req.params.id) {
+        throw new ApiError(400, 'Banner ID is required');
+    }
     const data = { ...req.body };
     if (req.file && req.file.cloudinary) {
         data.image = req.file.cloudinary.url;
-    } else if (req.file) {
-        data.image = req.file.path.replace(/\\/g, '/');
     }
     const banner = await dashboardService.updateBanner(req.params.id, data);
     res.status(200).json(new ApiResponse(200, banner, 'Banner updated successfully'));
