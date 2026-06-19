@@ -12,7 +12,8 @@ const getDashboardData = asyncHandler(async (req, res) => {
 
 // USER: Get vendor banners
 const getVendorBanners = asyncHandler(async (req, res) => {
-    const banners = await dashboardService.getVendorBanners();
+    const role = req.user?.role;
+    const banners = await dashboardService.getVendorBanners(role);
     res.status(200).json(
         new ApiResponse(200, banners, 'Vendor banners retrieved successfully')
     );
@@ -46,7 +47,8 @@ const deleteServiceSection = asyncHandler(async (req, res) => {
 
 // ADMIN: Banners
 const getAllBanners = asyncHandler(async (req, res) => {
-    const banners = await dashboardService.getAllBanners(req.query);
+    const role = req.user?.role;
+    const banners = await dashboardService.getAllBanners({ ...req.query, role });
     res.status(200).json(new ApiResponse(200, banners, 'Banners retrieved successfully'));
 });
 
