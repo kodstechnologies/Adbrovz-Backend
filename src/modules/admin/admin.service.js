@@ -829,6 +829,17 @@ const getAllBookings = async (query = {}) => {
     const taxableAmount = baseServicesTotal + extraServicesTotal + proposedServicesTotal + travelCharge + additionalCharges;
     const gstAmount = Math.round((taxableAmount * (gstPercent / 100)) * 100) / 100;
     obj.computedTotal = Math.round((taxableAmount + gstAmount) * 100) / 100;
+
+    if (['cancelled', 'auto_cancelled'].includes(obj.status)) {
+      const cancelledBy = obj.cancellation?.cancelledBy || 'unknown';
+      obj.cancelledBy = cancelledBy;
+      const cancelledByLabel = {
+        'user': 'Cancelled by User',
+        'vendor': 'Cancelled by Vendor',
+        'system': 'Auto Cancelled'
+      };
+      obj.statusLabel = cancelledByLabel[cancelledBy] || 'Cancelled';
+    }
     return obj;
   });
 
@@ -877,8 +888,13 @@ const getBookingDetails = async (bookingId) => {
     'on_the_way': 'Vendor on the Way',
     'arrived': 'Vendor Arrived',
     'ongoing': 'Work in Progress',
-    'completed': 'Job Completed',
-    'cancelled': 'Cancelled'
+    'completed': 'Job Completed'
+  };
+
+  const cancelledStatusLabels = {
+    'user': 'Cancelled by User',
+    'vendor': 'Cancelled by Vendor',
+    'system': 'Auto Cancelled'
   };
 
   const istOptions = { 
@@ -941,10 +957,17 @@ const getBookingDetails = async (bookingId) => {
 
   const latestDispute = (disputes && disputes.length > 0) ? disputes[disputes.length - 1] : null;
 
+  const bookingJson = booking.toJSON();
+  const cancelledBy = bookingJson.cancellation?.cancelledBy;
+  const isCancelled = ['cancelled', 'auto_cancelled'].includes(bookingJson.status);
+
   return {
     booking: {
-      ...booking.toJSON(),
-      statusLabel: statusLabels[booking.status] || booking.status,
+      ...bookingJson,
+      statusLabel: isCancelled
+        ? (cancelledStatusLabels[cancelledBy] || 'Cancelled')
+        : (statusLabels[bookingJson.status] || bookingJson.status),
+      cancelledBy: isCancelled ? (cancelledBy || 'unknown') : undefined,
       statusHistory: enhancedHistory, // Overwrite original statusHistory with enhanced one for the frontend
       enhancedHistory, // Keep as separate field too just in case
       pricingBreakdown,
