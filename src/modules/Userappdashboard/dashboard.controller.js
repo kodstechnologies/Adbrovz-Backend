@@ -61,7 +61,8 @@ const createBanner = asyncHandler(async (req, res) => {
 });
 
 const updateBanner = asyncHandler(async (req, res) => {
-    if (!req.params.id) {
+    console.log('DEBUG updateBanner:', { params: req.params, hasFile: !!req.file, hasCloudinary: !!(req.file?.cloudinary), bodyKeys: Object.keys(req.body) });
+    if (!req.params || !req.params.id) {
         throw new ApiError(400, 'Banner ID is required');
     }
     const data = { ...req.body };
