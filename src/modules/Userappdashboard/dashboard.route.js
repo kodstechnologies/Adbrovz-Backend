@@ -8,11 +8,9 @@ const { upload, uploadToCloudinary } = require('../../middlewares/cloudinary.mid
 // ================= PUBLIC ROUTES =================
 router.get('/', dashboardController.getDashboardData);
 router.get('/service-sections', dashboardController.getAllServiceSections);
+router.get('/banners', dashboardController.getAllBanners);
+router.get('/vendor-banners', dashboardController.getVendorBanners);
 router.get('/best-services', dashboardController.getBestServices);
-
-// ================= AUTHENTICATED ROUTES (role-aware) =================
-router.get('/banners', authenticate, dashboardController.getAllBanners);
-router.get('/vendor-banners', authenticate, dashboardController.getVendorBanners);
 
 // ================= ADMIN ROUTES =================
 router.use(authenticate);

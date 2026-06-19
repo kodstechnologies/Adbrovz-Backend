@@ -207,24 +207,16 @@ const deleteServiceSection = async (id) => {
 };
 
 /**
- * Get all banners (role-aware: user, vendor, or admin)
+ * Get all banners (supports ?type=user|vendor filter, or ?fetchAll=true for all)
  */
 const getAllBanners = async (query = {}) => {
     const filter = {};
 
     if (query.type) {
         filter.type = query.type;
-    } else if (query.fetchAll === 'true') {
-        // Admin fetching all — no type filter
-    } else {
-        // Auto-detect based on role
-        const role = (query.role || '').toLowerCase();
-        if (role === 'vendor') {
-            filter.type = 'vendor';
-        } else {
-            // Default to user (for user role, admin without fetchAll, or unknown)
-            filter.type = 'user';
-        }
+    } else if (query.fetchAll !== 'true') {
+        // Default to user banners
+        filter.type = 'user';
     }
 
     const banners = await Banner.find(filter)
@@ -261,13 +253,9 @@ const deleteBanner = async (id) => {
 };
 
 /**
- * USER: Get vendor banners (only vendors can access)
+ * PUBLIC: Get vendor banners
  */
-const getVendorBanners = async (role) => {
-    const normalizedRole = (role || '').toLowerCase();
-    if (normalizedRole !== 'vendor') {
-        return [];
-    }
+const getVendorBanners = async () => {
     const banners = await Banner.find({ type: 'vendor' })
         .sort({ order: 1 })
         .select('title description image order');
