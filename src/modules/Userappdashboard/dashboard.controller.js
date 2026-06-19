@@ -61,16 +61,22 @@ const createBanner = asyncHandler(async (req, res) => {
 });
 
 const updateBanner = asyncHandler(async (req, res) => {
-    console.log('DEBUG updateBanner:', { params: req.params, hasFile: !!req.file, hasCloudinary: !!(req.file?.cloudinary), bodyKeys: Object.keys(req.body) });
-    if (!req.params || !req.params.id) {
-        throw new ApiError(400, 'Banner ID is required');
+    try {
+        console.log('DEBUG updateBanner:', { params: req.params, hasFile: !!req.file, hasCloudinary: !!(req.file?.cloudinary), bodyKeys: Object.keys(req.body) });
+        if (!req.params || !req.params.id) {
+            throw new ApiError(400, 'Banner ID is required');
+        }
+        const data = { ...req.body };
+        if (req.file && req.file.cloudinary) {
+            data.image = req.file.cloudinary.url;
+        }
+        const banner = await dashboardService.updateBanner(req.params.id, data);
+        res.status(200).json(new ApiResponse(200, banner, 'Banner updated successfully'));
+    } catch (error) {
+        console.error('FULL ERROR in updateBanner:', error);
+        console.error('STACK:', error.stack);
+        throw error;
     }
-    const data = { ...req.body };
-    if (req.file && req.file.cloudinary) {
-        data.image = req.file.cloudinary.url;
-    }
-    const banner = await dashboardService.updateBanner(req.params.id, data);
-    res.status(200).json(new ApiResponse(200, banner, 'Banner updated successfully'));
 });
 
 const deleteBanner = asyncHandler(async (req, res) => {
