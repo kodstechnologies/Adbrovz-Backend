@@ -2626,8 +2626,8 @@ const retrySearchVendors = async (userId, bookingId) => {
     
     console.log(`[DEBUG] retrySearchVendors: Found Booking ${booking._id} with status ${booking.status}`);
 
-    if (booking.status !== 'pending_acceptance') {
-        throw new ApiError(400, 'Retry allowed only for pending search requests');
+    if (!['pending_acceptance', 'cancelled', 'auto_cancelled'].includes(booking.status)) {
+        throw new ApiError(400, 'Retry allowed only for pending or cancelled search requests');
     }
 
     // Reset status and retryCount for tiered search reset
@@ -2639,6 +2639,21 @@ const retrySearchVendors = async (userId, bookingId) => {
     booking.laterVendors = [];
     booking.rejectedVendors = [];
     booking.notifiedVendors = [];
+    booking.vendor = undefined;
+    booking.otp = undefined;
+    booking.gracePeriodEnd = undefined;
+    booking.vendorArrivedAt = undefined;
+    booking.workStartedAt = undefined;
+    booking.workCompletedAt = undefined;
+    booking.priceConfirmationTimeout = undefined;
+    booking.isGracePeriodNotified = false;
+    booking.cancellation = undefined;
+
+    // Reset travel charge to 0 since no vendor is currently assigned
+    if (booking.pricing) {
+        booking.pricing.travelCharge = 0;
+        await recalculateBookingPrice(booking);
+    }
     
     if (booking.statusHistory) {
       booking.statusHistory.push({
