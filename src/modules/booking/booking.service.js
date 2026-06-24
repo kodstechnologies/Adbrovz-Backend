@@ -3593,9 +3593,9 @@ async function getVendorSelectableServicesForBooking(userId, bookingId) {
         _id: { $in: allowedServiceIds },
         isActive: true
     })
-        .populate('category', 'name')
-        .populate('subcategory', 'name')
-        .populate('serviceType', 'name')
+        .populate('category', 'name bookingPrice')
+        .populate('subcategory', 'name bookingPrice')
+        .populate('serviceType', 'name bookingPrice')
         .select('title photo serviceCharge bookingPrice category subcategory serviceType quantityEnabled priceAdjustmentEnabled approxCompletionTime')
         .lean();
 
@@ -3604,9 +3604,14 @@ async function getVendorSelectableServicesForBooking(userId, bookingId) {
         bookingID: booking.bookingID,
         vendorId: booking.vendor,
         services: services.map(service => {
-            const bookingCharge = (service.bookingPrice !== undefined && service.bookingPrice !== null && service.bookingPrice > 0)
+            // Sum booking charges across the full hierarchy: category + subcategory + serviceType + service
+            const categoryCharge = Number(service.category?.bookingPrice || 0);
+            const subcategoryCharge = Number(service.subcategory?.bookingPrice || 0);
+            const typeCharge = Number(service.serviceType?.bookingPrice || 0);
+            const serviceCharge = (service.bookingPrice !== undefined && service.bookingPrice !== null)
                 ? Number(service.bookingPrice)
                 : Number(service.serviceCharge || 0);
+            const bookingCharge = categoryCharge + subcategoryCharge + typeCharge + serviceCharge;
             return {
                 serviceId: service._id,
                 serviceName: service.title,
