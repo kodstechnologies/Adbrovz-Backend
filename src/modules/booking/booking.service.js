@@ -1405,7 +1405,7 @@ const createBooking = async (userId, bookingData) => {
     if (couponCode) {
         if (calculatedBasePrice === 0) {
             console.warn(`[TRACKING-FLOW] [COUPON] Booking price is zero, cannot apply coupon: ${couponCode}`);
-            throw new ApiError(400, "Booking price is zero, you can't apply coupon");
+            throw new ApiError(400, "Coupon cannot be applied if service price is 0");
         }
         console.log(`[TRACKING-FLOW] [STEP 1.10] Validating coupon code: ${couponCode}`);
         const coupon = await Coupon.findOne({ code: couponCode.toUpperCase() });

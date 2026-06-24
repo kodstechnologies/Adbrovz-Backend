@@ -147,7 +147,7 @@ exports.applyCoupon = async (req, res) => {
         }
 
         if (parsedAmount === 0) {
-            return res.status(400).json({ success: false, message: "Booking price is zero, you can't apply coupon" });
+            return res.status(400).json({ success: false, message: "Coupon cannot be applied if service price is 0" });
         }
 
         const coupon = await Coupon.findOne({ code: code.toUpperCase() });
