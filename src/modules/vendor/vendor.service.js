@@ -2771,12 +2771,22 @@ const getSubscriptionStatus = async (vendorId) => {
 
     const renExp = vendor.serviceRenewal?.expiryDate ? new Date(vendor.serviceRenewal.expiryDate) : null;
     const isRenActive = renExp ? renExp > now : false;
+    const hasServiceRenewal = !!vendor.serviceRenewal?.expiryDate;
 
-    let daysRemaining = 0;
-    // Use membership expiry as primary source for daysRemaining
-    if (isMemActive) {
+    let memDaysRemaining = 0;
+    if (isMemActive && memExp) {
         const diff = memExp - now;
-        daysRemaining = Math.ceil(diff / (1000 * 60 * 60 * 24));
+        memDaysRemaining = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    }
+
+    let renDaysRemaining = 0;
+    if (hasServiceRenewal) {
+        if (isRenActive && renExp) {
+            const diff = renExp - now;
+            renDaysRemaining = Math.ceil(diff / (1000 * 60 * 60 * 24));
+        } else {
+            renDaysRemaining = 0;
+        }
     }
 
     // Accumulate all hierarchy IDs
@@ -2819,26 +2829,46 @@ const getSubscriptionStatus = async (vendorId) => {
             sub.category && (sub.category._id || sub.category).toString() === catIdStr
         );
         
-        let active = isMemActive;
-        let remaining = daysRemaining;
+        let active = false;
+        let remaining = 0;
         
         if (catSub) {
             const subExp = catSub.expiryDate ? new Date(catSub.expiryDate) : null;
             const isSubActive = subExp ? subExp > now : false;
 
-            // Service is active if either membership or catSub covers it
-            active = isMemActive || (isSubActive && catSub.status === 'ACTIVE');
+            // Service is active if membership is active AND the category subscription is active AND service renewal is active (if it exists)
+            const isServiceActive = isMemActive && isSubActive && catSub.status === 'ACTIVE' && (!hasServiceRenewal || isRenActive);
 
-            // Use the latest (maximum) expiry date among membership and catSub
-            const candidateExpiries = [];
-            if (isMemActive && memExp) candidateExpiries.push(memExp);
-            if (isSubActive && subExp) candidateExpiries.push(subExp);
+            if (isServiceActive) {
+                active = true;
+                let subDaysRemaining = 0;
+                if (subExp) {
+                    const diff = subExp - now;
+                    subDaysRemaining = Math.ceil(diff / (1000 * 60 * 60 * 24));
+                }
 
-            if (candidateExpiries.length > 0) {
-                const latestExpiry = new Date(Math.max(...candidateExpiries.map(d => d.getTime())));
-                const diff = latestExpiry - now;
-                remaining = Math.ceil(diff / (1000 * 60 * 60 * 24));
+                if (hasServiceRenewal) {
+                    remaining = Math.min(memDaysRemaining, subDaysRemaining, renDaysRemaining);
+                } else {
+                    remaining = Math.min(memDaysRemaining, subDaysRemaining);
+                }
             } else {
+                active = false;
+                remaining = 0;
+            }
+        } else {
+            // For standard membership services: active if membership is active AND service renewal is active (if it exists)
+            const isServiceActive = isMemActive && (!hasServiceRenewal || isRenActive);
+
+            if (isServiceActive) {
+                active = true;
+                if (hasServiceRenewal) {
+                    remaining = Math.min(memDaysRemaining, renDaysRemaining);
+                } else {
+                    remaining = memDaysRemaining;
+                }
+            } else {
+                active = false;
                 remaining = 0;
             }
         }
@@ -2867,7 +2897,7 @@ const getSubscriptionStatus = async (vendorId) => {
 
     // Permissions
     // Remove documentStatus === 'approved' check if they just want to know if plan allows go-online
-    const canGoOnline = isMemActive && isRenActive;
+    const canGoOnline = isMemActive && (!hasServiceRenewal || isRenActive);
 
     return {
         membership: {

@@ -642,11 +642,11 @@ const getServiceById = async (serviceId) => {
  * Global search across Categories, Subcategories, and Services
  */
 const globalSearch = async (query) => {
-    if (!query) return { categories: [], subcategories: [], services: [] };
+    if (!query) return { categories: [], subcategories: [], types: [], services: [] };
 
     const searchRegex = { $regex: query, $options: 'i' };
 
-    const [categories, subcategories, services] = await Promise.all([
+    const [categories, subcategories, serviceTypes, services] = await Promise.all([
         Category.find({ name: searchRegex, isActive: { $ne: false } })
             .select('name icon description')
             .limit(10),
@@ -654,6 +654,12 @@ const globalSearch = async (query) => {
         Subcategory.find({ name: searchRegex, isActive: { $ne: false } })
             .populate('category')
             .select('name icon description category')
+            .limit(10),
+
+        ServiceType.find({ name: searchRegex, isActive: { $ne: false } })
+            .populate('category')
+            .populate('subcategory')
+            .select('name photo description category subcategory serviceCharge bookingPrice coupon discount membershipCharge serviceRenewalCharge membershipRenewalCharge order')
             .limit(10),
 
         Service.find({ title: searchRegex, isActive: { $ne: false } })
@@ -677,6 +683,13 @@ const globalSearch = async (query) => {
         subcategories.map(async (sub) => {
             const isValid = await isSubcategoryValid(sub._id);
             return isValid ? sub : null;
+        })
+    );
+
+    const validServiceTypes = await Promise.all(
+        serviceTypes.map(async (st) => {
+            const isValid = await isServiceTypeValid(st._id);
+            return isValid ? st : null;
         })
     );
 
@@ -716,6 +729,7 @@ const globalSearch = async (query) => {
     return {
         categories: validCategories.filter(Boolean),
         subcategories: validSubcategories.filter(Boolean),
+        types: validServiceTypes.filter(Boolean),
         services: formattedServices
     };
 };
