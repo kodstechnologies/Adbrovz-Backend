@@ -137,7 +137,18 @@ exports.applyCoupon = async (req, res) => {
 
         if (!code) return res.status(400).json({ success: false, message: 'Coupon code is required' });
         if (!userId) return res.status(400).json({ success: false, message: 'User ID is required' });
-        if (!orderAmount || orderAmount <= 0) return res.status(400).json({ success: false, message: 'Valid order amount is required' });
+        if (orderAmount === undefined || orderAmount === null || (typeof orderAmount === 'string' && orderAmount.trim() === '')) {
+            return res.status(400).json({ success: false, message: 'Valid order amount is required' });
+        }
+
+        const parsedAmount = Number(orderAmount);
+        if (isNaN(parsedAmount) || parsedAmount < 0) {
+            return res.status(400).json({ success: false, message: 'Valid order amount is required' });
+        }
+
+        if (parsedAmount === 0) {
+            return res.status(400).json({ success: false, message: "Booking price is zero, you can't apply coupon" });
+        }
 
         const coupon = await Coupon.findOne({ code: code.toUpperCase() });
 
