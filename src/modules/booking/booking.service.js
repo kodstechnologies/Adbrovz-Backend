@@ -2638,6 +2638,7 @@ const retrySearchVendors = async (userId, bookingId) => {
     // IMPORTANT: Clear previous interactions so vendors are notified again
     booking.laterVendors = [];
     booking.rejectedVendors = [];
+    booking.notifiedVendors = [];
     
     if (booking.statusHistory) {
       booking.statusHistory.push({
