@@ -2811,8 +2811,8 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
         if (item) {
             // Check if it was unpriced in Service model or if adminPrice is 0/null
             const serviceDoc = await Service.findById(item.service);
-            const hasAdminPrice = (serviceDoc.bookingPrice !== undefined && serviceDoc.bookingPrice !== null && serviceDoc.bookingPrice > 0) || 
-                                  (serviceDoc.serviceCharge !== undefined && serviceDoc.serviceCharge !== null && serviceDoc.serviceCharge > 0);
+            const pricing = await _getHierarchicalPricing(item.service);
+            const hasAdminPrice = pricing.adminPrice > 0;
             const isUnpriced = serviceDoc && (!serviceDoc.isAdminPriced || !hasAdminPrice);
             
             if (isUnpriced || isExtraService) {
@@ -3232,9 +3232,8 @@ const addServicesToBooking = async (vendorId, bookingId, newServices) => {
         }
 
         const qty = item.quantity || 1;
-        const adminPrice = (serviceDoc.bookingPrice !== undefined && serviceDoc.bookingPrice !== null && serviceDoc.bookingPrice > 0)
-            ? serviceDoc.bookingPrice
-            : (serviceDoc.serviceCharge || null);
+        const { adminPrice: hierarchicalPrice } = await _getHierarchicalPricing(item.serviceId);
+        const adminPrice = hierarchicalPrice > 0 ? hierarchicalPrice : null;
         const vendorPrice = adminPrice ? null : (item.price || null);
         const finalPrice = adminPrice
             ? adminPrice * qty
@@ -3482,15 +3481,14 @@ async function requestExtraServices(userId, bookingId, newServices) {
                     isPriceConfirmed = true;
                     status = 'accepted';
                 } else {
-                    adminPrice  = (serviceDoc.bookingPrice !== undefined && serviceDoc.bookingPrice !== null && serviceDoc.bookingPrice > 0)
-                        ? serviceDoc.bookingPrice
-                        : (serviceDoc.serviceCharge || 0);
+                    const { adminPrice: hierarchicalPrice } = await _getHierarchicalPricing(item.serviceId);
+                    adminPrice  = hierarchicalPrice > 0 ? hierarchicalPrice : 0;
                     vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
                     finalPrice  = adminPrice > 0
                         ? adminPrice * qty
                         : (vendorPrice > 0 ? vendorPrice * qty : 0);
-                    isPriceConfirmed = false;
-                    status = 'pending';
+                    isPriceConfirmed = adminPrice > 0;
+                    status = adminPrice > 0 ? 'accepted' : 'pending';
                 }
             }
 
@@ -3662,9 +3660,8 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
         if (!serviceDoc) continue;
 
         const qty = requestItem.quantity || 1;
-        const adminPrice = (serviceDoc.bookingPrice !== undefined && serviceDoc.bookingPrice !== null && serviceDoc.bookingPrice > 0)
-            ? serviceDoc.bookingPrice
-            : (serviceDoc.serviceCharge || 0);
+        const { adminPrice: hierarchicalPrice } = await _getHierarchicalPricing(item.serviceId);
+        const adminPrice = hierarchicalPrice > 0 ? hierarchicalPrice : 0;
         const vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
 
         requestItem.adminPrice = adminPrice;
@@ -3768,19 +3765,12 @@ async function vendorAcceptExtraServices(vendorId, bookingId, acceptedServiceIds
 
                 // Set pricing if not already populated
                 if (!item.finalPrice || item.finalPrice === 0) {
-                    const serviceDoc = await Service.findById(sid).select('bookingPrice serviceCharge');
-                    if (serviceDoc) {
-                        const qty = item.quantity || 1;
-                        const adminPrice = (serviceDoc.bookingPrice !== undefined && serviceDoc.bookingPrice !== null && serviceDoc.bookingPrice > 0)
-                            ? serviceDoc.bookingPrice
-                            : (serviceDoc.serviceCharge || 0);
-                        const vendorPrice = adminPrice > 0 ? 0 : 0;
-
-                        item.adminPrice = adminPrice;
-                        item.vendorPrice = vendorPrice;
-                        item.finalPrice = adminPrice > 0
-                            ? adminPrice * qty
-                            : (vendorPrice > 0 ? vendorPrice * qty : 0);
+                    const qty = item.quantity || 1;
+                    const { adminPrice: hierarchicalPrice } = await _getHierarchicalPricing(sid);
+                    if (hierarchicalPrice > 0) {
+                        item.adminPrice = hierarchicalPrice;
+                        item.vendorPrice = 0;
+                        item.finalPrice = hierarchicalPrice * qty;
                     }
                 }
             } else if (item.status === 'accepted') {
