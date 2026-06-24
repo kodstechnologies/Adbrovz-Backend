@@ -23,9 +23,10 @@ const bannerSchema = new mongoose.Schema(
         category: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Category',
-            required: function () {
-                return this.type === 'user';
-            },
+        },
+        subcategory: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Subcategory',
         },
         order: {
             type: Number,
