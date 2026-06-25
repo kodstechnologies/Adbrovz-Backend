@@ -2889,7 +2889,12 @@ const confirmBookingPrice = async (userId, bookingId, serviceIds = []) => {
     if (!booking) throw new ApiError(404, 'Booking not found');
 
     // Normalize serviceIds to strings for comparison
-    const targetIds = (serviceIds || []).map(id => id.toString()).filter(Boolean);
+    const targetIds = (serviceIds || []).map(id => {
+        if (id && typeof id === 'object') {
+            return (id.serviceId || id.id || id._id || id).toString();
+        }
+        return id.toString();
+    }).filter(Boolean);
     const hasTargetIds = targetIds.length > 0;
 
     const isTargetService = (serviceId) => {
@@ -2977,7 +2982,12 @@ const rejectBookingPrice = async (userId, bookingId, reason, serviceIds = []) =>
     if (!booking) throw new ApiError(404, 'Booking not found');
 
     // Normalize serviceIds to strings for comparison
-    const targetIds = (serviceIds || []).map(id => id.toString()).filter(Boolean);
+    const targetIds = (serviceIds || []).map(id => {
+        if (id && typeof id === 'object') {
+            return (id.serviceId || id.id || id._id || id).toString();
+        }
+        return id.toString();
+    }).filter(Boolean);
     const hasTargetIds = targetIds.length > 0;
 
     const isTargetService = (serviceId) => {
