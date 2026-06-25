@@ -3462,7 +3462,7 @@ async function requestExtraServices(userId, bookingId, newServices) {
                 vendorPrice  = existingExtra.vendorPrice || 0;
                 finalPrice   = existingExtra.finalPrice;
                 isPriceConfirmed = true;
-                status = 'accepted';
+                status = 'pending';
             } else {
                 // ── Check if this service was already price‑confirmed in the main services list ──
                 const approvedEntry = booking.services.find(
@@ -3479,7 +3479,7 @@ async function requestExtraServices(userId, bookingId, newServices) {
                     vendorPrice  = approvedEntry.vendorPrice || 0;
                     finalPrice   = approvedUnitPrice * qty;
                     isPriceConfirmed = true;
-                    status = 'accepted';
+                    status = 'pending';
                 } else {
                     const { adminPrice: hierarchicalPrice } = await _getHierarchicalPricing(item.serviceId);
                     adminPrice  = hierarchicalPrice > 0 ? hierarchicalPrice : 0;
@@ -3488,7 +3488,7 @@ async function requestExtraServices(userId, bookingId, newServices) {
                         ? adminPrice * qty
                         : (vendorPrice > 0 ? vendorPrice * qty : 0);
                     isPriceConfirmed = adminPrice > 0;
-                    status = adminPrice > 0 ? 'accepted' : 'pending';
+                    status = 'pending';
                 }
             }
 
@@ -3550,11 +3550,11 @@ async function requestExtraServices(userId, bookingId, newServices) {
         });
     }
 
-    const message = autoApprovedCount > 0 && pendingCount === 0
-        ? 'Extra services added at previously approved price. No additional confirmation needed.'
+    const message = autoApprovedCount === addedEntries.length
+        ? 'Extra services requested at pre-confirmed prices. Awaiting vendor acceptance.'
         : autoApprovedCount > 0
-            ? 'Some extra services were auto-approved at previously confirmed prices. Others are awaiting vendor confirmation.'
-            : 'Extra services requested. Awaiting vendor confirmation.';
+            ? 'Some requested extra services have pre-confirmed prices. Others require vendor pricing. Awaiting vendor action.'
+            : 'Extra services requested. Awaiting vendor pricing/acceptance.';
 
     return {
         booking: populatedBooking,

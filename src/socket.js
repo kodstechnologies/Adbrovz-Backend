@@ -848,11 +848,26 @@ const initSocket = (server) => {
                 const bookingId = stringifyId(data?.bookingId);
                 const { reason } = data || {};
 
+                let rejectedServiceIds = [];
+                if (data?.rejectedServiceIds) {
+                    rejectedServiceIds = Array.isArray(data.rejectedServiceIds) ? data.rejectedServiceIds : [data.rejectedServiceIds];
+                } else if (data?.serviceIds) {
+                    rejectedServiceIds = Array.isArray(data.serviceIds) ? data.serviceIds : [data.serviceIds];
+                } else if (data?.serviceId) {
+                    rejectedServiceIds = [data.serviceId];
+                }
+                rejectedServiceIds = rejectedServiceIds.map(id => {
+                    if (id && typeof id === 'object') {
+                        return (id.serviceId || id._id || id.id || '').toString();
+                    }
+                    return id ? id.toString() : null;
+                }).filter(Boolean);
+
                 if (!userId) throw new Error('User ID is required');
                 if (!bookingId) throw new Error('Booking ID is required');
 
                 const bookingService = require('./modules/booking/booking.service');
-                const result = await bookingService.userRejectExtraServices(userId, bookingId, reason);
+                const result = await bookingService.userRejectExtraServices(userId, bookingId, rejectedServiceIds, reason);
                 socket.emit('user_reject_extra_services_success', result);
             } catch (error) {
                 socket.emit('booking_error', { action: 'user_reject_extra_services', message: error.message });
