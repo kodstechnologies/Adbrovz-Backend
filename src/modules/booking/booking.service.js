@@ -556,7 +556,7 @@ const startWork = async (vendorId, bookingId, enteredOTP) => {
 
     // ── Block start if extra services are unpriced or not yet accepted ──
     const pendingExtraServices = (booking.userRequestedServices || []).filter(
-        s => s.status === 'pending' || s.status === 'priced' || !s.finalPrice || s.finalPrice === 0
+        s => s.status === 'pending' || s.status === 'priced' || s.finalPrice === undefined || s.finalPrice === null
     );
     if (pendingExtraServices.length > 0) {
         throw new ApiError(400, `Cannot start work: ${pendingExtraServices.length} extra service(s) still pending pricing or confirmation`);
@@ -615,7 +615,7 @@ const requestCompletionOTP = async (vendorId, bookingId) => {
     // ── Lock OTP if vendor has pending proposed services or unconfirmed extra services ──
     const hasPendingProposed = booking.proposedServices && booking.proposedServices.length > 0;
     const pendingExtraServices = (booking.userRequestedServices || []).filter(
-        s => s.status === 'pending' || s.status === 'priced' || !s.finalPrice || s.finalPrice === 0
+        s => s.status === 'pending' || s.status === 'priced' || s.finalPrice === undefined || s.finalPrice === null
     );
     const isLocked = hasPendingProposed || pendingExtraServices.length > 0;
 
@@ -691,7 +691,7 @@ const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
 
     // ── Block completion if extra services are unpriced or not yet accepted ──
     const pendingExtraServices = (booking.userRequestedServices || []).filter(
-        s => s.status === 'pending' || s.status === 'priced' || !s.finalPrice || s.finalPrice === 0
+        s => s.status === 'pending' || s.status === 'priced' || s.finalPrice === undefined || s.finalPrice === null
     );
     if (pendingExtraServices.length > 0) {
         throw new ApiError(400, `Cannot complete work: ${pendingExtraServices.length} extra service(s) still pending pricing or confirmation`);
@@ -979,7 +979,7 @@ const _formatBooking = (bookingDoc, role) => {
                 // ── Lock completion OTP if vendor has pending proposed services or unconfirmed extra services ──
                 const hasPendingProposed = bookingObj.proposedServices && bookingObj.proposedServices.length > 0;
                 const hasPendingExtra = (bookingObj.userRequestedServices || []).some(
-                    s => s.status === 'pending' || s.status === 'priced' || !s.finalPrice || s.finalPrice === 0
+                    s => s.status === 'pending' || s.status === 'priced' || s.finalPrice === undefined || s.finalPrice === null
                 );
                 const canComplete = !hasPendingProposed && !hasPendingExtra;
 
@@ -1002,7 +1002,7 @@ const _formatBooking = (bookingDoc, role) => {
             // If completion is locked due to pending services, always show Locked; otherwise show Hidden (Pending) when not yet generated
             const isCompletionLocked = bookingObj.status === 'ongoing' && (
                 (bookingObj.proposedServices && bookingObj.proposedServices.length > 0) ||
-                (bookingObj.userRequestedServices || []).some(s => s.status === 'pending' || s.status === 'priced' || !s.finalPrice || s.finalPrice === 0)
+                (bookingObj.userRequestedServices || []).some(s => s.status === 'pending' || s.status === 'priced' || s.finalPrice === undefined || s.finalPrice === null)
             );
             if (isCompletionLocked) {
                 bookingObj.otp.completionOTP = 'Locked';
@@ -3763,7 +3763,7 @@ async function vendorAcceptExtraServices(vendorId, bookingId, acceptedServiceIds
                 anyAccepted = true;
 
                 // Set pricing if not already populated
-                if (!item.finalPrice || item.finalPrice === 0) {
+                if (item.finalPrice === undefined || item.finalPrice === null) {
                     const qty = item.quantity || 1;
                     const { adminPrice: hierarchicalPrice } = await _getHierarchicalPricing(sid);
                     if (hierarchicalPrice > 0) {
