@@ -3717,15 +3717,9 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
         message: 'Vendor has set prices for your extra services.'
     });
 
-    // Specific event to user: vendor has accepted and priced their extra service requests
-    const acceptedServiceIds = confirmedServices.map(s => s.serviceId.toString());
-    emitToUser(booking.user, 'extra_services_accepted_by_vendor', {
-        bookingId: booking._id,
-        bookingID: booking.bookingID,
-        requestedServices: populatedBooking.userRequestedServices,
-        acceptedServiceIds: acceptedServiceIds,
-        message: 'Your vendor has accepted the extra services request.'
-    });
+    // NOTE: Do NOT emit 'extra_services_accepted_by_vendor' here.
+    // This function only PROPOSES prices (status = 'priced'). The user still needs to
+    // confirm or reject. Emitting an accepted event here caused auto-acceptance on the frontend.
 
     return {
         booking: populatedBooking,
