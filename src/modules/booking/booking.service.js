@@ -3848,7 +3848,14 @@ async function vendorRejectExtraServices(vendorId, bookingId, rejectedServiceIds
     }
 
     const now = new Date();
-    const rejectIds = rejectedServiceIds && rejectedServiceIds.length > 0 ? rejectedServiceIds.map(id => id.toString()) : null;
+    const rejectIds = rejectedServiceIds && rejectedServiceIds.length > 0
+        ? rejectedServiceIds.map(id => {
+            if (id && typeof id === 'object') {
+                return (id.serviceId || id.id || id._id || id).toString();
+            }
+            return id.toString();
+        })
+        : null;
 
     // Identify items to reject before filtering them out
     const toReject = [];
@@ -3894,6 +3901,7 @@ async function vendorRejectExtraServices(vendorId, bookingId, rejectedServiceIds
         reason: reason || 'Vendor declined to perform the requested extra services.',
         timestamp: now
     });
+    await recalculateBookingPrice(booking);
     booking.markModified('statusHistory');
     booking.markModified('rejectedServices');
     booking.markModified('userRequestedServices');
@@ -4038,7 +4046,14 @@ async function userRejectExtraServices(userId, bookingId, rejectedServiceIds, re
 
     const now = new Date();
     let hasRejected = false;
-    const rejectIds = rejectedServiceIds ? rejectedServiceIds.map(id => id.toString()) : [];
+    const rejectIds = rejectedServiceIds
+        ? rejectedServiceIds.map(id => {
+            if (id && typeof id === 'object') {
+                return (id.serviceId || id.id || id._id || id).toString();
+            }
+            return id.toString();
+        })
+        : [];
 
     booking.userRequestedServices.forEach(item => {
         const sid = item.service.toString();
@@ -4069,6 +4084,7 @@ async function userRejectExtraServices(userId, bookingId, rejectedServiceIds, re
         reason: reason || 'User declined the proposed price for extra services',
         timestamp: now
     });
+    await recalculateBookingPrice(booking);
     booking.markModified('statusHistory');
     booking.markModified('rejectedServices');
     booking.markModified('userRequestedServices');
