@@ -3481,13 +3481,20 @@ async function requestExtraServices(userId, bookingId, newServices) {
                     isPriceConfirmed = true;
                     status = 'pending';
                 } else {
-                    const { adminPrice: hierarchicalPrice } = await _getHierarchicalPricing(item.serviceId);
-                    adminPrice  = hierarchicalPrice > 0 ? hierarchicalPrice : 0;
-                    vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
-                    finalPrice  = adminPrice > 0
-                        ? adminPrice * qty
-                        : (vendorPrice > 0 ? vendorPrice * qty : 0);
-                    isPriceConfirmed = adminPrice > 0;
+                    // Only use hierarchy pricing if the service is admin-priced
+                    if (serviceDoc.isAdminPriced) {
+                        const { adminPrice: hierarchicalPrice } = await _getHierarchicalPricing(item.serviceId);
+                        adminPrice  = hierarchicalPrice;
+                        vendorPrice = 0;
+                        finalPrice  = hierarchicalPrice * qty;
+                        isPriceConfirmed = true;
+                    } else {
+                        // Unpriced service — vendor must set the price
+                        adminPrice  = 0;
+                        vendorPrice = 0;
+                        finalPrice  = null;
+                        isPriceConfirmed = false;
+                    }
                     status = 'pending';
                 }
             }
@@ -3665,8 +3672,10 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
         if (!serviceDoc) continue;
 
         const qty = requestItem.quantity || 1;
+        // Only use hierarchy pricing if the service is admin-priced
+        const isServiceAdminPriced = serviceDoc.isAdminPriced;
         const { adminPrice: hierarchicalPrice } = await _getHierarchicalPricing(item.serviceId);
-        const adminPrice = hierarchicalPrice > 0 ? hierarchicalPrice : 0;
+        const adminPrice = isServiceAdminPriced && hierarchicalPrice > 0 ? hierarchicalPrice : 0;
         const vendorPrice = adminPrice > 0 ? 0 : (item.price || 0);
 
         requestItem.adminPrice = adminPrice;
@@ -3759,19 +3768,14 @@ async function vendorAcceptExtraServices(vendorId, bookingId, acceptedServiceIds
         const sid = (item.service && (item.service._id || item.service)).toString();
         if (!acceptIds || acceptIds.includes(sid)) {
             if (item.status === 'pending' || !item.status) {
+                // If service has no confirmed price, vendor cannot simply accept — must use pricing flow
+                if (!item.isPriceConfirmed && (item.finalPrice === undefined || item.finalPrice === null || item.finalPrice === 0)) {
+                    // Skip — vendor must use vendorConfirmExtraServices to set a price first
+                    continue;
+                }
+
                 item.status = 'accepted';
                 anyAccepted = true;
-
-                // Set pricing if not already populated
-                if (item.finalPrice === undefined || item.finalPrice === null) {
-                    const qty = item.quantity || 1;
-                    const { adminPrice: hierarchicalPrice } = await _getHierarchicalPricing(sid);
-                    if (hierarchicalPrice > 0) {
-                        item.adminPrice = hierarchicalPrice;
-                        item.vendorPrice = 0;
-                        item.finalPrice = hierarchicalPrice * qty;
-                    }
-                }
             } else if (item.status === 'accepted') {
                 // If already accepted, treat it as a successful match to prevent throwing errors
                 anyAccepted = true;
