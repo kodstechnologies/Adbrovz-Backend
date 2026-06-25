@@ -2995,13 +2995,18 @@ const rejectBookingPrice = async (userId, bookingId, reason, serviceIds = []) =>
         return targetIds.includes(serviceId.toString());
     };
 
-    // Derive from per-service flags: if ALL services already have isPriceConfirmed=true,
-    // there is nothing left to reject.
-    const alreadyAllConfirmed = (booking.services || []).length > 0
+    // Derive from per-service flags: if ALL services already have isPriceConfirmed=true
+    // AND there are no pending extra/proposed services, there is nothing left to reject.
+    const allMainConfirmed = (booking.services || []).length > 0
         ? (booking.services || []).every(s => s.isPriceConfirmed)
         : !!booking.isPriceConfirmed;
+    
+    const hasUnconfirmedExtra = (booking.userRequestedServices || []).some(
+        s => s.status === 'priced' && !s.isPriceConfirmed
+    );
+    const hasProposed = (booking.proposedServices || []).length > 0;
 
-    if (alreadyAllConfirmed) {
+    if (allMainConfirmed && !hasUnconfirmedExtra && !hasProposed) {
         throw new ApiError(400, 'Cannot reject price — all service prices are already confirmed');
     }
 
