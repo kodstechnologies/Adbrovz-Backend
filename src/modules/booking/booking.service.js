@@ -1233,7 +1233,7 @@ const _getHierarchicalPricing = async (serviceId) => {
     
     if (!service) return { adminPrice: 0, coupon: null, discount: 0 };
 
-    if (!service.isAdminPriced) {
+    if (service.isAdminPriced === false) {
         return { adminPrice: 0, coupon: null, discount: 0 };
     }
 
