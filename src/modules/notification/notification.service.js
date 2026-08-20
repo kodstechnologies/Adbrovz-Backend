@@ -110,7 +110,7 @@ const createNotification = async (params) => {
  * @param {object} params - { audience: 'all' | 'users' | 'vendors', title, body, data }
  */
 const broadcastNotification = async (params) => {
-  const { audience, title, body, data } = params;
+  const { audience, title, body, data, sentBy } = params;
   const User = require('../../models/User.model');
   const Vendor = require('../../models/Vendor.model');
 
@@ -138,12 +138,29 @@ const broadcastNotification = async (params) => {
   ));
 
   const successful = results.filter(r => r.status === 'fulfilled').length;
+  const failed = targets.length - successful;
   console.log(`Broadcast completed: ${successful}/${targets.length} successful`);
+
+  if (sentBy) {
+    try {
+      await createNotification({
+        user: sentBy,
+        userModel: 'Admin',
+        type: 'general',
+        title,
+        body,
+        data: { ...(data || {}), audience, broadcast: true, total: targets.length, successful, failed },
+        sendPush: false,
+      });
+    } catch (err) {
+      console.error('Failed to store admin broadcast copy:', err.message);
+    }
+  }
   
   return {
     total: targets.length,
     successful,
-    failed: targets.length - successful
+    failed
   };
 };
 
@@ -226,6 +243,106 @@ const getUnreadCount = async (userId, userModel) => {
   });
 };
 
+const getAllNotificationsForAdmin = async (query = {}) => {
+  const { search = '', limit = 2000 } = query;
+  const filter = {};
+
+  if (search) {
+    filter.$or = [
+      { title: { $regex: search, $options: 'i' } },
+      { body: { $regex: search, $options: 'i' } },
+      { type: { $regex: search, $options: 'i' } },
+    ];
+  }
+
+  const notifications = await Notification.find(filter)
+    .sort({ createdAt: -1 })
+    .limit(parseInt(limit, 10) || 2000)
+    .lean();
+
+  const generalBuckets = new Map();
+  const rows = [];
+
+  for (const n of notifications) {
+    if (n.type === 'general') {
+      const minute = new Date(n.createdAt);
+      minute.setSeconds(0, 0);
+      const key = `${n.title}|${n.body}|${minute.toISOString()}`;
+      if (!generalBuckets.has(key)) {
+        generalBuckets.set(key, {
+          id: n._id.toString(),
+          title: n.title,
+          body: n.body,
+          type: n.type,
+          createdAt: n.createdAt,
+          recipientCount: 0,
+          userModels: new Set(),
+          sentCount: 0,
+          failedCount: 0,
+          readCount: 0,
+          recipientName: '',
+          pushStatus: n.pushStatus,
+          isRead: n.isRead,
+        });
+      }
+      const bucket = generalBuckets.get(key);
+      bucket.recipientCount += 1;
+      bucket.userModels.add(n.userModel);
+      if (n.pushStatus === 'sent') bucket.sentCount += 1;
+      if (n.pushStatus === 'failed') bucket.failedCount += 1;
+      if (n.isRead) bucket.readCount += 1;
+    } else {
+      rows.push({
+        id: n._id.toString(),
+        title: n.title,
+        body: n.body,
+        type: n.type,
+        createdAt: n.createdAt,
+        recipientCount: 1,
+        audience: n.userModel === 'Vendor' ? 'vendors' : n.userModel === 'Admin' ? 'admins' : 'users',
+        recipientName: n.userModel === 'Vendor' ? 'Vendor' : n.userModel === 'Admin' ? 'Admin' : 'User',
+        pushStatus: n.pushStatus,
+        isRead: n.isRead,
+        sentCount: n.pushStatus === 'sent' ? 1 : 0,
+        failedCount: n.pushStatus === 'failed' ? 1 : 0,
+        readCount: n.isRead ? 1 : 0,
+      });
+    }
+  }
+
+  const broadcastRows = Array.from(generalBuckets.values()).map((b) => {
+    const models = [...b.userModels];
+    let audience = 'all';
+    if (models.length === 1) {
+      audience = models[0] === 'Vendor' ? 'vendors' : models[0] === 'Admin' ? 'admins' : 'users';
+    }
+    return {
+      id: b.id,
+      title: b.title,
+      body: b.body,
+      type: b.type,
+      createdAt: b.createdAt,
+      recipientCount: b.recipientCount,
+      audience,
+      recipientName: `${b.recipientCount} recipient${b.recipientCount === 1 ? '' : 's'}`,
+      pushStatus: b.failedCount && !b.sentCount ? 'failed' : b.sentCount ? 'sent' : 'not_sent',
+      isRead: b.readCount === b.recipientCount,
+      sentCount: b.sentCount,
+      failedCount: b.failedCount,
+      readCount: b.readCount,
+    };
+  });
+
+  const combined = [...broadcastRows, ...rows].sort(
+    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+  );
+
+  return {
+    notifications: combined,
+    total: combined.length,
+  };
+};
+
 module.exports = {
   sendPushNotification,
   createNotification,
@@ -234,4 +351,5 @@ module.exports = {
   markAsRead,
   markAllAsRead,
   getUnreadCount,
+  getAllNotificationsForAdmin,
 };

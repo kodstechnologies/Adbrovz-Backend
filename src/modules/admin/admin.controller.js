@@ -304,6 +304,12 @@ const bulkRecalculateGST = async (req, res, next) => {
 
 const { recalculateBookingPrice } = require('../booking/booking.service');
 
+const getAllNotifications = asyncHandler(async (req, res) => {
+  const notificationService = require('../notification/notification.service');
+  const result = await notificationService.getAllNotificationsForAdmin(req.query);
+  res.status(200).json(new ApiResponse(200, result, 'Notifications retrieved successfully'));
+});
+
 module.exports = {
   getDashboard,
   getUsers,
@@ -337,6 +343,7 @@ module.exports = {
   createSubAdmin,
   updateSubAdmin,
   deleteSubAdmin,
-  bulkRecalculateGST
+  bulkRecalculateGST,
+  getAllNotifications
 };
 

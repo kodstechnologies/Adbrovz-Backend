@@ -628,6 +628,42 @@ const superAdminResetPassword = async (adminId, { newPassword, confirmPassword }
   return { message: 'Admin password reset successfully' };
 };
 
+/**
+ * Logged-in admin changes their own password
+ */
+const adminChangePassword = async (adminId, { currentPassword, newPassword, confirmPassword }) => {
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    throw new ApiError(400, 'Current password, new password, and confirm password are required');
+  }
+
+  if (newPassword !== confirmPassword) {
+    throw new ApiError(400, 'Passwords do not match');
+  }
+
+  if (newPassword.length < 8) {
+    throw new ApiError(400, 'New password must be at least 8 characters long');
+  }
+
+  if (currentPassword === newPassword) {
+    throw new ApiError(400, 'New password must be different from current password');
+  }
+
+  const admin = await Admin.findById(adminId).select('+password');
+  if (!admin) {
+    throw new ApiError(404, 'Admin not found');
+  }
+
+  const isPasswordValid = await comparePassword(currentPassword, admin.password);
+  if (!isPasswordValid) {
+    throw new ApiError(400, 'Current password is incorrect');
+  }
+
+  admin.password = await hashPassword(newPassword);
+  await admin.save();
+
+  return { message: 'Password updated successfully' };
+};
+
 // ======================== VERIFY OTP (for user signup) ========================
 const verifySignupOTP = async (phoneNumber, otp, role = 'user', req = null) => {
   let model, otpKey;
@@ -1348,6 +1384,7 @@ module.exports = {
   adminSignup,
   adminLogin,
   superAdminResetPassword,
+  adminChangePassword,
   verifySignupOTP,
   login,
   sendOTP,

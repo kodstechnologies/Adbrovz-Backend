@@ -190,6 +190,20 @@ const adminLoginSchema = Joi.object({
   password: Joi.string().required(),
 });
 
+const adminChangePasswordSchema = Joi.object({
+  currentPassword: Joi.string().required().messages({
+    'any.required': 'Current password is required',
+  }),
+  newPassword: Joi.string().min(8).required().messages({
+    'string.min': 'New password must be at least 8 characters long',
+    'any.required': 'New password is required',
+  }),
+  confirmPassword: Joi.string().valid(Joi.ref('newPassword')).required().messages({
+    'any.only': 'Passwords do not match',
+    'any.required': 'Confirm password is required',
+  }),
+});
+
 // Login schema (Generic)
 const loginSchema = Joi.object({
   phoneNumber: Joi.string()
@@ -437,6 +451,7 @@ module.exports = {
   validateVendorSetPIN: validate(vendorSetPINSchema, 'body'),
   validateAdminSignup: validate(adminSignupSchema, 'body'),
   validateAdminLogin: validate(adminLoginSchema, 'body'),
+  validateAdminChangePassword: validate(adminChangePasswordSchema, 'body'),
   validateLogin: validate(loginSchema, 'body'),
   validateInitiateLogin: validate(initiateLoginSchema, 'body'),
   validateCompleteLogin: validate(completeLoginSchema, 'body'),

@@ -52,6 +52,8 @@ router.delete('/vendors/:vendorId', adminController.deleteVendor);
 router.get('/settings', adminController.getGlobalSettings);
 router.patch('/settings', adminController.updateGlobalSettings);
 
+router.get('/notifications', adminController.getAllNotifications);
+
 // Membership Pricing management
 router.get('/membership-pricing', adminController.getMembershipPricing);
 router.patch('/membership-pricing', adminController.updateMembershipPricing);

@@ -9,6 +9,11 @@ router.use(authenticate);
 
 router.get('/', notificationController.getNotifications);
 router.get('/unread-count', notificationController.getUnreadCount);
+router.get(
+  '/admin/all',
+  authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+  notificationController.getAllNotifications
+);
 router.patch('/mark-all-read', notificationController.markAllAsRead);
 router.patch('/:id/read', notificationController.markAsRead);
 

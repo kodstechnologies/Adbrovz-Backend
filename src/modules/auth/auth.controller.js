@@ -195,6 +195,11 @@ const adminResetPassword = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
+const adminChangePassword = asyncHandler(async (req, res) => {
+  const result = await authService.adminChangePassword(req.user.id, req.body);
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
 // ======================== COMMON CONTROLLERS ========================
 
 const refreshToken = asyncHandler(async (req, res) => {
@@ -284,6 +289,7 @@ module.exports = {
   adminLogin,
   adminLogout,
   adminResetPassword,
+  adminChangePassword,
   // Common
   refreshToken,
   sendHomeSMS,

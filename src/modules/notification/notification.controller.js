@@ -4,7 +4,13 @@ const ApiResponse = require('../../utils/ApiResponse');
 
 const broadcastNotification = asyncHandler(async (req, res) => {
   const { audience, title, body, data } = req.body;
-  const result = await notificationService.broadcastNotification({ audience, title, body, data });
+  const result = await notificationService.broadcastNotification({
+    audience,
+    title,
+    body,
+    data,
+    sentBy: req.user.id,
+  });
   res.status(200).json(new ApiResponse(200, result, 'Notification broadcast initiated'));
 });
 
@@ -55,11 +61,17 @@ const getUnreadCount = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, { unreadCount: count }, 'Unread count retrieved successfully'));
 });
 
+const getAllNotifications = asyncHandler(async (req, res) => {
+  const result = await notificationService.getAllNotificationsForAdmin(req.query);
+  res.status(200).json(new ApiResponse(200, result, 'Notifications retrieved successfully'));
+});
+
 module.exports = {
   broadcastNotification,
   getNotifications,
   markAsRead,
   markAllAsRead,
   getUnreadCount,
+  getAllNotifications,
 };
 

@@ -9,6 +9,7 @@ const {
   validateVendorSetPIN,
   validateAdminSignup,
   validateAdminLogin,
+  validateAdminChangePassword,
   validateLogin,
   validateInitiateLogin,
   validateCompleteLogin,
@@ -78,6 +79,13 @@ router.post('/vendors/forgot-pin', authLimiter, validateForgotPin, authControlle
 router.post('/admins/signup', authLimiter, validateAdminSignup, authController.adminSignup);
 router.post('/admins/login', authLimiter, validateAdminLogin, authController.adminLogin);
 router.patch('/admins/reset-password/:adminId', authenticate, authorize(ROLES.SUPER_ADMIN), authController.adminResetPassword);
+router.patch(
+  '/admins/change-password',
+  authenticate,
+  authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+  validateAdminChangePassword,
+  authController.adminChangePassword
+);
 router.post('/admins/logout', authController.adminLogout);
 
 // ======================== COMMON ROUTES (All roles) ========================
