@@ -208,6 +208,42 @@ const sendHomeSMS = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
+const sendUserEmailOtp = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  const result = await authService.sendEmailOtp(email, 'user');
+  res.status(200).json(new ApiResponse(200, result, MESSAGES.AUTH.OTP_SENT));
+});
+
+const verifyUserEmailOtp = asyncHandler(async (req, res) => {
+  const { id, otp } = req.body;
+  const result = await authService.verifyEmailOtp(id, otp, 'user');
+  res.status(200).json(new ApiResponse(200, result, 'OTP verified successfully'));
+});
+
+const sendVendorEmailOtp = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  const result = await authService.sendEmailOtp(email, 'vendor');
+  res.status(200).json(new ApiResponse(200, result, MESSAGES.AUTH.OTP_SENT));
+});
+
+const verifyVendorEmailOtp = asyncHandler(async (req, res) => {
+  const { id, otp } = req.body;
+  const result = await authService.verifyEmailOtp(id, otp, 'vendor');
+  res.status(200).json(new ApiResponse(200, result, 'OTP verified successfully'));
+});
+
+const userForgotPin = asyncHandler(async (req, res) => {
+  const { id, newPin, confirmPin } = req.body;
+  const result = await authService.forgotPin(id, newPin, confirmPin, 'user');
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
+const vendorForgotPin = asyncHandler(async (req, res) => {
+  const { id, newPin, confirmPin } = req.body;
+  const result = await authService.forgotPin(id, newPin, confirmPin, 'vendor');
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
 module.exports = {
   // User
   userSignup,
@@ -225,6 +261,9 @@ module.exports = {
   userVerifyPin,
   userUpdatePin,
   userVerifyContact,
+  sendUserEmailOtp,
+  verifyUserEmailOtp,
+  userForgotPin,
   // Vendor
   vendorSignup,
   vendorCompleteSignup,
@@ -237,6 +276,9 @@ module.exports = {
   vendorVerifyPin,
   vendorUpdatePin,
   vendorVerifyContact,
+  sendVendorEmailOtp,
+  verifyVendorEmailOtp,
+  vendorForgotPin,
   // Admin
   adminSignup,
   adminLogin,

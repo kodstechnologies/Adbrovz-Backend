@@ -23,7 +23,10 @@ const {
   validateUserVerifyContact,
   validateVendorVerifyPin,
   validateVendorUpdatePin,
-  validateVendorVerifyContact
+  validateVendorVerifyContact,
+  validateSendEmailOtp,
+  validateVerifyEmailOtp,
+  validateForgotPin
 } = require('../../validators/auth.validator');
 const { authLimiter, otpLimiter } = require('../../middlewares/rateLimiter.middleware');
 const { authenticate, authorize } = require('../../middlewares/auth.middleware');
@@ -49,6 +52,9 @@ router.post('/users/verify-contact', authLimiter, validateUserVerifyContact, aut
 // new ****
 router.post('/users/verify-pin', authenticate, authLimiter, validateUserVerifyPin, authController.userVerifyPin);
 router.post('/users/update-pin', authenticate, authLimiter, validateUserUpdatePin, authController.userUpdatePin);
+router.post('/users/send-email-otp', otpLimiter, validateSendEmailOtp, authController.sendUserEmailOtp);
+router.post('/users/verify-email-otp', authLimiter, validateVerifyEmailOtp, authController.verifyUserEmailOtp);
+router.post('/users/forgot-pin', authLimiter, validateForgotPin, authController.userForgotPin);
 
 // ======================== VENDOR ROUTES ========================
 router.post('/vendors/signup', authLimiter, uploadVendorDocs, processVendorDocs, validateVendorSignup, authController.vendorSignup);
@@ -64,6 +70,9 @@ router.post('/vendors/verify-contact', authLimiter, validateVendorVerifyContact,
 
 router.post('/vendors/verify-pin', authenticate, authLimiter, validateVendorVerifyPin, authController.vendorVerifyPin);
 router.post('/vendors/update-pin', authenticate, authLimiter, validateVendorUpdatePin, authController.vendorUpdatePin);
+router.post('/vendors/send-email-otp', otpLimiter, validateSendEmailOtp, authController.sendVendorEmailOtp);
+router.post('/vendors/verify-email-otp', authLimiter, validateVerifyEmailOtp, authController.verifyVendorEmailOtp);
+router.post('/vendors/forgot-pin', authLimiter, validateForgotPin, authController.vendorForgotPin);
 
 // ======================== ADMIN ROUTES ========================
 router.post('/admins/signup', authLimiter, validateAdminSignup, authController.adminSignup);
@@ -77,9 +86,7 @@ router.post('/send-home-sms', authenticate, authController.sendHomeSMS);
 
 // ======================== BACKWARD COMPATIBILITY (deprecated) ========================
 // Old generic endpoints - map to user role for backward compatibility
-router.post('/verify-otp', authLimiter, validateOTP, authController.userVerifyOTP);
 router.post('/login', authLimiter, validateLogin, authController.userLogin);
-router.post('/send-otp', otpLimiter, authController.userSendOTP);
 router.post('/reset-pin', authLimiter, validateResetPIN, authController.userResetPIN);
 router.post('/logout', authController.userLogout);
 

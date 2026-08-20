@@ -356,6 +356,60 @@ const userUpdatePinSchema = Joi.object({
   }),
 });
 
+const sendEmailOtpSchema = Joi.object({
+  email: Joi.string()
+    .email()
+    .required()
+    .messages({
+      'string.email': 'Invalid email format',
+      'any.required': 'Email is required',
+    }),
+});
+
+const verifyEmailOtpSchema = Joi.object({
+  id: Joi.string()
+    .hex()
+    .length(24)
+    .required()
+    .messages({
+      'string.hex': 'Invalid OTP id',
+      'string.length': 'Invalid OTP id',
+      'any.required': 'OTP id is required',
+    }),
+  otp: Joi.string()
+    .pattern(/^\d+$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'OTP must contain only numbers',
+      'any.required': 'OTP is required',
+    }),
+});
+
+const forgotPinSchema = Joi.object({
+  id: Joi.string()
+    .hex()
+    .length(24)
+    .required()
+    .messages({
+      'string.hex': 'Invalid OTP id',
+      'string.length': 'Invalid OTP id',
+      'any.required': 'OTP id is required',
+    }),
+  newPin: Joi.string()
+    .length(4)
+    .pattern(/^\d+$/)
+    .required()
+    .messages({
+      'string.length': 'PIN must be exactly 4 digits',
+      'string.pattern.base': 'PIN must contain only numbers',
+      'any.required': 'New PIN is required',
+    }),
+  confirmPin: Joi.string().valid(Joi.ref('newPin')).required().messages({
+    'any.only': 'PINs do not match',
+    'any.required': 'Confirm PIN is required',
+  }),
+});
+
 const vendorVerifyContactSchema = Joi.object({
   email: Joi.string()
     .email()
@@ -398,6 +452,9 @@ module.exports = {
   validateVendorVerifyPin: validate(userVerifyPinSchema, 'body'),
   validateVendorUpdatePin: validate(userUpdatePinSchema, 'body'),
   validateVendorVerifyContact: validate(vendorVerifyContactSchema, 'body'),
+  validateSendEmailOtp: validate(sendEmailOtpSchema, 'body'),
+  validateVerifyEmailOtp: validate(verifyEmailOtpSchema, 'body'),
+  validateForgotPin: validate(forgotPinSchema, 'body'),
 };
 
 

@@ -25,6 +25,13 @@ const config = {
   OTP_EXPIRE_MINUTES: parseInt(process.env.OTP_EXPIRE_MINUTES, 10) || 10,
   OTP_BOOKING_EXPIRE_MINUTES: parseInt(process.env.OTP_BOOKING_EXPIRE_MINUTES, 10) || 1440, // 24 hours
 
+  // Email (Nodemailer / Gmail)
+  EMAIL_USER: process.env.EMAIL_USER,
+  EMAIL_PASSWORD: (process.env.EMAIL_PASSWORD || '').replace(/\s+/g, ''),
+  EMAIL_FROM: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+  SMTP_HOST: process.env.SMTP_HOST || 'smtp.gmail.com',
+  SMTP_PORT: parseInt(process.env.SMTP_PORT, 10) || 587,
+
   // SMS (SMS Country)
   SMS_COUNTRY_API_KEY: process.env.SMS_COUNTRY_API_KEY,
   SMS_COUNTRY_SENDER_ID: process.env.SMS_COUNTRY_SENDER_ID || 'ADBRVZ',
