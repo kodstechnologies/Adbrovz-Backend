@@ -29,10 +29,30 @@ const couponSchema = new mongoose.Schema(
                 ref: 'User',
             }
         ],
+        audienceType: {
+            type: String,
+            enum: ['user', 'vendor'],
+            default: 'user',
+        },
+        isForAllVendors: {
+            type: Boolean,
+            default: false,
+        },
+        applicableVendors: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'Vendor',
+            }
+        ],
         validityDays: {
             type: Number,
-            required: true,
             min: 1,
+        },
+        startDate: {
+            type: Date,
+        },
+        endDate: {
+            type: Date,
         },
         isActive: {
             type: Boolean,

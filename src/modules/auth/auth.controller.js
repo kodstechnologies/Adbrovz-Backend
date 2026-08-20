@@ -149,6 +149,18 @@ const vendorLogout = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, null, MESSAGES.AUTH.LOGOUT_SUCCESS));
 });
 
+const vendorVerifyPin = asyncHandler(async (req, res) => {
+  const { pin } = req.body;
+  const result = await authService.verifyVendorPin(req.user.id, pin);
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
+const vendorUpdatePin = asyncHandler(async (req, res) => {
+  const { oldPin, newPin, confirmPin } = req.body;
+  const result = await authService.updateVendorPin(req.user.id, oldPin, newPin, confirmPin);
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
 // ======================== ADMIN CONTROLLERS ========================
 
 const adminSignup = asyncHandler(async (req, res) => {
@@ -209,6 +221,8 @@ module.exports = {
   vendorSendOTP,
   vendorResetPIN,
   vendorLogout,
+  vendorVerifyPin,
+  vendorUpdatePin,
   // Admin
   adminSignup,
   adminLogin,

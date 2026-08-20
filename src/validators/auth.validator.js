@@ -377,6 +377,8 @@ module.exports = {
   validateCompleteResetPIN: validate(completeResetPINSchema, 'body'),
   validateUserVerifyPin: validate(userVerifyPinSchema, 'body'),
   validateUserUpdatePin: validate(userUpdatePinSchema, 'body'),
+  validateVendorVerifyPin: validate(userVerifyPinSchema, 'body'),
+  validateVendorUpdatePin: validate(userUpdatePinSchema, 'body'),
 };
 
 

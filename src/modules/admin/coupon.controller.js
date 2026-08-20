@@ -1,16 +1,50 @@
 const Coupon = require('../../models/Coupon.model');
 const User = require('../../models/User.model');
+const { getCouponWindow, getCouponStatusMessage, daysBetween, isAccountEligibleForCoupon } = require('../../utils/couponValidity');
 
 exports.createCoupon = async (req, res) => {
     try {
-        const { code, discountType, discountValue, isForAllUsers, applicableUsers, validityDays, isActive } = req.body;
+        const { code, discountType, discountValue, isForAllUsers, applicableUsers, audienceType, isForAllVendors, applicableVendors, validityDays, startDate, endDate, isActive } = req.body;
 
         // Validation
         if (!code) return res.status(400).json({ success: false, message: 'Coupon code is required' });
         if (!['amount', 'percent'].includes(discountType)) return res.status(400).json({ success: false, message: 'Invalid discount type' });
         if (discountValue == null || discountValue <= 0) return res.status(400).json({ success: false, message: 'Valid discount value is required' });
         if (discountType === 'percent' && discountValue > 100) return res.status(400).json({ success: false, message: 'Percentage cannot exceed 100' });
-        if (!validityDays || validityDays <= 0) return res.status(400).json({ success: false, message: 'Valid validity days is required' });
+
+        let resolvedStartDate;
+        let resolvedEndDate;
+        let resolvedValidityDays;
+
+        if (startDate && endDate) {
+            resolvedStartDate = new Date(startDate);
+            resolvedEndDate = new Date(endDate);
+            if (isNaN(resolvedStartDate.getTime()) || isNaN(resolvedEndDate.getTime())) {
+                return res.status(400).json({ success: false, message: 'Valid start and end dates are required' });
+            }
+            if (resolvedEndDate < resolvedStartDate) {
+                return res.status(400).json({ success: false, message: 'End date cannot be before start date' });
+            }
+            resolvedValidityDays = daysBetween(resolvedStartDate, resolvedEndDate);
+        } else if (validityDays && validityDays > 0) {
+            resolvedStartDate = new Date();
+            resolvedEndDate = new Date();
+            resolvedEndDate.setDate(resolvedEndDate.getDate() + Number(validityDays) - 1);
+            resolvedValidityDays = Number(validityDays);
+        } else {
+            return res.status(400).json({ success: false, message: 'Start date and end date are required' });
+        }
+
+        const resolvedAudienceType = audienceType === 'vendor' ? 'vendor' : 'user';
+        const forAllUsers = resolvedAudienceType === 'user' && (isForAllUsers !== undefined ? !!isForAllUsers : true);
+        const forAllVendors = resolvedAudienceType === 'vendor' && !!isForAllVendors;
+
+        if (resolvedAudienceType === 'user' && !forAllUsers && (!applicableUsers || applicableUsers.length === 0)) {
+            return res.status(400).json({ success: false, message: 'Select at least one user for this coupon' });
+        }
+        if (resolvedAudienceType === 'vendor' && !forAllVendors && (!applicableVendors || applicableVendors.length === 0)) {
+            return res.status(400).json({ success: false, message: 'Select at least one vendor for this coupon' });
+        }
 
         // Check if exists
         const existingCoupon = await Coupon.findOne({ code: code.toUpperCase() });
@@ -22,22 +56,38 @@ exports.createCoupon = async (req, res) => {
             code: code.toUpperCase(),
             discountType,
             discountValue,
-            isForAllUsers: isForAllUsers !== undefined ? isForAllUsers : true,
-            applicableUsers: isForAllUsers ? [] : applicableUsers || [],
-            validityDays,
+            isForAllUsers: forAllUsers,
+            applicableUsers: forAllUsers || resolvedAudienceType === 'vendor' ? [] : applicableUsers || [],
+            audienceType: resolvedAudienceType,
+            isForAllVendors: forAllVendors,
+            applicableVendors: forAllVendors || resolvedAudienceType === 'user' ? [] : applicableVendors || [],
+            validityDays: resolvedValidityDays,
+            startDate: resolvedStartDate,
+            endDate: resolvedEndDate,
             isActive: isActive !== undefined ? isActive : true,
             createdBy: req.user.id
         });
 
         await coupon.save();
 
-        // Notify applicable users if not for all users
-        if (!isForAllUsers && applicableUsers && applicableUsers.length > 0) {
-            const { sendPush } = require('../../utils/pushNotification');
+        const { sendPush } = require('../../utils/pushNotification');
+        if (resolvedAudienceType === 'user' && !forAllUsers && applicableUsers && applicableUsers.length > 0) {
             applicableUsers.forEach(userId => {
                 sendPush(
                     userId,
                     'User',
+                    'new_coupon',
+                    'Special Coupon for You!',
+                    `You've received a special coupon: ${code.toUpperCase()}. Use it now!`,
+                    { code: code.toUpperCase(), discountType, discountValue }
+                );
+            });
+        }
+        if (resolvedAudienceType === 'vendor' && !forAllVendors && applicableVendors && applicableVendors.length > 0) {
+            applicableVendors.forEach(vendorId => {
+                sendPush(
+                    vendorId,
+                    'Vendor',
                     'new_coupon',
                     'Special Coupon for You!',
                     `You've received a special coupon: ${code.toUpperCase()}. Use it now!`,
@@ -55,7 +105,10 @@ exports.createCoupon = async (req, res) => {
 
 exports.getCoupons = async (req, res) => {
     try {
-        const coupons = await Coupon.find().populate('applicableUsers', 'name email phoneNumber').sort({ createdAt: -1 });
+        const coupons = await Coupon.find()
+            .populate('applicableUsers', 'name email phoneNumber')
+            .populate('applicableVendors', 'name email phoneNumber')
+            .sort({ createdAt: -1 });
         res.status(200).json({ success: true, data: coupons });
     } catch (error) {
         console.error('Error in getCoupons:', error);
@@ -95,23 +148,15 @@ exports.verifyCoupon = async (req, res) => {
         }
 
         const now = new Date();
-        const validityEnd = new Date(coupon.createdAt);
-        validityEnd.setDate(validityEnd.getDate() + coupon.validityDays);
-
-        if (now > validityEnd) {
-            return res.status(200).json({ success: true, valid: false, message: 'Coupon has expired' });
+        const statusMessage = getCouponStatusMessage(coupon, now);
+        if (statusMessage) {
+            return res.status(200).json({ success: true, valid: false, message: statusMessage });
         }
 
-        if (coupon.isForAllUsers) {
-            const user = await User.findById(userId);
-            if (user && user.createdAt > coupon.createdAt) {
-                return res.status(200).json({ success: true, valid: false, message: 'This coupon is only for users who joined before ' + new Date(coupon.createdAt).toLocaleDateString() });
-            }
-        } else {
-            const isApplicable = (coupon.applicableUsers || []).some((u) => u.toString() === userId.toString());
-            if (!isApplicable) {
-                return res.status(200).json({ success: true, valid: false, message: 'This coupon is not applicable for you. You do not have access to this coupon.' });
-            }
+        const requesterId = userId || req.user?.id || req.user?.userId;
+        const requesterRole = req.user?.role || 'user';
+        if (!isAccountEligibleForCoupon(coupon, requesterId, requesterRole)) {
+            return res.status(200).json({ success: true, valid: false, message: 'This coupon is not applicable for you. You do not have access to this coupon.' });
         }
 
         res.status(200).json({
@@ -157,23 +202,15 @@ exports.applyCoupon = async (req, res) => {
         }
 
         const now = new Date();
-        const validityEnd = new Date(coupon.createdAt);
-        validityEnd.setDate(validityEnd.getDate() + coupon.validityDays);
-
-        if (now > validityEnd) {
-            return res.status(400).json({ success: false, message: 'Coupon has expired' });
+        const statusMessage = getCouponStatusMessage(coupon, now);
+        if (statusMessage) {
+            return res.status(400).json({ success: false, message: statusMessage });
         }
 
-        if (coupon.isForAllUsers) {
-            const user = await User.findById(userId);
-            if (user && user.createdAt > coupon.createdAt) {
-                return res.status(400).json({ success: false, message: 'This coupon is only for users who joined before ' + new Date(coupon.createdAt).toLocaleDateString() });
-            }
-        } else {
-            const isApplicable = (coupon.applicableUsers || []).some((u) => u.toString() === userId.toString());
-            if (!isApplicable) {
-                return res.status(400).json({ success: false, message: 'This coupon is not applicable for you. You do not have access to this coupon.' });
-            }
+        const requesterId = userId || req.user?.id || req.user?.userId;
+        const requesterRole = req.user?.role || 'user';
+        if (!isAccountEligibleForCoupon(coupon, requesterId, requesterRole)) {
+            return res.status(400).json({ success: false, message: 'This coupon is not applicable for you. You do not have access to this coupon.' });
         }
 
         let discount = 0;
@@ -208,35 +245,33 @@ exports.applyCoupon = async (req, res) => {
 exports.getMyCoupons = async (req, res) => {
     try {
         const userId = req.user.userId || req.user._id || req.user.id;
+        const role = req.user.role || 'user';
         const now = new Date();
 
         // Fetch all active coupons
         const allCoupons = await Coupon.find({ isActive: true });
 
         const availableCoupons = allCoupons.filter((coupon) => {
-            // Check expiry
-            const validityEnd = new Date(coupon.createdAt);
-            validityEnd.setDate(validityEnd.getDate() + coupon.validityDays);
-            if (now > validityEnd) return false;
-
-            // Check user applicability
-            if (coupon.isForAllUsers) return true;
-            return (coupon.applicableUsers || []).some((u) => u.toString() === userId.toString());
+            if (getCouponStatusMessage(coupon, now)) return false;
+            return isAccountEligibleForCoupon(coupon, userId, role);
         });
 
-        const result = availableCoupons.map((coupon) => ({
-            id: coupon._id,
-            code: coupon.code,
-            discountType: coupon.discountType,
-            discountValue: coupon.discountValue,
-            isForAllUsers: coupon.isForAllUsers,
-            validityDays: coupon.validityDays,
-            expiresAt: (() => {
-                const d = new Date(coupon.createdAt);
-                d.setDate(d.getDate() + coupon.validityDays);
-                return d;
-            })(),
-        }));
+        const result = availableCoupons.map((coupon) => {
+            const { start, end } = getCouponWindow(coupon);
+            return {
+                id: coupon._id,
+                code: coupon.code,
+                discountType: coupon.discountType,
+                discountValue: coupon.discountValue,
+                isForAllUsers: coupon.isForAllUsers,
+                audienceType: coupon.audienceType || 'user',
+                isForAllVendors: coupon.isForAllVendors,
+                validityDays: coupon.validityDays,
+                startDate: start,
+                endDate: end,
+                expiresAt: end,
+            };
+        });
 
         res.status(200).json({ success: true, message: 'Coupons retrieved successfully', data: result });
     } catch (error) {
