@@ -356,6 +356,23 @@ const userUpdatePinSchema = Joi.object({
   }),
 });
 
+const vendorVerifyContactSchema = Joi.object({
+  email: Joi.string()
+    .email()
+    .required()
+    .messages({
+      'string.email': 'Invalid email format',
+      'any.required': 'Email is required',
+    }),
+  phoneNumber: Joi.string()
+    .pattern(phonePattern)
+    .required()
+    .messages({
+      'string.pattern.base': 'Invalid phone number format.',
+      'any.required': 'Phone number is required',
+    }),
+});
+
 
 // Export validation middlewares
 module.exports = {
@@ -377,8 +394,10 @@ module.exports = {
   validateCompleteResetPIN: validate(completeResetPINSchema, 'body'),
   validateUserVerifyPin: validate(userVerifyPinSchema, 'body'),
   validateUserUpdatePin: validate(userUpdatePinSchema, 'body'),
+  validateUserVerifyContact: validate(vendorVerifyContactSchema, 'body'),
   validateVendorVerifyPin: validate(userVerifyPinSchema, 'body'),
   validateVendorUpdatePin: validate(userUpdatePinSchema, 'body'),
+  validateVendorVerifyContact: validate(vendorVerifyContactSchema, 'body'),
 };
 
 

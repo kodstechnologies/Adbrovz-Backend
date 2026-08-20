@@ -93,6 +93,12 @@ const userUpdatePin = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
+const userVerifyContact = asyncHandler(async (req, res) => {
+  const { email, phoneNumber } = req.body;
+  const result = await authService.verifyUserContact(email, phoneNumber, req.user.id);
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
 
 
 
@@ -161,6 +167,12 @@ const vendorUpdatePin = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
+const vendorVerifyContact = asyncHandler(async (req, res) => {
+  const { email, phoneNumber } = req.body;
+  const result = await authService.verifyVendorContact(email, phoneNumber, req.user.id);
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
 // ======================== ADMIN CONTROLLERS ========================
 
 const adminSignup = asyncHandler(async (req, res) => {
@@ -212,6 +224,7 @@ module.exports = {
   userLogout,
   userVerifyPin,
   userUpdatePin,
+  userVerifyContact,
   // Vendor
   vendorSignup,
   vendorCompleteSignup,
@@ -223,6 +236,7 @@ module.exports = {
   vendorLogout,
   vendorVerifyPin,
   vendorUpdatePin,
+  vendorVerifyContact,
   // Admin
   adminSignup,
   adminLogin,

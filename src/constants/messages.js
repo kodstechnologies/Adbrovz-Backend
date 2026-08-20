@@ -23,6 +23,10 @@ const MESSAGES = {
     UPDATED: 'User updated successfully',
     DELETED: 'User account deleted successfully',
     PROFILE_UPDATED: 'Profile updated successfully',
+    PHONE_ALREADY_EXISTS: 'This phone number is already registered. Please use a different number.',
+    EMAIL_ALREADY_EXISTS: 'This email is already registered. Please use a different email.',
+    CONTACT_ALREADY_EXISTS: 'This phone number and email are already registered. Please use a different phone number and email.',
+    CONTACT_AVAILABLE: 'Phone number and email are available',
   },
 
   // Vendor
@@ -32,6 +36,12 @@ const MESSAGES = {
     CREATED: 'Vendor created successfully',
     PENDING_VERIFICATION: 'Vendor account pending verification',
     VERIFIED: 'Vendor verified successfully',
+    PHONE_AVAILABLE: 'Phone number is available',
+    EMAIL_AVAILABLE: 'Email is available',
+    PHONE_ALREADY_EXISTS: 'This phone number is already registered. Please use a different number.',
+    EMAIL_ALREADY_EXISTS: 'This email is already registered. Please use a different email.',
+    CONTACT_ALREADY_EXISTS: 'This phone number and email are already registered. Please use a different phone number and email.',
+    CONTACT_AVAILABLE: 'Phone number and email are available',
     SUSPENDED: 'Vendor suspended',
     BLOCKED: 'Vendor blocked',
     MEMBERSHIP_EXPIRED: 'Vendor membership expired',

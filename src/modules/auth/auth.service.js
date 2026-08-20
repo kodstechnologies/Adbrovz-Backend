@@ -1141,6 +1141,56 @@ const updateVendorPin = async (vendorId, oldPin, newPin, confirmPin) => {
   return { message: 'PIN updated successfully' };
 };
 
+const verifyVendorContact = async (email, phoneNumber, currentVendorId) => {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const phoneTaken = await Vendor.exists({
+    phoneNumber,
+    _id: { $ne: currentVendorId },
+  }) || await User.exists({ phoneNumber });
+
+  const emailTaken = await Vendor.exists({
+    email: normalizedEmail,
+    _id: { $ne: currentVendorId },
+  }) || await User.exists({ email: normalizedEmail });
+
+  if (phoneTaken && emailTaken) {
+    throw new ApiError(400, MESSAGES.VENDOR.CONTACT_ALREADY_EXISTS);
+  }
+  if (phoneTaken) {
+    throw new ApiError(400, MESSAGES.VENDOR.PHONE_ALREADY_EXISTS);
+  }
+  if (emailTaken) {
+    throw new ApiError(400, MESSAGES.VENDOR.EMAIL_ALREADY_EXISTS);
+  }
+
+  return { available: true, message: MESSAGES.VENDOR.CONTACT_AVAILABLE };
+};
+
+const verifyUserContact = async (email, phoneNumber, currentUserId) => {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const phoneTaken = await User.exists({
+    phoneNumber,
+    _id: { $ne: currentUserId },
+  }) || await Vendor.exists({ phoneNumber });
+
+  const emailTaken = await User.exists({
+    email: normalizedEmail,
+    _id: { $ne: currentUserId },
+  }) || await Vendor.exists({ email: normalizedEmail });
+
+  if (phoneTaken && emailTaken) {
+    throw new ApiError(400, MESSAGES.USER.CONTACT_ALREADY_EXISTS);
+  }
+  if (phoneTaken) {
+    throw new ApiError(400, MESSAGES.USER.PHONE_ALREADY_EXISTS);
+  }
+  if (emailTaken) {
+    throw new ApiError(400, MESSAGES.USER.EMAIL_ALREADY_EXISTS);
+  }
+
+  return { available: true, message: MESSAGES.USER.CONTACT_AVAILABLE };
+};
+
 // ======================== REFRESH TOKEN ========================
 const refreshToken = async (refreshToken) => {
   const { verifyRefreshToken } = require('../../utils/jwt');
@@ -1223,5 +1273,7 @@ module.exports = {
   updateUserPin,
   verifyVendorPin,
   updateVendorPin,
+  verifyVendorContact,
+  verifyUserContact,
 };
 
