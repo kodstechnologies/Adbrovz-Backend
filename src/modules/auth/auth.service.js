@@ -1075,6 +1075,52 @@ const completeResetPIN = async ({ resetId, newPin, confirmPin, acceptedPolicies 
   return { message: 'PIN reset successfully' };
 };
 
+// pin =================================
+
+const verifyUserPin = async (userId, pin) => {
+  const user = await User.findById(userId).select('+pin');
+  if (!user) {
+    throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
+  }
+  const isMatch = await comparePIN(pin, user.pin);
+  if (!isMatch) {
+    throw new ApiError(401, 'Invalid PIN');
+  }
+  return { message: 'PIN verified successfully' };
+};
+
+const updateUserPin = async (userId, oldPin, newPin, confirmPin) => {
+  if (confirmPin && newPin !== confirmPin) {
+    throw new ApiError(400, MESSAGES.AUTH.PIN_MISMATCH);
+  }
+
+  const user = await User.findById(userId).select('+pin');
+  if (!user) {
+    throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
+  }
+
+  const isMatch = await comparePIN(oldPin, user.pin);
+  if (!isMatch) {
+    throw new ApiError(401, 'Invalid PIN');
+  }
+
+  user.pin = await hashPIN(newPin);
+  await user.save();
+  return { message: 'PIN updated successfully' };
+};
+
+const verifyVendorPin = async (vendorId, pin) => {
+  const vendor = await Vendor.findById(vendorId).select('+pin');
+  if (!vendor) {
+    throw new ApiError(404, MESSAGES.VENDOR.NOT_FOUND);
+  }
+  const isMatch = await comparePIN(pin, vendor.pin);
+  if (!isMatch) {
+    throw new ApiError(401, 'Invalid PIN');
+  }
+  return { message: 'PIN verified successfully' };
+};
+
 // ======================== REFRESH TOKEN ========================
 const refreshToken = async (refreshToken) => {
   const { verifyRefreshToken } = require('../../utils/jwt');
@@ -1153,5 +1199,7 @@ module.exports = {
   verifyResetPINOTP,
   completeResetPIN,
   sendPostLoginSMS,
+  verifyUserPin,
+  updateUserPin,
 };
 

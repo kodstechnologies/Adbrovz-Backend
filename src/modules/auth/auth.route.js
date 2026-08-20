@@ -18,6 +18,8 @@ const {
   validateResetPIN,
   validateVerifyResetOTP,
   validateCompleteResetPIN,
+  validateUserVerifyPin,
+  validateUserUpdatePin
 } = require('../../validators/auth.validator');
 const { authLimiter, otpLimiter } = require('../../middlewares/rateLimiter.middleware');
 const { authenticate, authorize } = require('../../middlewares/auth.middleware');
@@ -37,6 +39,10 @@ router.post('/users/verify-reset-otp', authLimiter, validateVerifyResetOTP, auth
 router.post('/users/complete-reset-pin', authLimiter, validateCompleteResetPIN, authController.userCompleteResetPIN);
 router.post('/users/reset-pin', authLimiter, validateResetPIN, authController.userResetPIN);
 router.post('/users/logout', authenticate, authController.userLogout);
+
+// new ****
+router.post('/users/verify-pin', authenticate, authLimiter, validateUserVerifyPin, authController.userVerifyPin);
+router.post('/users/update-pin', authenticate, authLimiter, validateUserUpdatePin, authController.userUpdatePin);
 
 // ======================== VENDOR ROUTES ========================
 router.post('/vendors/signup', authLimiter, uploadVendorDocs, processVendorDocs, validateVendorSignup, authController.vendorSignup);

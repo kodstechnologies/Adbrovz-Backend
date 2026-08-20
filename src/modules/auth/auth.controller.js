@@ -79,6 +79,23 @@ const userLogout = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, null, MESSAGES.AUTH.LOGOUT_SUCCESS));
 });
 
+// ******
+
+const userVerifyPin = asyncHandler(async (req, res) => {
+  const { pin } = req.body;
+  const result = await authService.verifyUserPin(req.user.id, pin);
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
+const userUpdatePin = asyncHandler(async (req, res) => {
+  const { oldPin, newPin, confirmPin } = req.body;
+  const result = await authService.updateUserPin(req.user.id, oldPin, newPin, confirmPin);
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
+
+
+
 // ======================== VENDOR CONTROLLERS ========================
 
 const vendorSignup = asyncHandler(async (req, res) => {
@@ -181,6 +198,8 @@ module.exports = {
   userCompleteResetPIN,
   userResetPIN,
   userLogout,
+  userVerifyPin,
+  userUpdatePin,
   // Vendor
   vendorSignup,
   vendorCompleteSignup,

@@ -319,6 +319,44 @@ const completeResetPINSchema = Joi.object({
   acceptedPolicies: Joi.boolean().optional(),
 });
 
+const userVerifyPinSchema = Joi.object({
+  pin: Joi.string()
+    .length(4)
+    .pattern(/^\d+$/)
+    .required()
+    .messages({
+      'string.length': 'PIN must be exactly 4 digits',
+      'string.pattern.base': 'PIN must contain only numbers',
+      'any.required': 'PIN is required',
+    }),
+});
+
+const userUpdatePinSchema = Joi.object({
+  oldPin: Joi.string()
+    .length(4)
+    .pattern(/^\d+$/)
+    .required()
+    .messages({
+      'string.length': 'Current PIN must be exactly 4 digits',
+      'string.pattern.base': 'Current PIN must contain only numbers',
+      'any.required': 'Current PIN is required',
+    }),
+  newPin: Joi.string()
+    .length(4)
+    .pattern(/^\d+$/)
+    .required()
+    .messages({
+      'string.length': 'New PIN must be exactly 4 digits',
+      'string.pattern.base': 'New PIN must contain only numbers',
+      'any.required': 'New PIN is required',
+    }),
+  confirmPin: Joi.string().valid(Joi.ref('newPin')).required().messages({
+    'any.only': 'PINs do not match',
+    'any.required': 'Confirm PIN is required',
+  }),
+});
+
+
 // Export validation middlewares
 module.exports = {
   validateUserSignup: validate(signupSchema, 'body'),
@@ -337,4 +375,8 @@ module.exports = {
   validateResetPIN: validate(resetPinSchema, 'body'),
   validateVerifyResetOTP: validate(verifyResetOTPSchema, 'body'),
   validateCompleteResetPIN: validate(completeResetPINSchema, 'body'),
+  validateUserVerifyPin: validate(userVerifyPinSchema, 'body'),
+  validateUserUpdatePin: validate(userUpdatePinSchema, 'body'),
 };
+
+
