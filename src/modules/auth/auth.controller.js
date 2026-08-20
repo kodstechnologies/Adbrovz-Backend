@@ -95,7 +95,7 @@ const userUpdatePin = asyncHandler(async (req, res) => {
 
 const userVerifyContact = asyncHandler(async (req, res) => {
   const { email, phoneNumber } = req.body;
-  const result = await authService.verifyUserContact(email, phoneNumber, req.user.id);
+  const result = await authService.verifyUserContact(email, phoneNumber);
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
@@ -169,7 +169,7 @@ const vendorUpdatePin = asyncHandler(async (req, res) => {
 
 const vendorVerifyContact = asyncHandler(async (req, res) => {
   const { email, phoneNumber } = req.body;
-  const result = await authService.verifyVendorContact(email, phoneNumber, req.user.id);
+  const result = await authService.verifyVendorContact(email, phoneNumber);
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 

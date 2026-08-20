@@ -44,7 +44,7 @@ router.post('/users/complete-reset-pin', authLimiter, validateCompleteResetPIN, 
 router.post('/users/reset-pin', authLimiter, validateResetPIN, authController.userResetPIN);
 router.post('/users/logout', authenticate, authController.userLogout);
 
-router.post('/users/verify-contact', authenticate, authLimiter, validateUserVerifyContact, authController.userVerifyContact);
+router.post('/users/verify-contact', authLimiter, validateUserVerifyContact, authController.userVerifyContact);
 
 // new ****
 router.post('/users/verify-pin', authenticate, authLimiter, validateUserVerifyPin, authController.userVerifyPin);
@@ -60,7 +60,7 @@ router.post('/vendors/send-otp', otpLimiter, authController.vendorSendOTP);
 router.post('/vendors/reset-pin', authLimiter, validateResetPIN, authController.vendorResetPIN);
 router.post('/vendors/logout', authenticate, authController.vendorLogout);
 
-router.post('/vendors/verify-contact', authenticate, authLimiter, validateVendorVerifyContact, authController.vendorVerifyContact);
+router.post('/vendors/verify-contact', authLimiter, validateVendorVerifyContact, authController.vendorVerifyContact);
 
 router.post('/vendors/verify-pin', authenticate, authLimiter, validateVendorVerifyPin, authController.vendorVerifyPin);
 router.post('/vendors/update-pin', authenticate, authLimiter, validateVendorUpdatePin, authController.vendorUpdatePin);
