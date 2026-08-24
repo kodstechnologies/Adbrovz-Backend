@@ -25,8 +25,8 @@ const {
   validateVendorVerifyPin,
   validateVendorUpdatePin,
   validateVendorVerifyContact,
-  validateSendEmailOtp,
-  validateVerifyEmailOtp,
+  validateSendPhoneOtp,
+  validateVerifyPhoneOtp,
   validateForgotPin
 } = require('../../validators/auth.validator');
 const { authLimiter, otpLimiter } = require('../../middlewares/rateLimiter.middleware');
@@ -53,8 +53,8 @@ router.post('/users/verify-contact', authLimiter, validateUserVerifyContact, aut
 // new ****
 router.post('/users/verify-pin', authenticate, authLimiter, validateUserVerifyPin, authController.userVerifyPin);
 router.post('/users/update-pin', authenticate, authLimiter, validateUserUpdatePin, authController.userUpdatePin);
-router.post('/users/send-email-otp', otpLimiter, validateSendEmailOtp, authController.sendUserEmailOtp);
-router.post('/users/verify-email-otp', authLimiter, validateVerifyEmailOtp, authController.verifyUserEmailOtp);
+router.post('/users/send-phone-otp', otpLimiter, validateSendPhoneOtp, authController.sendUserPhoneOtp);
+router.post('/users/verify-phone-otp', authLimiter, validateVerifyPhoneOtp, authController.verifyUserPhoneOtp);
 router.post('/users/forgot-pin', authLimiter, validateForgotPin, authController.userForgotPin);
 
 // ======================== VENDOR ROUTES ========================
@@ -71,8 +71,8 @@ router.post('/vendors/verify-contact', authLimiter, validateVendorVerifyContact,
 
 router.post('/vendors/verify-pin', authenticate, authLimiter, validateVendorVerifyPin, authController.vendorVerifyPin);
 router.post('/vendors/update-pin', authenticate, authLimiter, validateVendorUpdatePin, authController.vendorUpdatePin);
-router.post('/vendors/send-email-otp', otpLimiter, validateSendEmailOtp, authController.sendVendorEmailOtp);
-router.post('/vendors/verify-email-otp', authLimiter, validateVerifyEmailOtp, authController.verifyVendorEmailOtp);
+router.post('/vendors/send-phone-otp', otpLimiter, validateSendPhoneOtp, authController.sendVendorPhoneOtp);
+router.post('/vendors/verify-phone-otp', authLimiter, validateVerifyPhoneOtp, authController.verifyVendorPhoneOtp);
 router.post('/vendors/forgot-pin', authLimiter, validateForgotPin, authController.vendorForgotPin);
 
 // ======================== ADMIN ROUTES ========================

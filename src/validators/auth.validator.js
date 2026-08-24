@@ -370,17 +370,17 @@ const userUpdatePinSchema = Joi.object({
   }),
 });
 
-const sendEmailOtpSchema = Joi.object({
-  email: Joi.string()
-    .email()
+const sendPhoneOtpSchema = Joi.object({
+  phoneNumber: Joi.string()
+    .pattern(phonePattern)
     .required()
     .messages({
-      'string.email': 'Invalid email format',
-      'any.required': 'Email is required',
+      'string.pattern.base': 'Invalid phone number format.',
+      'any.required': 'Phone number is required',
     }),
 });
 
-const verifyEmailOtpSchema = Joi.object({
+const verifyPhoneOtpSchema = Joi.object({
   id: Joi.string()
     .hex()
     .length(24)
@@ -467,8 +467,8 @@ module.exports = {
   validateVendorVerifyPin: validate(userVerifyPinSchema, 'body'),
   validateVendorUpdatePin: validate(userUpdatePinSchema, 'body'),
   validateVendorVerifyContact: validate(vendorVerifyContactSchema, 'body'),
-  validateSendEmailOtp: validate(sendEmailOtpSchema, 'body'),
-  validateVerifyEmailOtp: validate(verifyEmailOtpSchema, 'body'),
+  validateSendPhoneOtp: validate(sendPhoneOtpSchema, 'body'),
+  validateVerifyPhoneOtp: validate(verifyPhoneOtpSchema, 'body'),
   validateForgotPin: validate(forgotPinSchema, 'body'),
 };
 

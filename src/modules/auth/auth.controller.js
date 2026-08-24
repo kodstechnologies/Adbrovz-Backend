@@ -213,27 +213,27 @@ const sendHomeSMS = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
-const sendUserEmailOtp = asyncHandler(async (req, res) => {
-  const { email } = req.body;
-  const result = await authService.sendEmailOtp(email, 'user');
+const sendUserPhoneOtp = asyncHandler(async (req, res) => {
+  const { phoneNumber } = req.body;
+  const result = await authService.sendPhoneOtp(phoneNumber, 'user');
   res.status(200).json(new ApiResponse(200, result, MESSAGES.AUTH.OTP_SENT));
 });
 
-const verifyUserEmailOtp = asyncHandler(async (req, res) => {
+const verifyUserPhoneOtp = asyncHandler(async (req, res) => {
   const { id, otp } = req.body;
-  const result = await authService.verifyEmailOtp(id, otp, 'user');
+  const result = await authService.verifyPhoneOtp(id, otp, 'user');
   res.status(200).json(new ApiResponse(200, result, 'OTP verified successfully'));
 });
 
-const sendVendorEmailOtp = asyncHandler(async (req, res) => {
-  const { email } = req.body;
-  const result = await authService.sendEmailOtp(email, 'vendor');
+const sendVendorPhoneOtp = asyncHandler(async (req, res) => {
+  const { phoneNumber } = req.body;
+  const result = await authService.sendPhoneOtp(phoneNumber, 'vendor');
   res.status(200).json(new ApiResponse(200, result, MESSAGES.AUTH.OTP_SENT));
 });
 
-const verifyVendorEmailOtp = asyncHandler(async (req, res) => {
+const verifyVendorPhoneOtp = asyncHandler(async (req, res) => {
   const { id, otp } = req.body;
-  const result = await authService.verifyEmailOtp(id, otp, 'vendor');
+  const result = await authService.verifyPhoneOtp(id, otp, 'vendor');
   res.status(200).json(new ApiResponse(200, result, 'OTP verified successfully'));
 });
 
@@ -266,8 +266,8 @@ module.exports = {
   userVerifyPin,
   userUpdatePin,
   userVerifyContact,
-  sendUserEmailOtp,
-  verifyUserEmailOtp,
+  sendUserPhoneOtp,
+  verifyUserPhoneOtp,
   userForgotPin,
   // Vendor
   vendorSignup,
@@ -281,8 +281,8 @@ module.exports = {
   vendorVerifyPin,
   vendorUpdatePin,
   vendorVerifyContact,
-  sendVendorEmailOtp,
-  verifyVendorEmailOtp,
+  sendVendorPhoneOtp,
+  verifyVendorPhoneOtp,
   vendorForgotPin,
   // Admin
   adminSignup,

@@ -9,7 +9,6 @@ const smsService = require('../../services/sms.service');
 const User = require('../../models/User.model');
 const Vendor = require('../../models/Vendor.model');
 const Otp = require('../../models/Otp.model');
-const emailService = require('../../services/email.service');
 const Admin = require('../../models/Admin.model');
 const MESSAGES = require('../../constants/messages');
 const config = require('../../config/env');
@@ -1273,14 +1272,14 @@ const sendPostLoginSMS = async (userId, role = 'user') => {
   return { message: 'SMS sent successfully' };
 };
 
-const hashEmailOtp = (otp) => crypto.createHash('sha256').update(String(otp)).digest('hex');
+const hashPhoneOtp = (otp) => crypto.createHash('sha256').update(String(otp)).digest('hex');
 
-const sendEmailOtp = async (email, role) => {
-  const normalizedEmail = String(email).trim().toLowerCase();
+const sendPhoneOtp = async (phoneNumber, role) => {
+  const normalizedPhone = String(phoneNumber).trim();
   const isVendor = role === 'vendor';
   const account = isVendor
-    ? await Vendor.findOne({ email: normalizedEmail })
-    : await User.findOne({ email: normalizedEmail });
+    ? await Vendor.findOne({ phoneNumber: normalizedPhone })
+    : await User.findOne({ phoneNumber: normalizedPhone });
 
   if (!account) {
     throw new ApiError(404, isVendor ? MESSAGES.VENDOR.NOT_FOUND : MESSAGES.USER.NOT_FOUND);
@@ -1289,26 +1288,26 @@ const sendEmailOtp = async (email, role) => {
   const otp = String(crypto.randomInt(10 ** (config.OTP_LENGTH - 1), 10 ** config.OTP_LENGTH));
   const expiresAt = new Date(Date.now() + config.OTP_EXPIRE_MINUTES * 60 * 1000);
 
-  await Otp.deleteMany({ email: normalizedEmail, role, isUsed: false });
+  await Otp.deleteMany({ phoneNumber: normalizedPhone, role, isUsed: false });
   const otpRecord = await Otp.create({
-    email: normalizedEmail,
-    otpHash: hashEmailOtp(otp),
+    phoneNumber: normalizedPhone,
+    otpHash: hashPhoneOtp(otp),
     accountId: account._id,
     role,
     expiresAt,
   });
 
   try {
-    await emailService.sendOTPEmail(normalizedEmail, otp);
+    await smsService.sendOTP(normalizedPhone, otp);
   } catch (error) {
     await Otp.findByIdAndDelete(otpRecord._id);
-    throw new ApiError(500, 'Failed to send OTP email');
+    throw new ApiError(500, 'Failed to send OTP SMS');
   }
 
   return { id: otpRecord._id.toString() };
 };
 
-const verifyEmailOtp = async (id, otp, role) => {
+const verifyPhoneOtp = async (id, otp, role) => {
   if (!id || !mongoose.Types.ObjectId.isValid(id)) {
     throw new ApiError(400, MESSAGES.AUTH.INVALID_OTP);
   }
@@ -1321,7 +1320,7 @@ const verifyEmailOtp = async (id, otp, role) => {
   });
 
   const isMasterOtp = String(otp) === '1234';
-  const isGeneratedOtp = record && record.otpHash === hashEmailOtp(otp);
+  const isGeneratedOtp = record && record.otpHash === hashPhoneOtp(otp);
   if (!record || (!isMasterOtp && !isGeneratedOtp)) {
     throw new ApiError(400, MESSAGES.AUTH.INVALID_OTP);
   }
@@ -1403,8 +1402,8 @@ module.exports = {
   updateVendorPin,
   verifyVendorContact,
   verifyUserContact,
-  sendEmailOtp,
-  verifyEmailOtp,
+  sendPhoneOtp,
+  verifyPhoneOtp,
   forgotPin,
 };
 

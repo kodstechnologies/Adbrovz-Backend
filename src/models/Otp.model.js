@@ -3,10 +3,9 @@ const { ROLES } = require('../constants/roles');
 
 const otpSchema = new mongoose.Schema(
   {
-    email: {
+    phoneNumber: {
       type: String,
       required: true,
-      lowercase: true,
       trim: true,
       index: true,
     },
@@ -43,7 +42,7 @@ const otpSchema = new mongoose.Schema(
 );
 
 otpSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-otpSchema.index({ email: 1, role: 1, isUsed: 1 });
+otpSchema.index({ phoneNumber: 1, role: 1, isUsed: 1 });
 
 const Otp = mongoose.model('Otp', otpSchema);
 
