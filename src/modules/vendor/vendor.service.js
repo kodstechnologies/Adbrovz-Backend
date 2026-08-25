@@ -325,6 +325,23 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, membershi
     const subcategoryById = new Map(items.subcategories.map(subcategory => [subcategory._id.toString(), subcategory]));
     const serviceTypeById = new Map(items.serviceTypes.map(serviceType => [serviceType._id.toString(), serviceType]));
 
+    const resolveRefId = (ref) => {
+        if (ref == null) return null;
+        if (typeof ref === 'string' || typeof ref === 'number') {
+            const id = String(ref).trim();
+            return id || null;
+        }
+        if (typeof ref === 'object') {
+            if (ref._id != null) return resolveRefId(ref._id);
+            if (ref.$oid) return String(ref.$oid).trim() || null;
+            if (typeof ref.toString === 'function') {
+                const asString = ref.toString();
+                if (asString && asString !== '[object Object]') return asString;
+            }
+        }
+        return null;
+    };
+
     // Legacy serviceCharge fields are still returned for breakdown/debugging,
     // but the registration summary uses the base plan fee plus membership charges.
     let platformSubtotal = 0;
@@ -374,47 +391,152 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, membershi
                 id: c._id,
                 title: c.name,
                 type: 'category',
+                categoryId: resolveRefId(c._id),
+                categoryName: c.name,
                 serviceCharge: toNumber(c.serviceCharge),
                 ownServiceCharge: toNumber(c.serviceCharge),
                 membershipCharge: _getMembershipCharge(c, 'category')
             })),
-            ...items.subcategories.map(s => ({
-                id: s._id,
-                title: s.name,
-                type: 'subcategory',
-                serviceCharge: sumHierarchyServiceCharge({
-                    category: categoryById.get(s.category?.toString()),
-                    subcategory: s
-                }),
-                ownServiceCharge: toNumber(s.serviceCharge),
-                membershipCharge: _getMembershipCharge(s, 'subcategory')
-            })),
-            ...items.serviceTypes.map(t => ({
-                id: t._id,
-                title: t.name,
-                type: 'serviceType',
-                serviceCharge: sumHierarchyServiceCharge({
-                    category: categoryById.get(t.category?.toString()),
-                    subcategory: subcategoryById.get(t.subcategory?.toString()),
-                    serviceType: t
-                }),
-                ownServiceCharge: toNumber(t.serviceCharge),
-                membershipCharge: _getMembershipCharge(t, 'serviceType')
-            })),
-            ...items.services.map(s => ({
-                id: s._id,
-                title: s.title,
-                type: 'service',
-                serviceCharge: sumHierarchyServiceCharge({
-                    category: categoryById.get(s.category?.toString()),
-                    subcategory: subcategoryById.get(s.subcategory?.toString()),
-                    serviceType: serviceTypeById.get(s.serviceType?.toString()),
-                    service: s
-                }),
-                ownServiceCharge: toNumber(s.serviceCharge),
-                membershipCharge: _getMembershipCharge(s, 'service')
-            }))
+            ...items.subcategories.map(s => {
+                const catId = resolveRefId(s.category);
+                return {
+                    id: s._id,
+                    title: s.name,
+                    type: 'subcategory',
+                    categoryId: catId,
+                    categoryName: categoryById.get(catId)?.name || (s.category && s.category.name) || null,
+                    serviceCharge: sumHierarchyServiceCharge({
+                        category: categoryById.get(catId),
+                        subcategory: s
+                    }),
+                    ownServiceCharge: toNumber(s.serviceCharge),
+                    membershipCharge: _getMembershipCharge(s, 'subcategory')
+                };
+            }),
+            ...items.serviceTypes.map(t => {
+                const catId = resolveRefId(t.category);
+                const subId = resolveRefId(t.subcategory);
+                return {
+                    id: t._id,
+                    title: t.name,
+                    type: 'serviceType',
+                    categoryId: catId,
+                    categoryName: categoryById.get(catId)?.name || (t.category && t.category.name) || null,
+                    subcategoryId: subId,
+                    serviceCharge: sumHierarchyServiceCharge({
+                        category: categoryById.get(catId),
+                        subcategory: subcategoryById.get(subId),
+                        serviceType: t
+                    }),
+                    ownServiceCharge: toNumber(t.serviceCharge),
+                    membershipCharge: _getMembershipCharge(t, 'serviceType')
+                };
+            }),
+            ...items.services.map(s => {
+                const catId = resolveRefId(s.category);
+                const subId = resolveRefId(s.subcategory);
+                const typeId = resolveRefId(s.serviceType);
+                return {
+                    id: s._id,
+                    title: s.title,
+                    type: 'service',
+                    categoryId: catId,
+                    categoryName: categoryById.get(catId)?.name || (s.category && s.category.name) || null,
+                    subcategoryId: subId,
+                    serviceTypeId: typeId,
+                    serviceCharge: sumHierarchyServiceCharge({
+                        category: categoryById.get(catId),
+                        subcategory: subcategoryById.get(subId),
+                        serviceType: serviceTypeById.get(typeId),
+                        service: s
+                    }),
+                    ownServiceCharge: toNumber(s.serviceCharge),
+                    membershipCharge: _getMembershipCharge(s, 'service')
+                };
+            })
         ]
+    };
+};
+
+/**
+ * Resolve a vendor coupon by id (or code) and apply it to the membership subtotal.
+ * GST is recalculated on the discounted subtotal. Does not change API response shape.
+ */
+const _applyMembershipCoupon = async ({ couponId, vendorId, combinedSubtotal, gstPercent }) => {
+    if (!couponId) return null;
+
+    const Coupon = require('../../models/Coupon.model');
+    const {
+        getCouponStatusMessage,
+        isAccountEligibleForCoupon,
+        getCouponUsageLimitMessage,
+    } = require('../../utils/couponValidity');
+
+    let coupon = null;
+    if (mongoose.Types.ObjectId.isValid(couponId)) {
+        coupon = await Coupon.findById(couponId);
+    }
+    if (!coupon) {
+        coupon = await Coupon.findOne({ code: String(couponId).trim().toUpperCase() });
+    }
+    if (!coupon || !coupon.isActive) {
+        throw new ApiError(400, 'Invalid or inactive coupon');
+    }
+
+    const statusMessage = getCouponStatusMessage(coupon);
+    if (statusMessage) {
+        throw new ApiError(400, statusMessage);
+    }
+
+    if (!isAccountEligibleForCoupon(coupon, vendorId, 'vendor')) {
+        throw new ApiError(400, 'This coupon is not applicable for you');
+    }
+
+    const usageLimitMessage = await getCouponUsageLimitMessage(coupon, vendorId, 'vendor');
+    if (usageLimitMessage) {
+        throw new ApiError(400, usageLimitMessage);
+    }
+
+    const subtotal = Number(combinedSubtotal) || 0;
+    if (subtotal <= 0) {
+        throw new ApiError(400, 'Coupon cannot be applied if membership price is 0');
+    }
+
+    let discount = 0;
+    if (coupon.discountType === 'amount') {
+        discount = Number(coupon.discountValue) || 0;
+    } else if (coupon.discountType === 'percent') {
+        discount = (subtotal * coupon.discountValue) / 100;
+    }
+
+    discount = Math.min(discount, subtotal);
+    discount = Math.round(discount * 100) / 100;
+
+    const discountedSubtotal = Math.max(0, Math.round((subtotal - discount) * 100) / 100);
+    const percent = Number(gstPercent) || 0;
+    const finalGst = Math.round(discountedSubtotal * (percent / 100));
+    const grandTotal = discountedSubtotal + finalGst;
+
+    return {
+        couponId: coupon._id.toString(),
+        couponCode: coupon.code,
+        discountType: coupon.discountType,
+        discountValue: coupon.discountValue,
+        couponDiscount: discount,
+        combinedSubtotal: discountedSubtotal,
+        finalGst,
+        grandTotal,
+    };
+};
+
+const _couponMetadata = (applied) => {
+    if (!applied) return {};
+    return {
+        couponId: applied.couponId,
+        couponCode: applied.couponCode,
+        couponDiscount: applied.couponDiscount,
+        discountType: applied.discountType,
+        discountValue: applied.discountValue,
     };
 };
 
@@ -640,10 +762,18 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
+    const couponId = overrides.couponId || overrides.couponID || overrides.coupon_id || null;
+    const selectionOverrides = { ...overrides };
+    delete selectionOverrides.couponId;
+    delete selectionOverrides.couponID;
+    delete selectionOverrides.coupon_id;
+
     const PAID_STEPS = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED', 'SIGNUP_COMPLETED'];
     const vendorAlreadyPaid = PAID_STEPS.includes(vendor.registrationStep) || vendor.isVerified;
     // Only return locked amounts if no caller-supplied overrides are requesting a fresh calculation
-    const hasOverrides = overrides && Object.keys(overrides).length > 0;
+    const hasOverrides = selectionOverrides && Object.keys(selectionOverrides).some(
+        (key) => selectionOverrides[key] !== undefined && selectionOverrides[key] !== null && selectionOverrides[key] !== ''
+    );
 
     const normalizedCategoryId = overrides.categoryId || null;
     const normalizedSubcategoryIds = overrides.subcategoryIds || vendor.selectedSubcategories || [];
@@ -696,18 +826,34 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
 
     const useLockedAmounts = vendorAlreadyPaid && !hasOverrides && lockedTotal;
 
+    let subtotal = useLockedAmounts ? (lockedSubtotal ?? calc.combinedSubtotal) : calc.combinedSubtotal;
+    let gstAmount = useLockedAmounts ? (lockedGstAmount ?? calc.finalGst) : calc.finalGst;
+    let totalFee = useLockedAmounts ? lockedTotal : calc.grandTotal;
+
+    if (couponId) {
+        const applied = await _applyMembershipCoupon({
+            couponId,
+            vendorId,
+            combinedSubtotal: subtotal,
+            gstPercent: calc.gstPercent,
+        });
+        subtotal = applied.combinedSubtotal;
+        gstAmount = applied.finalGst;
+        totalFee = applied.grandTotal;
+    }
+
     return {
         vendorId,
-        subtotal: useLockedAmounts ? (lockedSubtotal ?? calc.combinedSubtotal) : calc.combinedSubtotal,
+        subtotal,
         basePlanFee: useLockedAmounts ? (lockedMembershipFee ?? calc.basePlanFee) : calc.basePlanFee,
         membershipAmount: useLockedAmounts ? (lockedMembershipFee ?? calc.basePlanFee) : calc.basePlanFee,
         totalServiceFee: useLockedAmounts ? (lockedServiceFee ?? calc.servicesSubtotal) : calc.servicesSubtotal,
         serviceAmount: useLockedAmounts ? (lockedServiceFee ?? calc.servicesSubtotal) : calc.servicesSubtotal,
         platformSubtotal: calc.platformSubtotal,
         gstPercent: calc.gstPercent,
-        gstAmount: useLockedAmounts ? (lockedGstAmount ?? calc.finalGst) : calc.finalGst,
-        totalFee: useLockedAmounts ? lockedTotal : calc.grandTotal,
-        totalAmount: useLockedAmounts ? lockedTotal : calc.grandTotal,
+        gstAmount,
+        totalFee,
+        totalAmount: totalFee,
         duration: `${calc.validityDays} days`,
         durationMonths: calc.durationMonths,
         plans: plansInfo,
@@ -724,7 +870,7 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         membershipId: vendor.membership?.membershipId || null,
         approvedServices,
         notApprovedServices: [],
-        amount: useLockedAmounts ? lockedTotal : calc.grandTotal,
+        amount: totalFee,
         serviceApprovalStatus: vendor.serviceApprovalStatus || 'pending',
         registrationStep: vendor.registrationStep || (vendor.serviceApprovalStatus === 'approved' ? 'SERVICES_APPROVED' : 'PENDING'),
         isServiceVerified: vendor.serviceApprovalStatus === 'approved'
@@ -736,7 +882,7 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
  * Create Razorpay order for membership payment
  * vendorId is extracted from token (req.user), NOT from URL
  */
-const createMembershipOrder = async (vendorId, { durationMonths, amount, membershipId, planId } = {}) => {
+const createMembershipOrder = async (vendorId, { durationMonths, amount, membershipId, planId, couponId, couponID, coupon_id } = {}) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
@@ -754,6 +900,7 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount, members
 
     // Accept planId as an alias for membershipId (the app sends planId from the plan selection screen)
     const resolvedMembershipId = membershipId || planId || null;
+    couponId = couponId || couponID || coupon_id;
 
     // Update durationMonths if provided
     if (durationMonths) {
@@ -763,50 +910,66 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount, members
     
     // Calculate full fee using the centralized helper
     const calc = await _calculateMembershipAmounts({ vendorId, durationMonths, membershipId: resolvedMembershipId });
-    const totalFee = calc.grandTotal;
+    let combinedSubtotal = calc.combinedSubtotal;
+    let finalGst = calc.finalGst;
+    let totalFee = calc.grandTotal;
+    let appliedCoupon = null;
+
+    if (couponId) {
+        appliedCoupon = await _applyMembershipCoupon({
+            couponId,
+            vendorId,
+            combinedSubtotal: calc.combinedSubtotal,
+            gstPercent: calc.gstPercent,
+        });
+        combinedSubtotal = appliedCoupon.combinedSubtotal;
+        finalGst = appliedCoupon.finalGst;
+        totalFee = appliedCoupon.grandTotal;
+    }
 
     // Ensure the resolved membershipId is persisted to the vendor
     vendor.membership = vendor.membership || {};
     vendor.membership.membershipId = calc.planId;
     await vendor.save();
 
-    if (totalFee < 0) {
-    throw new ApiError(400, 'Membership fee must not be negative');
-}
-// Allow zero-fee orders: skip Razorpay and mark payment as completed
-if (totalFee === 0) {
-    // Create a completed payment record without Razorpay
-    await PaymentRecord.create({
-        vendor: vendorId,
-        orderId: null,
-        purpose: 'MEMBERSHIP_PURCHASE',
-        amount: 0,
-        gstAmount: 0,
-        totalAmount: 0,
-        validityDays: calc.validityDays,
-        metadata: {
-            services: calc.itemBreakdown,
-            serviceSelectionsTotal: calc.servicesSubtotal,
-            basePlanFee: calc.basePlanFee,
-            durationMonths: durationMonths || calc.durationMonths
-        },
-        status: 'COMPLETED',
-        createdAt: new Date(),
-        updatedAt: new Date()
-    });
-    return {
-        vendorId: vendor._id,
-        vendorName: vendor.name,
-        totalFee: 0,
-        duration: `${calc.validityDays} days`,
-        status: 'completed',
-        razorpayKeyId: config.RAZORPAY_KEY_ID,
-        razorpayOrder: null,
+    const paymentMetadata = {
         services: calc.itemBreakdown,
-        serviceSelectionsTotal: calc.servicesSubtotal
+        serviceSelectionsTotal: calc.servicesSubtotal,
+        basePlanFee: calc.basePlanFee,
+        durationMonths: durationMonths || calc.durationMonths,
+        ..._couponMetadata(appliedCoupon)
     };
-}
 
+    if (totalFee < 0) {
+        throw new ApiError(400, 'Membership fee must not be negative');
+    }
+    // Allow zero-fee orders: skip Razorpay and mark payment as completed
+    if (totalFee === 0) {
+        await PaymentRecord.create({
+            vendor: vendorId,
+            orderId: `free_mem_${vendor._id.toString().slice(-8)}_${Date.now()}`,
+            purpose: 'MEMBERSHIP_PURCHASE',
+            amount: 0,
+            gstAmount: 0,
+            totalAmount: 0,
+            validityDays: calc.validityDays,
+            metadata: paymentMetadata,
+            status: 'COMPLETED',
+            createdAt: new Date(),
+            updatedAt: new Date()
+        });
+        return {
+            vendorId: vendor._id,
+            vendorName: vendor.name,
+            totalFee: 0,
+            duration: `${calc.validityDays} days`,
+            status: 'completed',
+            razorpayKeyId: config.RAZORPAY_KEY_ID,
+            razorpayOrder: null,
+            services: calc.itemBreakdown,
+            serviceSelectionsTotal: calc.servicesSubtotal
+        };
+    }
 
     // Razorpay amount is in paise (multiply by 100)
     let razorpayOrder;
@@ -826,16 +989,11 @@ if (totalFee === 0) {
             vendor: vendorId,
             orderId: razorpayOrder.id,
             purpose: 'MEMBERSHIP_PURCHASE',
-            amount: calc.combinedSubtotal,
-            gstAmount: calc.finalGst,
-            totalAmount: calc.grandTotal,
+            amount: combinedSubtotal,
+            gstAmount: finalGst,
+            totalAmount: totalFee,
             validityDays: calc.validityDays,
-            metadata: {
-                services: calc.itemBreakdown,
-                serviceSelectionsTotal: calc.servicesSubtotal,
-                basePlanFee: calc.basePlanFee,
-                durationMonths: durationMonths || calc.durationMonths
-            },
+            metadata: paymentMetadata,
             status: 'PENDING'
         });
     } catch (error) {
@@ -2329,7 +2487,7 @@ const updateVendorProfile = async (vendorId, profileData) => {
  * Verify Razorpay membership payment signature
  * On success — activates vendor membership
  */
-const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature, membershipId, planId }) => {
+const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature, membershipId, planId, couponId }) => {
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
         throw new ApiError(400, 'razorpay_order_id, razorpay_payment_id and razorpay_signature are required');
     }
@@ -2431,24 +2589,50 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         if (expiryDate) {
             paymentRecord.newExpiryDate = expiryDate;
         }
+        if (couponId && !paymentRecord.metadata?.couponId) {
+            try {
+                const Coupon = require('../../models/Coupon.model');
+                let coupon = mongoose.Types.ObjectId.isValid(couponId)
+                    ? await Coupon.findById(couponId)
+                    : null;
+                if (!coupon) {
+                    coupon = await Coupon.findOne({ code: String(couponId).trim().toUpperCase() });
+                }
+                paymentRecord.metadata = {
+                    ...(paymentRecord.metadata || {}),
+                    couponId: coupon ? coupon._id.toString() : String(couponId),
+                    ...(coupon ? {
+                        couponCode: coupon.code,
+                        discountType: coupon.discountType,
+                        discountValue: coupon.discountValue,
+                    } : {}),
+                };
+            } catch (couponErr) {
+                console.error('Failed to attach coupon on membership verify:', couponErr.message);
+            }
+        }
         await paymentRecord.save();
     } else {
         // Populate membership metadata directly from calculated details
         try {
-            const memDetails = await getVendorMembershipDetails(vendor._id, { membershipId: resolvedMembershipId });
-    await PaymentRecord.create({
-        orderId: razorpay_order_id,
-        paymentId: razorpay_payment_id,
-        vendorId: vendor._id,
-        amount: memDetails.subtotal,
-        gstAmount: memDetails.gstAmount,
-        totalAmount: memDetails.totalFee,
-        planId: resolvedMembershipId,
-        validityDays: validityDays,
-        status: 'COMPLETED',
-        ...(expiryDate && { newExpiryDate: expiryDate }),
-        metadata: memDetails.services
-    });
+            const memDetails = await getVendorMembershipDetails(vendor._id, {
+                membershipId: resolvedMembershipId,
+                ...(couponId ? { couponId } : {})
+            });
+            await PaymentRecord.create({
+                orderId: razorpay_order_id,
+                paymentId: razorpay_payment_id,
+                vendor: vendor._id,
+                purpose: 'MEMBERSHIP_PURCHASE',
+                amount: memDetails.subtotal,
+                gstAmount: memDetails.gstAmount,
+                totalAmount: memDetails.totalFee,
+                planId: resolvedMembershipId,
+                validityDays: validityDays,
+                status: 'COMPLETED',
+                ...(expiryDate && { newExpiryDate: expiryDate }),
+                metadata: memDetails.services
+            });
         } catch (createErr) {
             console.error('Failed to create fallback PaymentRecord:', createErr.message);
         }
@@ -2471,7 +2655,10 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     } else {
         // Fallback: recompute using membership details if needed
         try {
-            const memDetails = await getVendorMembershipDetails(vendor._id, { membershipId: resolvedMembershipId });
+            const memDetails = await getVendorMembershipDetails(vendor._id, {
+                membershipId: resolvedMembershipId,
+                ...(couponId ? { couponId } : {})
+            });
             vendor.membership.membershipFee = memDetails.basePlanFee;
             vendor.membership.serviceFee = memDetails.serviceSelectionsTotal;
             vendor.membership.gstAmount = memDetails.gstAmount;

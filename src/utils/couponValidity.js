@@ -74,8 +74,23 @@ const getUsageLimitPerUser = (coupon) => {
   return Math.floor(limit);
 };
 
-const countCouponUsesByAccount = async (couponCode, accountId) => {
+const countCouponUsesByAccount = async (couponCode, accountId, options = {}) => {
   if (!couponCode || !accountId) return 0;
+  const role = String(options.role || 'user').toLowerCase();
+
+  if (role === 'vendor') {
+    const PaymentRecord = require('../models/PaymentRecord.model');
+    const or = [{ 'metadata.couponCode': String(couponCode).toUpperCase() }];
+    if (options.couponId) {
+      or.push({ 'metadata.couponId': String(options.couponId) });
+    }
+    return PaymentRecord.countDocuments({
+      vendor: accountId,
+      status: 'COMPLETED',
+      $or: or,
+    });
+  }
+
   const Booking = require('../models/Booking.model');
   return Booking.countDocuments({
     user: accountId,
@@ -87,11 +102,14 @@ const countCouponUsesByAccount = async (couponCode, accountId) => {
 /**
  * Returns an error message when the account has exhausted their per-person limit, else null.
  */
-const getCouponUsageLimitMessage = async (coupon, accountId) => {
+const getCouponUsageLimitMessage = async (coupon, accountId, role = 'user') => {
   const limit = getUsageLimitPerUser(coupon);
   if (!limit || !accountId) return null;
 
-  const used = await countCouponUsesByAccount(coupon.code, accountId);
+  const used = await countCouponUsesByAccount(coupon.code, accountId, {
+    role,
+    couponId: coupon._id,
+  });
   if (used >= limit) {
     return limit === 1
       ? 'You have already used this coupon'
