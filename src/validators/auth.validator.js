@@ -427,6 +427,23 @@ const forgotPinSchema = Joi.object({
 const vendorVerifyContactSchema = Joi.object({
   email: Joi.string()
     .email()
+    .optional()
+    .allow('', null)
+    .messages({
+      'string.email': 'Invalid email format',
+    }),
+  phoneNumber: Joi.string()
+    .pattern(phonePattern)
+    .required()
+    .messages({
+      'string.pattern.base': 'Invalid phone number format.',
+      'any.required': 'Phone number is required',
+    }),
+});
+
+const userVerifyContactSchema = Joi.object({
+  email: Joi.string()
+    .email()
     .required()
     .messages({
       'string.email': 'Invalid email format',
@@ -463,7 +480,7 @@ module.exports = {
   validateCompleteResetPIN: validate(completeResetPINSchema, 'body'),
   validateUserVerifyPin: validate(userVerifyPinSchema, 'body'),
   validateUserUpdatePin: validate(userUpdatePinSchema, 'body'),
-  validateUserVerifyContact: validate(vendorVerifyContactSchema, 'body'),
+  validateUserVerifyContact: validate(userVerifyContactSchema, 'body'),
   validateVendorVerifyPin: validate(userVerifyPinSchema, 'body'),
   validateVendorUpdatePin: validate(userUpdatePinSchema, 'body'),
   validateVendorVerifyContact: validate(vendorVerifyContactSchema, 'body'),
