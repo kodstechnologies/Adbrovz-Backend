@@ -14,12 +14,13 @@ const getCategories = asyncHandler(async (req, res) => {
 
 // Service Management: fetch all 4 rows (category -> subcategory -> type -> service)
 const getServiceManagementRows = asyncHandler(async (req, res) => {
-    const { categoryId, subcategoryId, serviceTypeId } = req.query;
+    const { categoryId, subcategoryId, serviceTypeId, search } = req.query;
 
     const result = await serviceService.getServiceManagementRows({
         categoryId,
         subcategoryId,
-        serviceTypeId
+        serviceTypeId,
+        search
     });
 
     res.status(200).json(

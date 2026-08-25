@@ -54,6 +54,15 @@ const couponSchema = new mongoose.Schema(
         endDate: {
             type: Date,
         },
+        /**
+         * Max times one person can use this coupon.
+         * null / 0 / undefined = unlimited
+         */
+        usageLimitPerUser: {
+            type: Number,
+            default: null,
+            min: 0,
+        },
         isActive: {
             type: Boolean,
             default: true,

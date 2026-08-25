@@ -50,6 +50,16 @@ const _calculateServicePricing = (service) => {
 
 const _isValidId = (id) => typeof id === 'string' && /^[a-fA-F0-9]{24}$/.test(id);
 
+const _escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const _toIdString = (value) => {
+    if (!value) return null;
+    if (typeof value === 'string') return value;
+    if (value._id) return value._id.toString();
+    if (value.id) return value.id.toString();
+    return value.toString();
+};
+
 const _buildManagementRow = ({ key, label, items, selectedId, dependsOn, emptyMessage }) => ({
     key,
     label,
@@ -60,6 +70,79 @@ const _buildManagementRow = ({ key, label, items, selectedId, dependsOn, emptyMe
     emptyMessage,
     items
 });
+
+/**
+ * Resolve hierarchy selection from a search query so leaf services
+ * (e.g. "Duct Pipe Installation Labour") open their category → subcategory → type path.
+ */
+const _resolveSelectionFromSearch = async (search) => {
+    const trimmed = String(search || '').trim();
+    if (!trimmed) return null;
+
+    const searchRegex = { $regex: _escapeRegex(trimmed), $options: 'i' };
+
+    const matchedService = await Service.findOne({ title: searchRegex })
+        .select('category subcategory serviceType title')
+        .sort({ title: 1 })
+        .lean();
+
+    if (matchedService) {
+        return {
+            categoryId: _toIdString(matchedService.category),
+            subcategoryId: _toIdString(matchedService.subcategory),
+            serviceTypeId: _toIdString(matchedService.serviceType),
+            matchedServiceId: _toIdString(matchedService._id),
+            matchedLevel: 'service'
+        };
+    }
+
+    const matchedType = await ServiceType.findOne({ name: searchRegex })
+        .select('category subcategory name')
+        .sort({ name: 1 })
+        .lean();
+
+    if (matchedType) {
+        return {
+            categoryId: _toIdString(matchedType.category),
+            subcategoryId: _toIdString(matchedType.subcategory),
+            serviceTypeId: _toIdString(matchedType._id),
+            matchedServiceId: null,
+            matchedLevel: 'serviceType'
+        };
+    }
+
+    const matchedSubcategory = await Subcategory.findOne({ name: searchRegex })
+        .select('category name')
+        .sort({ name: 1 })
+        .lean();
+
+    if (matchedSubcategory) {
+        return {
+            categoryId: _toIdString(matchedSubcategory.category),
+            subcategoryId: _toIdString(matchedSubcategory._id),
+            serviceTypeId: null,
+            matchedServiceId: null,
+            matchedLevel: 'subcategory'
+        };
+    }
+
+    const matchedCategory = await Category.findOne({ name: searchRegex })
+        .select('name')
+        .sort({ name: 1 })
+        .lean();
+
+    if (matchedCategory) {
+        return {
+            categoryId: _toIdString(matchedCategory._id),
+            subcategoryId: null,
+            serviceTypeId: null,
+            matchedServiceId: null,
+            matchedLevel: 'category'
+        };
+    }
+
+    return null;
+};
 
 async function isServiceTypeValid(serviceTypeId) {
     const type = await ServiceType.findOne({ _id: serviceTypeId, isActive: { $ne: false } });
@@ -130,13 +213,48 @@ const getAllCategories = async () => {
 /**
  * Admin/Public helper: return 4-row service management data in a single payload.
  * Row flow: Category -> Subcategory -> Service Type -> Service
+ * Optional `search` resolves the matching hierarchy path (including leaf services).
  */
-const getServiceManagementRows = async ({ categoryId, subcategoryId, serviceTypeId } = {}) => {
-    const selected = {
+const getServiceManagementRows = async ({ categoryId, subcategoryId, serviceTypeId, search } = {}) => {
+    const trimmedSearch = String(search || '').trim();
+    const searchRegex = trimmedSearch
+        ? { $regex: _escapeRegex(trimmedSearch), $options: 'i' }
+        : null;
+
+    let selected = {
         categoryId: categoryId || null,
         subcategoryId: subcategoryId || null,
         serviceTypeId: serviceTypeId || null
     };
+
+    let searchMeta = {
+        query: trimmedSearch || null,
+        matchedServiceId: null,
+        matchedLevel: null
+    };
+
+    // When searching without an explicit drill-down, open the first matching path.
+    if (trimmedSearch && !selected.categoryId && !selected.subcategoryId && !selected.serviceTypeId) {
+        const resolved = await _resolveSelectionFromSearch(trimmedSearch);
+        if (resolved) {
+            selected = {
+                categoryId: resolved.categoryId,
+                subcategoryId: resolved.subcategoryId,
+                serviceTypeId: resolved.serviceTypeId
+            };
+            searchMeta.matchedServiceId = resolved.matchedServiceId;
+            searchMeta.matchedLevel = resolved.matchedLevel;
+        }
+    } else if (trimmedSearch) {
+        const matchedService = await Service.findOne({ title: searchRegex })
+            .select('_id')
+            .sort({ title: 1 })
+            .lean();
+        if (matchedService) {
+            searchMeta.matchedServiceId = _toIdString(matchedService._id);
+            searchMeta.matchedLevel = 'service';
+        }
+    }
 
     if (selected.categoryId && !_isValidId(selected.categoryId)) {
         throw new ApiError(400, 'Invalid categoryId');
@@ -202,12 +320,62 @@ const getServiceManagementRows = async ({ categoryId, subcategoryId, serviceType
             : []
     ]);
 
+    // When searching, keep hierarchy nodes that match OR are ancestors of matches.
+    if (searchRegex) {
+        const [matchingServices, matchingTypes, matchingSubs, matchingCats] = await Promise.all([
+            Service.find({ title: searchRegex }).select('category subcategory serviceType').lean(),
+            ServiceType.find({ name: searchRegex }).select('category subcategory').lean(),
+            Subcategory.find({ name: searchRegex }).select('category').lean(),
+            Category.find({ name: searchRegex }).select('_id').lean()
+        ]);
+
+        const categoryIds = new Set([
+            ...matchingCats.map((c) => _toIdString(c._id)),
+            ...matchingSubs.map((s) => _toIdString(s.category)),
+            ...matchingTypes.map((t) => _toIdString(t.category)),
+            ...matchingServices.map((s) => _toIdString(s.category))
+        ].filter(Boolean));
+
+        const subcategoryIds = new Set([
+            ...matchingSubs.map((s) => _toIdString(s._id)),
+            ...matchingTypes.map((t) => _toIdString(t.subcategory)),
+            ...matchingServices.map((s) => _toIdString(s.subcategory))
+        ].filter(Boolean));
+
+        const serviceTypeIds = new Set([
+            ...matchingTypes.map((t) => _toIdString(t._id)),
+            ...matchingServices.map((s) => _toIdString(s.serviceType))
+        ].filter(Boolean));
+
+        const serviceIds = new Set(matchingServices.map((s) => _toIdString(s._id)).filter(Boolean));
+
+        if (categoryIds.size > 0) {
+            categories = categories.filter((c) => categoryIds.has(_toIdString(c._id)));
+        } else if (trimmedSearch) {
+            categories = [];
+        }
+
+        if (selected.categoryId && subcategoryIds.size > 0) {
+            subcategories = subcategories.filter((s) => subcategoryIds.has(_toIdString(s._id)));
+        }
+
+        if (selected.subcategoryId && serviceTypeIds.size > 0) {
+            serviceTypes = serviceTypes.filter((t) => serviceTypeIds.has(_toIdString(t._id)));
+        }
+
+        // Keep matching services visible; if none matched by title under this type, keep full type list.
+        if (selected.serviceTypeId && serviceIds.size > 0) {
+            const filtered = services.filter((s) => serviceIds.has(_toIdString(s._id)));
+            if (filtered.length > 0) services = filtered;
+        }
+    }
+
     categories = await Promise.all(categories.map(async (c) => {
         c.subcategoriesCount = await Subcategory.countDocuments({ category: c._id });
         c.id = c._id.toString();
         return c;
     }));
-    
+
     if (subcategories.length > 0) {
         subcategories = await Promise.all(subcategories.map(async (s) => {
             s.serviceTypesCount = await ServiceType.countDocuments({ subcategory: s._id });
@@ -215,7 +383,7 @@ const getServiceManagementRows = async ({ categoryId, subcategoryId, serviceType
             return s;
         }));
     }
-    
+
     if (serviceTypes.length > 0) {
         serviceTypes = await Promise.all(serviceTypes.map(async (st) => {
             st.servicesCount = await Service.countDocuments({ serviceType: st._id });
@@ -231,8 +399,11 @@ const getServiceManagementRows = async ({ categoryId, subcategoryId, serviceType
         });
     }
 
+    const noSearchMatches = Boolean(trimmedSearch) && categories.length === 0;
+
     return {
         selected,
+        search: searchMeta,
         categories,
         subcategories,
         serviceTypes,
@@ -243,7 +414,9 @@ const getServiceManagementRows = async ({ categoryId, subcategoryId, serviceType
                 label: 'Categories',
                 items: categories,
                 selectedId: selected.categoryId,
-                emptyMessage: 'No categories available.'
+                emptyMessage: noSearchMatches
+                    ? `No hierarchy matches for "${trimmedSearch}".`
+                    : 'No categories available.'
             }),
             subcategories: _buildManagementRow({
                 key: 'subcategories',
@@ -280,7 +453,9 @@ const getServiceManagementRows = async ({ categoryId, subcategoryId, serviceType
                     selectedId: selected.serviceTypeId
                 },
                 emptyMessage: selected.serviceTypeId
-                    ? 'No services found for the selected service type.'
+                    ? (trimmedSearch
+                        ? `No services match "${trimmedSearch}" for the selected type.`
+                        : 'No services found for the selected service type.')
                     : 'Select a service type to load services.'
             })
         }

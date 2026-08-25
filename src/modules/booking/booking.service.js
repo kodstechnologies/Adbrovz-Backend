@@ -1421,7 +1421,7 @@ const createBooking = async (userId, bookingData) => {
 
         // Check expiry
         const now = new Date();
-        const { getCouponStatusMessage, isAccountEligibleForCoupon } = require('../../utils/couponValidity');
+        const { getCouponStatusMessage, isAccountEligibleForCoupon, getCouponUsageLimitMessage } = require('../../utils/couponValidity');
         const couponStatusMessage = getCouponStatusMessage(coupon, now);
         if (couponStatusMessage) {
             console.warn(`[TRACKING-FLOW] [COUPON] ${couponStatusMessage}: ${couponCode}`);
@@ -1431,6 +1431,11 @@ const createBooking = async (userId, bookingData) => {
         // Check user eligibility
         if (!isAccountEligibleForCoupon(coupon, userId, 'user')) {
             throw new ApiError(400, 'This coupon is not applicable for you');
+        }
+
+        const usageLimitMessage = await getCouponUsageLimitMessage(coupon, userId);
+        if (usageLimitMessage) {
+            throw new ApiError(400, usageLimitMessage);
         }
 
         // Calculate discount

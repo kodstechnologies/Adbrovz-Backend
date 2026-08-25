@@ -65,6 +65,41 @@ const isAccountEligibleForCoupon = (coupon, accountId, role = 'user') => {
   return (coupon.applicableUsers || []).some((user) => idOf(user) === String(accountId));
 };
 
+/**
+ * null / 0 / undefined => unlimited
+ */
+const getUsageLimitPerUser = (coupon) => {
+  const limit = Number(coupon?.usageLimitPerUser);
+  if (!Number.isFinite(limit) || limit <= 0) return null;
+  return Math.floor(limit);
+};
+
+const countCouponUsesByAccount = async (couponCode, accountId) => {
+  if (!couponCode || !accountId) return 0;
+  const Booking = require('../models/Booking.model');
+  return Booking.countDocuments({
+    user: accountId,
+    'pricing.couponCode': String(couponCode).toUpperCase(),
+    status: { $nin: ['cancelled', 'auto_cancelled'] },
+  });
+};
+
+/**
+ * Returns an error message when the account has exhausted their per-person limit, else null.
+ */
+const getCouponUsageLimitMessage = async (coupon, accountId) => {
+  const limit = getUsageLimitPerUser(coupon);
+  if (!limit || !accountId) return null;
+
+  const used = await countCouponUsesByAccount(coupon.code, accountId);
+  if (used >= limit) {
+    return limit === 1
+      ? 'You have already used this coupon'
+      : `You have reached the usage limit for this coupon (${limit} times)`;
+  }
+  return null;
+};
+
 module.exports = {
   getCouponWindow,
   isCouponCurrentlyValid,
@@ -72,4 +107,7 @@ module.exports = {
   daysBetween,
   getAudienceType,
   isAccountEligibleForCoupon,
+  getUsageLimitPerUser,
+  countCouponUsesByAccount,
+  getCouponUsageLimitMessage,
 };

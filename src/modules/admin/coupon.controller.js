@@ -1,16 +1,39 @@
 const Coupon = require('../../models/Coupon.model');
 const User = require('../../models/User.model');
-const { getCouponWindow, getCouponStatusMessage, daysBetween, isAccountEligibleForCoupon } = require('../../utils/couponValidity');
+const { getCouponWindow, getCouponStatusMessage, daysBetween, isAccountEligibleForCoupon, getUsageLimitPerUser, getCouponUsageLimitMessage } = require('../../utils/couponValidity');
 
 exports.createCoupon = async (req, res) => {
     try {
-        const { code, discountType, discountValue, isForAllUsers, applicableUsers, audienceType, isForAllVendors, applicableVendors, validityDays, startDate, endDate, isActive } = req.body;
+        const {
+            code,
+            discountType,
+            discountValue,
+            isForAllUsers,
+            applicableUsers,
+            audienceType,
+            isForAllVendors,
+            applicableVendors,
+            validityDays,
+            startDate,
+            endDate,
+            isActive,
+            usageLimitPerUser,
+        } = req.body;
 
         // Validation
         if (!code) return res.status(400).json({ success: false, message: 'Coupon code is required' });
         if (!['amount', 'percent'].includes(discountType)) return res.status(400).json({ success: false, message: 'Invalid discount type' });
         if (discountValue == null || discountValue <= 0) return res.status(400).json({ success: false, message: 'Valid discount value is required' });
         if (discountType === 'percent' && discountValue > 100) return res.status(400).json({ success: false, message: 'Percentage cannot exceed 100' });
+
+        let resolvedUsageLimit = null;
+        if (usageLimitPerUser !== undefined && usageLimitPerUser !== null && usageLimitPerUser !== '' && usageLimitPerUser !== 'unlimited') {
+            const parsedLimit = Number(usageLimitPerUser);
+            if (!Number.isFinite(parsedLimit) || parsedLimit < 0 || !Number.isInteger(parsedLimit)) {
+                return res.status(400).json({ success: false, message: 'Usage limit per person must be a whole number or unlimited' });
+            }
+            resolvedUsageLimit = parsedLimit === 0 ? null : parsedLimit;
+        }
 
         let resolvedStartDate;
         let resolvedEndDate;
@@ -64,6 +87,7 @@ exports.createCoupon = async (req, res) => {
             validityDays: resolvedValidityDays,
             startDate: resolvedStartDate,
             endDate: resolvedEndDate,
+            usageLimitPerUser: resolvedUsageLimit,
             isActive: isActive !== undefined ? isActive : true,
             createdBy: req.user.id
         });
@@ -159,6 +183,11 @@ exports.verifyCoupon = async (req, res) => {
             return res.status(200).json({ success: true, valid: false, message: 'This coupon is not applicable for you. You do not have access to this coupon.' });
         }
 
+        const usageLimitMessage = await getCouponUsageLimitMessage(coupon, requesterId);
+        if (usageLimitMessage) {
+            return res.status(200).json({ success: true, valid: false, message: usageLimitMessage });
+        }
+
         res.status(200).json({
             success: true,
             valid: true,
@@ -166,7 +195,8 @@ exports.verifyCoupon = async (req, res) => {
             data: {
                 code: coupon.code,
                 discountType: coupon.discountType,
-                discountValue: coupon.discountValue
+                discountValue: coupon.discountValue,
+                usageLimitPerUser: getUsageLimitPerUser(coupon),
             }
         });
     } catch (error) {
@@ -213,6 +243,11 @@ exports.applyCoupon = async (req, res) => {
             return res.status(400).json({ success: false, message: 'This coupon is not applicable for you. You do not have access to this coupon.' });
         }
 
+        const usageLimitMessage = await getCouponUsageLimitMessage(coupon, requesterId);
+        if (usageLimitMessage) {
+            return res.status(400).json({ success: false, message: usageLimitMessage });
+        }
+
         let discount = 0;
         if (coupon.discountType === 'amount') {
             discount = coupon.discountValue;
@@ -230,6 +265,7 @@ exports.applyCoupon = async (req, res) => {
                 code: coupon.code,
                 discountType: coupon.discountType,
                 discountValue: coupon.discountValue,
+                usageLimitPerUser: getUsageLimitPerUser(coupon),
                 discount,
                 originalAmount: orderAmount,
                 finalAmount
@@ -251,10 +287,14 @@ exports.getMyCoupons = async (req, res) => {
         // Fetch all active coupons
         const allCoupons = await Coupon.find({ isActive: true });
 
-        const availableCoupons = allCoupons.filter((coupon) => {
-            if (getCouponStatusMessage(coupon, now)) return false;
-            return isAccountEligibleForCoupon(coupon, userId, role);
-        });
+        const availableCoupons = [];
+        for (const coupon of allCoupons) {
+            if (getCouponStatusMessage(coupon, now)) continue;
+            if (!isAccountEligibleForCoupon(coupon, userId, role)) continue;
+            const usageLimitMessage = await getCouponUsageLimitMessage(coupon, userId);
+            if (usageLimitMessage) continue;
+            availableCoupons.push(coupon);
+        }
 
         const result = availableCoupons.map((coupon) => {
             const { start, end } = getCouponWindow(coupon);
@@ -267,6 +307,7 @@ exports.getMyCoupons = async (req, res) => {
                 audienceType: coupon.audienceType || 'user',
                 isForAllVendors: coupon.isForAllVendors,
                 validityDays: coupon.validityDays,
+                usageLimitPerUser: getUsageLimitPerUser(coupon),
                 startDate: start,
                 endDate: end,
                 expiresAt: end,
