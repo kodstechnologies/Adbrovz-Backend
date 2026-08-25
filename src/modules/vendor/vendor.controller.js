@@ -3,6 +3,16 @@ const asyncHandler = require('../../utils/asyncHandler');
 const ApiResponse = require('../../utils/ApiResponse');
 const ApiError = require('../../utils/ApiError');
 
+/** Accept coupon Mongo id or coupon code (e.g. DEMO11) from body/query aliases. */
+const resolveCouponInput = (source = {}) =>
+    source.couponId ||
+    source.couponID ||
+    source.coupon_id ||
+    source.couponCode ||
+    source.coupon_code ||
+    source.code ||
+    null;
+
 /**
  * Get all vendors
  * @param {Object} req - Express request object
@@ -12,6 +22,19 @@ const getAllVendors = asyncHandler(async (req, res) => {
     const vendors = await vendorService.getAllVendors();
     res.status(200).json(
         new ApiResponse(200, vendors, 'Vendors retrieved successfully')
+    );
+});
+
+/**
+ * GET /vendors/get-coupons?code=DEMO11
+ * Returns full coupon details for the logged-in vendor.
+ */
+const getCoupons = asyncHandler(async (req, res) => {
+    const vendorId = req.user.userId || req.user.id || req.user._id;
+    const code = resolveCouponInput(req.query) || resolveCouponInput(req.params) || resolveCouponInput(req.body);
+    const result = await vendorService.getVendorCoupon(vendorId, code);
+    res.status(200).json(
+        new ApiResponse(200, result, 'Coupon details retrieved successfully')
     );
 });
 
@@ -33,18 +56,19 @@ const getMembership = asyncHandler(async (req, res) => {
 
 /**
  * Get membership info for a specific vendor
- * POST /vendors/membership-detail  body: { couponId }
+ * POST /vendors/membership-detail  body: { couponId | couponCode | code }
  */
 const getVendorMembership = asyncHandler(async (req, res) => {
     // Extract vendorId from token if not in params
     const vendorId = req.params.vendorId || req.user.userId || req.user._id;
     console.log('DEBUG: getVendorMembership called for vendorId:', vendorId);
 
-    const { couponId, couponID, coupon_id, ...bodyRest } = req.body || {};
+    const { couponId, couponID, coupon_id, couponCode, coupon_code, code, ...bodyRest } = req.body || {};
 
     // Support passing serviceIds or subcategoryIds in body or query for dynamic calculation
     const overrides = { ...bodyRest };
-    overrides.couponId = couponId || couponID || coupon_id || req.query.couponId || null;
+    overrides.couponId = resolveCouponInput({ couponId, couponID, coupon_id, couponCode, coupon_code, code })
+        || resolveCouponInput(req.query);
 
     if (req.query.serviceIds) {
         overrides.serviceIds = Array.isArray(req.query.serviceIds)
@@ -192,14 +216,14 @@ const getServiceApprovalStatus = asyncHandler(async (req, res) => {
 /**
  * Create Razorpay order for membership payment
  * vendorId is taken from token — NOT from URL
- * POST /vendors/membership/create  body: { couponId, planId, membershipId, durationMonths }
+ * POST /vendors/membership/create  body: { couponId | couponCode | code, planId, membershipId, durationMonths }
  */
 const createMembershipOrder = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const { couponId, couponID, coupon_id, ...rest } = req.body || {};
+    const { couponId, couponID, coupon_id, couponCode, coupon_code, code, ...rest } = req.body || {};
     const result = await vendorService.createMembershipOrder(vendorId, {
         ...rest,
-        couponId: couponId || couponID || coupon_id,
+        couponId: resolveCouponInput({ couponId, couponID, coupon_id, couponCode, coupon_code, code }),
     });
     res.status(200).json(
         new ApiResponse(200, result, 'Membership order created successfully')
@@ -208,19 +232,19 @@ const createMembershipOrder = asyncHandler(async (req, res) => {
 
 /**
  * Verify Razorpay payment for membership
- * POST /vendors/membership/verify  body: { razorpay_order_id, razorpay_payment_id, razorpay_signature, couponId }
+ * POST /vendors/membership/verify  body: { razorpay_order_id, razorpay_payment_id, razorpay_signature, couponId | couponCode | code }
  */
 const verifyMembershipPayment = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
     // Accept both membershipId and planId — the app may send either
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, membershipId, planId, couponId, couponID, coupon_id } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, membershipId, planId } = req.body;
     const result = await vendorService.verifyMembershipPayment(vendorId, {
         razorpay_order_id,
         razorpay_payment_id,
         razorpay_signature,
         membershipId,
         planId,
-        couponId: couponId || couponID || coupon_id,
+        couponId: resolveCouponInput(req.body),
     });
     res.status(200).json(
         new ApiResponse(200, result, result.message)
@@ -707,6 +731,7 @@ module.exports = {
     activateAddCategory,
     getPurchaseCategories,
     getPurchasePaymentDetail,
+    getCoupons,
     updateFcmToken,
     createPurchaseOrder,
     verifyPurchasePayment,

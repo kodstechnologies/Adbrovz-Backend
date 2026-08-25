@@ -69,6 +69,11 @@ router.post('/purchase-categories/payment-details',
     },
     vendorController.getPurchasePaymentDetail
 );
+
+router.get('/get-coupons', authenticate, authorize(ROLES.VENDOR), vendorController.getCoupons);
+router.get('/get-coupons/:code', authenticate, authorize(ROLES.VENDOR), vendorController.getCoupons); 
+
+
 router.post('/purchase-categories/create-order', authenticate, authorize(ROLES.VENDOR, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.createPurchaseOrder);
 router.post('/purchase-categories/verify-payment', authenticate, authorize(ROLES.VENDOR, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.verifyPurchasePayment);
 router.get('/purchase-categories', authenticate, authorize(ROLES.VENDOR), vendorController.getPurchaseCategories);

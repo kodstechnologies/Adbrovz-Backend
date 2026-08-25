@@ -1023,9 +1023,25 @@ const exportBookingsCSV = async (query = {}) => {
 
 
 const getVendorPaymentHistory = async (vendorId) => {
-  return await PaymentRecord.find({ vendor: vendorId })
+  const records = await PaymentRecord.find({ vendor: vendorId })
     .sort({ createdAt: -1 })
-    .populate('planId', 'name price validityDays');
+    .populate('planId', 'name price validityDays')
+    .lean();
+
+  return records.map((record) => {
+    const metadata = record.metadata;
+    if (Array.isArray(metadata)) {
+      record.metadata = { services: metadata, itemBreakdown: metadata };
+    } else if (metadata && typeof metadata === 'object') {
+      const breakdown = metadata.itemBreakdown || metadata.services || [];
+      record.metadata = {
+        ...metadata,
+        services: Array.isArray(metadata.services) ? metadata.services : breakdown,
+        itemBreakdown: Array.isArray(metadata.itemBreakdown) ? metadata.itemBreakdown : breakdown,
+      };
+    }
+    return record;
+  });
 };
 
 

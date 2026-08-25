@@ -239,6 +239,128 @@ const _getMembershipCharge = (item, type = 'service') => {
     return svcCharge;
 };
 
+const _populatedId = (item) => {
+    if (!item) return null;
+    if (typeof item === 'object') return item._id || item.id || null;
+    return item;
+};
+
+const _populatedTitle = (item, fallback = '') => {
+    if (!item || typeof item !== 'object') return fallback;
+    return item.title || item.name || fallback;
+};
+
+/**
+ * Build the itemized registration-charge list from an already-populated vendor.
+ * Used by the admin Plan Details SERVICE tab.
+ */
+const _buildItemBreakdownFromPopulatedVendor = (vendor) => {
+    const breakdown = [];
+    const seen = new Set();
+    const pushItem = (item) => {
+        if (!item || item.id == null) return;
+        const key = `${item.type}:${String(item.id)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        breakdown.push(item);
+    };
+
+    const plan = vendor.membership?.membershipId;
+    const planFee = toNumber(
+        (plan && typeof plan === 'object' ? plan.price : 0) ||
+        vendor.membership?.membershipFee ||
+        vendor.membershipFee ||
+        0
+    );
+    if (planFee > 0 || plan) {
+        pushItem({
+            id: 'platform_base',
+            title: (plan && typeof plan === 'object' && plan.name) || 'Platform Membership Fee',
+            type: 'platform',
+            serviceCharge: 0,
+            membershipCharge: planFee,
+        });
+    }
+
+    (vendor.selectedCategories || []).forEach((c) => {
+        if (!c || typeof c !== 'object') return;
+        pushItem({
+            id: _populatedId(c),
+            title: _populatedTitle(c),
+            type: 'category',
+            serviceCharge: toNumber(c.serviceCharge),
+            membershipCharge: _getMembershipCharge(c, 'category'),
+        });
+    });
+
+    (vendor.selectedSubcategories || []).forEach((s) => {
+        if (!s || typeof s !== 'object') return;
+        pushItem({
+            id: _populatedId(s),
+            title: _populatedTitle(s),
+            type: 'subcategory',
+            serviceCharge: toNumber(s.serviceCharge),
+            membershipCharge: _getMembershipCharge(s, 'subcategory'),
+        });
+    });
+
+    (vendor.selectedServiceTypes || []).forEach((t) => {
+        if (!t || typeof t !== 'object') return;
+        pushItem({
+            id: _populatedId(t),
+            title: _populatedTitle(t),
+            type: 'serviceType',
+            serviceCharge: toNumber(t.serviceCharge),
+            membershipCharge: _getMembershipCharge(t, 'serviceType'),
+        });
+    });
+
+    (vendor.selectedServices || []).forEach((s) => {
+        if (!s || typeof s !== 'object') return;
+        pushItem({
+            id: _populatedId(s),
+            title: _populatedTitle(s),
+            type: 'service',
+            serviceCharge: toNumber(s.serviceCharge),
+            membershipCharge: _getMembershipCharge(s, 'service'),
+        });
+    });
+
+    (vendor.categorySubscriptions || []).forEach((sub) => {
+        const cat = sub?.category;
+        if (cat && typeof cat === 'object') {
+            pushItem({
+                id: _populatedId(cat),
+                title: _populatedTitle(cat),
+                type: 'category',
+                serviceCharge: toNumber(cat.serviceCharge),
+                membershipCharge: _getMembershipCharge(cat, 'category'),
+            });
+        }
+        (sub?.subcategories || []).forEach((s) => {
+            if (!s || typeof s !== 'object') return;
+            pushItem({
+                id: _populatedId(s),
+                title: _populatedTitle(s),
+                type: 'subcategory',
+                serviceCharge: toNumber(s.serviceCharge),
+                membershipCharge: _getMembershipCharge(s, 'subcategory'),
+            });
+        });
+        (sub?.services || []).forEach((s) => {
+            if (!s || typeof s !== 'object') return;
+            pushItem({
+                id: _populatedId(s),
+                title: _populatedTitle(s),
+                type: 'service',
+                serviceCharge: toNumber(s.serviceCharge),
+                membershipCharge: _getMembershipCharge(s, 'service'),
+            });
+        });
+    });
+
+    return breakdown;
+};
 
 /**
  * Internal helper to calculate membership fees consistently across APIs
@@ -252,16 +374,28 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, membershi
     let plan = null;
     // Prioritize membershipId (CreditPlan ID) if provided
     if (membershipId) {
-        plan = await CreditPlan.findById(membershipId).lean();
+        try {
+            plan = await CreditPlan.findById(membershipId).lean();
+        } catch (err) {
+            plan = null;
+        }
     }
 
     // Fallback to durationMonths if plan not found by ID
     if (!plan) {
         const months = Number(durationMonths || vendor?.membership?.durationMonths || 3);
-        plan = await getPlanByDuration(months);
+        try {
+            plan = await getPlanByDuration(months);
+        } catch (err) {
+            plan = {
+                _id: null,
+                price: Number(vendor?.membership?.membershipFee || vendor?.membership?.fee || 0),
+                validityDays: Math.max(1, months) * 30,
+            };
+        }
     }
 
-    const baseFee = Number(plan.price || 0);
+    const baseFee = Number(plan?.price || 0);
 
     let items = {
         categories: [],
@@ -331,8 +465,13 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, membershi
             const id = String(ref).trim();
             return id || null;
         }
+        if (ref instanceof mongoose.Types.ObjectId || ref._bsontype === 'ObjectId') {
+            return String(ref);
+        }
         if (typeof ref === 'object') {
-            if (ref._id != null) return resolveRefId(ref._id);
+            if (Object.prototype.hasOwnProperty.call(ref, '_id') && ref._id != null && ref._id !== ref) {
+                return resolveRefId(ref._id);
+            }
             if (ref.$oid) return String(ref.$oid).trim() || null;
             if (typeof ref.toString === 'function') {
                 const asString = ref.toString();
@@ -458,8 +597,19 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, membershi
     };
 };
 
+const _resolveCouponIdentifier = (input = {}) =>
+    input.couponId ||
+    input.couponID ||
+    input.coupon_id ||
+    input.couponCode ||
+    input.coupon_code ||
+    input.code ||
+    null;
+
+const _isMongoObjectId = (value) => /^[a-fA-F0-9]{24}$/.test(String(value || '').trim());
+
 /**
- * Resolve a vendor coupon by id (or code) and apply it to the membership subtotal.
+ * Resolve a vendor coupon by id or code (e.g. DEMO11) and apply it to the membership subtotal.
  * GST is recalculated on the discounted subtotal. Does not change API response shape.
  */
 const _applyMembershipCoupon = async ({ couponId, vendorId, combinedSubtotal, gstPercent }) => {
@@ -472,12 +622,13 @@ const _applyMembershipCoupon = async ({ couponId, vendorId, combinedSubtotal, gs
         getCouponUsageLimitMessage,
     } = require('../../utils/couponValidity');
 
+    const couponRef = String(couponId).trim();
     let coupon = null;
-    if (mongoose.Types.ObjectId.isValid(couponId)) {
-        coupon = await Coupon.findById(couponId);
+    if (_isMongoObjectId(couponRef)) {
+        coupon = await Coupon.findById(couponRef);
     }
     if (!coupon) {
-        coupon = await Coupon.findOne({ code: String(couponId).trim().toUpperCase() });
+        coupon = await Coupon.findOne({ code: couponRef.toUpperCase() });
     }
     if (!coupon || !coupon.isActive) {
         throw new ApiError(400, 'Invalid or inactive coupon');
@@ -537,6 +688,68 @@ const _couponMetadata = (applied) => {
         couponDiscount: applied.couponDiscount,
         discountType: applied.discountType,
         discountValue: applied.discountValue,
+    };
+};
+
+/**
+ * Get full coupon details by code (or id) for the logged-in vendor.
+ */
+const getVendorCoupon = async (vendorId, couponRef) => {
+    const codeOrId = String(couponRef || '').trim();
+    if (!codeOrId) {
+        throw new ApiError(400, 'Coupon code is required');
+    }
+
+    const Coupon = require('../../models/Coupon.model');
+    const {
+        getCouponWindow,
+        getCouponStatusMessage,
+        isAccountEligibleForCoupon,
+        getUsageLimitPerUser,
+        countCouponUsesByAccount,
+        getCouponUsageLimitMessage,
+    } = require('../../utils/couponValidity');
+
+    let coupon = null;
+    if (_isMongoObjectId(codeOrId)) {
+        coupon = await Coupon.findById(codeOrId);
+    }
+    if (!coupon) {
+        coupon = await Coupon.findOne({ code: codeOrId.toUpperCase() });
+    }
+    if (!coupon) {
+        throw new ApiError(404, 'Coupon not found');
+    }
+
+    const vendor = await Vendor.findById(vendorId).select('_id');
+    if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const now = new Date();
+    const window = getCouponWindow(coupon);
+    const statusMessage = !coupon.isActive ? 'Coupon is inactive' : getCouponStatusMessage(coupon, now);
+    const eligible = isAccountEligibleForCoupon(coupon, vendorId, 'vendor');
+    const usageLimitPerUser = getUsageLimitPerUser(coupon);
+    const timesUsed = await countCouponUsesByAccount(coupon.code, vendorId, {
+        role: 'vendor',
+        couponId: coupon._id,
+    });
+    const usageLimitMessage = await getCouponUsageLimitMessage(coupon, vendorId, 'vendor');
+
+    const couponJson = coupon.toJSON ? coupon.toJSON() : coupon;
+    delete couponJson.applicableUsers;
+    delete couponJson.applicableVendors;
+    delete couponJson.createdBy;
+
+    return {
+        ...couponJson,
+        startDate: window.start,
+        endDate: window.end,
+        isValid: !statusMessage && eligible && !usageLimitMessage,
+        statusMessage: statusMessage || (!eligible ? 'This coupon is not applicable for you' : usageLimitMessage),
+        eligible,
+        usageLimitPerUser,
+        timesUsed,
+        remainingUses: usageLimitPerUser ? Math.max(0, usageLimitPerUser - timesUsed) : null,
     };
 };
 
@@ -646,6 +859,14 @@ const getAllVendors = async () => {
                 vendor.membershipPlan = vendor.membership.membershipId.name;
             }
         }
+
+        const itemBreakdown = _buildItemBreakdownFromPopulatedVendor(vendor);
+        vendor.itemBreakdown = itemBreakdown;
+        vendor.registrationCharges = itemBreakdown;
+        vendor.membership = vendor.membership || {};
+        vendor.membership.itemBreakdown = itemBreakdown;
+        vendor.serviceStartDate = vendor.serviceRenewal?.startDate || null;
+        vendor.serviceExpiryDate = vendor.serviceRenewal?.expiryDate || null;
 
         const hasPendingDeletionApproval = Boolean(vendor.deletionRequest?.isRequested) && vendor.deletionRequest?.status === 'PENDING';
         const hasPendingServiceApproval = (vendor.serviceApprovalStatus || 'pending') === 'pending';
@@ -762,11 +983,14 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
     
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
-    const couponId = overrides.couponId || overrides.couponID || overrides.coupon_id || null;
+    const couponId = _resolveCouponIdentifier(overrides);
     const selectionOverrides = { ...overrides };
     delete selectionOverrides.couponId;
     delete selectionOverrides.couponID;
     delete selectionOverrides.coupon_id;
+    delete selectionOverrides.couponCode;
+    delete selectionOverrides.coupon_code;
+    delete selectionOverrides.code;
 
     const PAID_STEPS = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED', 'SIGNUP_COMPLETED'];
     const vendorAlreadyPaid = PAID_STEPS.includes(vendor.registrationStep) || vendor.isVerified;
@@ -858,6 +1082,8 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         durationMonths: calc.durationMonths,
         plans: plansInfo,
         services: calc.itemBreakdown,
+        itemBreakdown: calc.itemBreakdown,
+        registrationCharges: calc.itemBreakdown,
         serviceSelectionsTotal: useLockedAmounts ? (lockedServiceFee ?? calc.servicesSubtotal) : calc.servicesSubtotal,
         selectedServices,
         selectedServiceNames: selectedServices.map((service) => service.title),
@@ -882,7 +1108,9 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
  * Create Razorpay order for membership payment
  * vendorId is extracted from token (req.user), NOT from URL
  */
-const createMembershipOrder = async (vendorId, { durationMonths, amount, membershipId, planId, couponId, couponID, coupon_id } = {}) => {
+const createMembershipOrder = async (vendorId, payload = {}) => {
+    const { durationMonths, amount, membershipId, planId } = payload;
+    let couponId = _resolveCouponIdentifier(payload);
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
@@ -900,7 +1128,6 @@ const createMembershipOrder = async (vendorId, { durationMonths, amount, members
 
     // Accept planId as an alias for membershipId (the app sends planId from the plan selection screen)
     const resolvedMembershipId = membershipId || planId || null;
-    couponId = couponId || couponID || coupon_id;
 
     // Update durationMonths if provided
     if (durationMonths) {
@@ -2487,7 +2714,8 @@ const updateVendorProfile = async (vendorId, profileData) => {
  * Verify Razorpay membership payment signature
  * On success — activates vendor membership
  */
-const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature, membershipId, planId, couponId }) => {
+const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_payment_id, razorpay_signature, membershipId, planId, couponId, couponID, coupon_id, couponCode, coupon_code, code }) => {
+    couponId = _resolveCouponIdentifier({ couponId, couponID, coupon_id, couponCode, coupon_code, code });
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
         throw new ApiError(400, 'razorpay_order_id, razorpay_payment_id and razorpay_signature are required');
     }
@@ -2592,11 +2820,12 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         if (couponId && !paymentRecord.metadata?.couponId) {
             try {
                 const Coupon = require('../../models/Coupon.model');
-                let coupon = mongoose.Types.ObjectId.isValid(couponId)
-                    ? await Coupon.findById(couponId)
+                const couponRef = String(couponId).trim();
+                let coupon = _isMongoObjectId(couponRef)
+                    ? await Coupon.findById(couponRef)
                     : null;
                 if (!coupon) {
-                    coupon = await Coupon.findOne({ code: String(couponId).trim().toUpperCase() });
+                    coupon = await Coupon.findOne({ code: couponRef.toUpperCase() });
                 }
                 paymentRecord.metadata = {
                     ...(paymentRecord.metadata || {}),
@@ -5289,4 +5518,5 @@ module.exports = {
     getAvailablePurchaseCategories,
     calculatePurchasePaymentDetail,
     createPurchaseOrder,
+    getVendorCoupon,
 };
