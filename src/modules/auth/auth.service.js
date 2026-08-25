@@ -1198,18 +1198,20 @@ const verifyVendorContact = async (email, phoneNumber) => {
 };
 
 const verifyUserContact = async (email, phoneNumber) => {
-  const normalizedEmail = String(email).trim().toLowerCase();
   const phoneTaken = await User.exists({ phoneNumber });
-  const emailTaken = await User.exists({ email: normalizedEmail });
-
-  if (phoneTaken && emailTaken) {
-    throw new ApiError(400, MESSAGES.USER.CONTACT_ALREADY_EXISTS);
-  }
   if (phoneTaken) {
     throw new ApiError(400, MESSAGES.USER.PHONE_ALREADY_EXISTS);
   }
-  if (emailTaken) {
-    throw new ApiError(400, MESSAGES.USER.EMAIL_ALREADY_EXISTS);
+
+  const normalizedEmail = email != null && String(email).trim()
+    ? String(email).trim().toLowerCase()
+    : null;
+
+  if (normalizedEmail) {
+    const emailTaken = await User.exists({ email: normalizedEmail });
+    if (emailTaken) {
+      throw new ApiError(400, MESSAGES.USER.EMAIL_ALREADY_EXISTS);
+    }
   }
 
   return { available: true, message: MESSAGES.USER.CONTACT_AVAILABLE };

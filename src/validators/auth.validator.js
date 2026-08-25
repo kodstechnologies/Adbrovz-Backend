@@ -444,10 +444,10 @@ const vendorVerifyContactSchema = Joi.object({
 const userVerifyContactSchema = Joi.object({
   email: Joi.string()
     .email()
-    .required()
+    .optional()
+    .allow('', null)
     .messages({
       'string.email': 'Invalid email format',
-      'any.required': 'Email is required',
     }),
   phoneNumber: Joi.string()
     .pattern(phonePattern)
