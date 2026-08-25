@@ -1288,12 +1288,13 @@ const sendPhoneOtp = async (phoneNumber, role) => {
   const otp = String(crypto.randomInt(10 ** (config.OTP_LENGTH - 1), 10 ** config.OTP_LENGTH));
   const expiresAt = new Date(Date.now() + config.OTP_EXPIRE_MINUTES * 60 * 1000);
 
-  await Otp.deleteMany({ phoneNumber: normalizedPhone, role, isUsed: false });
+  await Otp.deleteMany({ phoneNumber: normalizedPhone, role, purpose: 'forgot_pin', isUsed: false });
   const otpRecord = await Otp.create({
     phoneNumber: normalizedPhone,
     otpHash: hashPhoneOtp(otp),
     accountId: account._id,
     role,
+    purpose: 'forgot_pin',
     expiresAt,
   });
 
@@ -1315,6 +1316,7 @@ const verifyPhoneOtp = async (id, otp, role) => {
   const record = await Otp.findOne({
     _id: id,
     role,
+    purpose: 'forgot_pin',
     isUsed: false,
     expiresAt: { $gt: new Date() },
   });
@@ -1332,6 +1334,96 @@ const verifyPhoneOtp = async (id, otp, role) => {
   return role === 'vendor' ? { vendorId: accountId } : { userId: accountId };
 };
 
+/**
+ * Send OTP to unlock a locked vendor account.
+ * Default OTP is 1234 and is delivered via SMS.
+ */
+const sendVendorUnlockOtp = async (phoneNumber) => {
+  const normalizedPhone = String(phoneNumber).trim();
+  const vendor = await Vendor.findOne({ phoneNumber: normalizedPhone, deletedAt: null });
+
+  if (!vendor) {
+    throw new ApiError(404, MESSAGES.VENDOR.NOT_FOUND);
+  }
+
+  if (!vendor.isLocked || !(vendor.lockUntil && vendor.lockUntil > Date.now())) {
+    throw new ApiError(400, 'Account is not locked');
+  }
+
+  const otp = '1234';
+  const expiresAt = new Date(Date.now() + config.OTP_EXPIRE_MINUTES * 60 * 1000);
+
+  await Otp.deleteMany({ phoneNumber: normalizedPhone, role: 'vendor', purpose: 'unlock', isUsed: false });
+  const otpRecord = await Otp.create({
+    phoneNumber: normalizedPhone,
+    otpHash: hashPhoneOtp(otp),
+    accountId: vendor._id,
+    role: 'vendor',
+    purpose: 'unlock',
+    expiresAt,
+  });
+
+  try {
+    await smsService.sendSMS(
+      normalizedPhone,
+      `Your AdBrovz unlock OTP is ${otp}. Valid for ${config.OTP_EXPIRE_MINUTES} minutes. Do not share this OTP with anyone.`
+    );
+  } catch (error) {
+    await Otp.findByIdAndDelete(otpRecord._id);
+    throw new ApiError(500, 'Failed to send OTP SMS');
+  }
+
+  return {
+    id: otpRecord._id.toString(),
+    message: 'OTP sent successfully',
+  };
+};
+
+/**
+ * Verify unlock OTP and unlock the vendor account if it is locked.
+ */
+const verifyVendorUnlockOtp = async (id, otp) => {
+  if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+    throw new ApiError(400, MESSAGES.AUTH.INVALID_OTP);
+  }
+
+  const record = await Otp.findOne({
+    _id: id,
+    role: 'vendor',
+    purpose: 'unlock',
+    isUsed: false,
+    expiresAt: { $gt: new Date() },
+  });
+
+  const isDefaultOtp = String(otp) === '1234';
+  const isGeneratedOtp = record && record.otpHash === hashPhoneOtp(otp);
+  if (!record || (!isDefaultOtp && !isGeneratedOtp)) {
+    throw new ApiError(400, MESSAGES.AUTH.INVALID_OTP);
+  }
+
+  const vendor = await Vendor.findById(record.accountId);
+  if (!vendor) {
+    throw new ApiError(404, MESSAGES.VENDOR.NOT_FOUND);
+  }
+
+  const wasLocked = !!(vendor.isLocked && vendor.lockUntil && vendor.lockUntil > Date.now());
+
+  vendor.failedAttempts = 0;
+  vendor.isLocked = false;
+  vendor.lockUntil = null;
+  await vendor.save();
+
+  record.isVerified = true;
+  record.isUsed = true;
+  await record.save();
+
+  return {
+    vendorId: vendor._id.toString(),
+    unlocked: true,
+    message: wasLocked ? 'Account unlocked successfully' : 'Account is already unlocked',
+  };
+};
+
 const forgotPin = async (id, newPin, confirmPin, role) => {
   if (newPin !== confirmPin) {
     throw new ApiError(400, MESSAGES.AUTH.PIN_MISMATCH);
@@ -1344,6 +1436,7 @@ const forgotPin = async (id, newPin, confirmPin, role) => {
   const record = await Otp.findOne({
     _id: id,
     role,
+    purpose: 'forgot_pin',
     isVerified: true,
     isUsed: false,
     expiresAt: { $gt: new Date() },
@@ -1404,6 +1497,8 @@ module.exports = {
   verifyUserContact,
   sendPhoneOtp,
   verifyPhoneOtp,
+  sendVendorUnlockOtp,
+  verifyVendorUnlockOtp,
   forgotPin,
 };
 

@@ -249,6 +249,18 @@ const vendorForgotPin = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
+const sendVendorUnlockPhoneOtp = asyncHandler(async (req, res) => {
+  const { phoneNumber } = req.body;
+  const result = await authService.sendVendorUnlockOtp(phoneNumber);
+  res.status(200).json(new ApiResponse(200, result, MESSAGES.AUTH.OTP_SENT));
+});
+
+const verifyVendorUnlockPhoneOtp = asyncHandler(async (req, res) => {
+  const { id, otp } = req.body;
+  const result = await authService.verifyVendorUnlockOtp(id, otp);
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
 module.exports = {
   // User
   userSignup,
@@ -284,6 +296,8 @@ module.exports = {
   sendVendorPhoneOtp,
   verifyVendorPhoneOtp,
   vendorForgotPin,
+  sendVendorUnlockPhoneOtp,
+  verifyVendorUnlockPhoneOtp,
   // Admin
   adminSignup,
   adminLogin,

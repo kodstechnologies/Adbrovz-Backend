@@ -75,6 +75,19 @@ router.post('/vendors/send-phone-otp', otpLimiter, validateSendPhoneOtp, authCon
 router.post('/vendors/verify-phone-otp', authLimiter, validateVerifyPhoneOtp, authController.verifyVendorPhoneOtp);
 router.post('/vendors/forgot-pin', authLimiter, validateForgotPin, authController.vendorForgotPin);
 
+router.post(
+  '/vendors/unlucky-number/send-phone-otp',
+  otpLimiter,
+  validateSendPhoneOtp,
+  authController.sendVendorUnlockPhoneOtp
+);
+router.post(
+  '/vendors/unlucky-number/verify-phone-otp',
+  authLimiter,
+  validateVerifyPhoneOtp,
+  authController.verifyVendorUnlockPhoneOtp
+);
+
 // ======================== ADMIN ROUTES ========================
 router.post('/admins/signup', authLimiter, validateAdminSignup, authController.adminSignup);
 router.post('/admins/login', authLimiter, validateAdminLogin, authController.adminLogin);

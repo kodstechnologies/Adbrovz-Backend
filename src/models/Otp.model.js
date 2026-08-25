@@ -35,6 +35,12 @@ const otpSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    purpose: {
+      type: String,
+      enum: ['forgot_pin', 'unlock'],
+      default: 'forgot_pin',
+      index: true,
+    },
   },
   {
     timestamps: true,
@@ -42,7 +48,7 @@ const otpSchema = new mongoose.Schema(
 );
 
 otpSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-otpSchema.index({ phoneNumber: 1, role: 1, isUsed: 1 });
+otpSchema.index({ phoneNumber: 1, role: 1, purpose: 1, isUsed: 1 });
 
 const Otp = mongoose.model('Otp', otpSchema);
 
