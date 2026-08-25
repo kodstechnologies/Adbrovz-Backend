@@ -743,12 +743,7 @@ const initiateVendorLogin = async ({ phoneNumber }) => {
   }
   */
 
-  // Allow vendors to proceed to PIN entry, but the app should handle the 405 differently if needed.
-  // We're restoring the block here but using 405 per use request.
-
-  if (vendor.isLocked && vendor.lockUntil > Date.now()) {
-    throw new ApiError(403, MESSAGES.AUTH.ACCOUNT_LOCKED);
-  }
+  const isAccountLock = !!(vendor.isLocked && vendor.lockUntil && vendor.lockUntil > Date.now());
 
   const loginId = crypto.randomUUID();
   const loginKey = `login:session:vendor:${loginId}`;
@@ -758,7 +753,10 @@ const initiateVendorLogin = async ({ phoneNumber }) => {
 
   return {
     loginId,
-    message: 'Please enter your PIN.',
+    isAccountLock,
+    message: isAccountLock
+      ? MESSAGES.AUTH.ACCOUNT_LOCKED
+      : 'Please enter your PIN.',
   };
 };
 
