@@ -1178,7 +1178,7 @@ const updateVendorPin = async (vendorId, oldPin, newPin, confirmPin) => {
 };
 
 const verifyVendorContact = async (email, phoneNumber) => {
-  const phoneTaken = await Vendor.exists({ phoneNumber }) || await User.exists({ phoneNumber });
+  const phoneTaken = await Vendor.exists({ phoneNumber });
   if (phoneTaken) {
     throw new ApiError(400, MESSAGES.VENDOR.PHONE_ALREADY_EXISTS);
   }
@@ -1188,7 +1188,7 @@ const verifyVendorContact = async (email, phoneNumber) => {
     : null;
 
   if (normalizedEmail) {
-    const emailTaken = await Vendor.exists({ email: normalizedEmail }) || await User.exists({ email: normalizedEmail });
+    const emailTaken = await Vendor.exists({ email: normalizedEmail });
     if (emailTaken) {
       throw new ApiError(400, MESSAGES.VENDOR.EMAIL_ALREADY_EXISTS);
     }
@@ -1199,8 +1199,8 @@ const verifyVendorContact = async (email, phoneNumber) => {
 
 const verifyUserContact = async (email, phoneNumber) => {
   const normalizedEmail = String(email).trim().toLowerCase();
-  const phoneTaken = await User.exists({ phoneNumber }) || await Vendor.exists({ phoneNumber });
-  const emailTaken = await User.exists({ email: normalizedEmail }) || await Vendor.exists({ email: normalizedEmail });
+  const phoneTaken = await User.exists({ phoneNumber });
+  const emailTaken = await User.exists({ email: normalizedEmail });
 
   if (phoneTaken && emailTaken) {
     throw new ApiError(400, MESSAGES.USER.CONTACT_ALREADY_EXISTS);
