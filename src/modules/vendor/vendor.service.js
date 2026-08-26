@@ -1240,17 +1240,10 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
     }
 
     if (parsedAmount !== null) {
-        // Client amount is the exact Razorpay payable.
+        // Mobile already calculated the payable. Coupon is stored only — never reduce amount.
         totalFee = parsedAmount;
         combinedSubtotal = parsedAmount;
         finalGst = 0;
-        if (couponId && parsedAmount > 0) {
-            appliedCoupon = await _getVendorCouponDiscount({
-                couponId,
-                vendorId,
-                baseAmount: parsedAmount,
-            });
-        }
     } else if (couponId) {
         appliedCoupon = await _applyMembershipCoupon({
             couponId,
@@ -3838,22 +3831,12 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
         throw new ApiError(400, 'Valid amount is required');
     }
 
-    // If client sends amount, that is the base total to calculate and pay.
+    // Mobile already calculated the payable. Use that amount as-is. Do not apply coupon again.
     let totalFee = parsedAmount !== null ? parsedAmount : Number(feeDetails.totalFee || 0);
-    let appliedCoupon = null;
-    if (couponId && totalFee > 0) {
-        appliedCoupon = await _getVendorCouponDiscount({
-            couponId,
-            vendorId,
-            baseAmount: totalFee,
-        });
-        totalFee = appliedCoupon.discountedAmount;
-    }
 
     const paymentMetadata = {
         ...(feeDetails.breakdown || {}),
-        ..._couponMetadata(appliedCoupon),
-        ...(couponId && !appliedCoupon ? await _resolveCouponMetadata(couponId) : {})
+        ...(couponId ? await _resolveCouponMetadata(couponId) : {})
     };
 
     // Validate fee amount
