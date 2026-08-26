@@ -465,11 +465,12 @@ const getMembershipRenewalFee = asyncHandler(async (req, res) => {
  */
 const createMembershipRenewalOrder = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
-    const { durationMonths, planId, membershipId, couponId, couponID, coupon_id } = req.body || {};
+    const { durationMonths, planId, membershipId, couponId, couponID, coupon_id, amount, totalAmount, totalFee } = req.body || {};
     const result = await vendorService.createMembershipRenewalOrder(vendorId, {
         durationMonths,
         planId: planId || membershipId,
         couponId: couponId || couponID || coupon_id,
+        amount: amount ?? totalAmount ?? totalFee,
     });
     res.status(200).json(
         new ApiResponse(200, result, 'Membership renewal order created successfully')

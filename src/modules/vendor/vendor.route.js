@@ -125,6 +125,7 @@ router.get('/membership/hierarchical-charges', authenticate, authorize(ROLES.VEN
 router.get('/membership-plans-with-status', authenticate, authorize(ROLES.VENDOR), vendorController.getMembershipPlansWithStatus);
 router.post('/membership/renewal/create-order', authenticate, authorize(ROLES.VENDOR), vendorController.createMembershipRenewalOrder);
 router.post('/membership/renewal/createOrder', authenticate, authorize(ROLES.VENDOR), vendorController.createMembershipRenewalOrder);
+router.post('/membership/renewal/create', authenticate, authorize(ROLES.VENDOR), vendorController.createMembershipRenewalOrder);
 router.post('/membership/renewal/verify-payment', authenticate, authorize(ROLES.VENDOR), vendorController.verifyMembershipRenewalPayment);
 router.post('/membership/renewal/verify', authenticate, authorize(ROLES.VENDOR), vendorController.verifyMembershipRenewalPayment);
 

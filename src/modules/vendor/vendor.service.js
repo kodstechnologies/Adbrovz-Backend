@@ -3696,11 +3696,17 @@ const getMembershipRenewalFeeDetails = async (vendorId, { planId, membershipId, 
 /**
  * Membership Renewal: Create order
  */
-const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, durationMonths, couponId, couponID, coupon_id } = {}) => {
+const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, durationMonths, couponId, couponID, coupon_id, amount } = {}) => {
     couponId = couponId || couponID || coupon_id;
     const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { planId, membershipId, durationMonths });
 
-    let totalFee = Number(feeDetails.totalFee || 0);
+    const parsedAmount = amount === undefined || amount === null || amount === '' ? null : Number(amount);
+    if (parsedAmount !== null && (!Number.isFinite(parsedAmount) || parsedAmount < 0)) {
+        throw new ApiError(400, 'Valid amount is required');
+    }
+
+    // If client sends amount, that is the base total to calculate and pay.
+    let totalFee = parsedAmount !== null ? parsedAmount : Number(feeDetails.totalFee || 0);
     let appliedCoupon = null;
     if (couponId) {
         appliedCoupon = await _getVendorCouponDiscount({
