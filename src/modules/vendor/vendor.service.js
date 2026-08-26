@@ -2204,6 +2204,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
             categoryMap.set(catId, {
                 categoryId: cat._id,
                 categoryName: cat.name,
+                icon: cat.icon || null,
                 categoryCharge: _getMembershipCharge(cat, 'category'),
                 isPurchased: finalPurchasedCategoryIds.has(catId),
                 subCategories: []
@@ -2219,6 +2220,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
             subNode = {
                 subcategoryId: sub._id,
                 subcategoryName: sub.name,
+                icon: sub.icon || null,
                 subcategoryCharge: _getMembershipCharge(sub, 'subcategory'),
                 isPurchased: finalPurchasedSubcategoryIds.has(subId),
                 types: []
@@ -2235,6 +2237,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
             typeNode = {
                 typeId: type._id,
                 typeName: type.name,
+                photo: type.photo || null,
                 typeCharge: _getMembershipCharge(type, 'serviceType'),
                 // A type is purchased if it has a purchased service OR was selected during registration
                 isPurchased: finalPurchasedTypeIds.has(typeId),
@@ -2281,6 +2284,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
         typeNode.services.push({
             serviceId: service._id,
             serviceName: service.title,
+            photo: service.photo || null,
             serviceCharge: serviceRegistrationCharge,
             isPurchased: isServicePurchased,
             isSelectable: !isServicePurchased,
@@ -4776,35 +4780,54 @@ const getExtraServiceApprovalRequests = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId)
         .select('extraServiceRequests selectedServices')
         .populate('extraServiceRequests.requestedBy', 'name phoneNumber vendorID')
-        .populate('extraServiceRequests.category', 'name')
-        .populate('extraServiceRequests.subcategories', 'name')
-        .populate('extraServiceRequests.services', 'title');
+        .populate('extraServiceRequests.category', 'name icon')
+        .populate('extraServiceRequests.subcategories', 'name icon')
+        .populate('extraServiceRequests.services', 'title photo');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+    const mapService = (svc, extra = {}) => ({
+        id: svc?._id || svc,
+        title: svc?.title || extra.title || 'Unknown Service',
+        photo: svc?.photo || extra.photo || null,
+        ...extra.fields
+    });
 
     const purchasedServiceIds = new Set((vendor.selectedServices || []).map((service) => String(service?._id || service)));
     const visibleRequests = (vendor.extraServiceRequests || []).filter((req) => {
-        // Include disapproved requests so vendors can see which services were rejected
-        if (req.approvalStatus === 'disapproved') return true;
         if (req.approvalStatus !== 'approved') return true;
         const requestServiceIds = (req.services || []).map((service) => String(service?._id || service));
-        return !requestServiceIds.some((serviceId) => purchasedServiceIds.has(serviceId));
+        // Keep approved requests that still have at least one service not yet purchased
+        return requestServiceIds.some((serviceId) => !purchasedServiceIds.has(serviceId));
     });
 
     return {
-        requests: visibleRequests.map((req) => ({
-            requestId: req._id,
-           
-            approvalStatus: req.approvalStatus,
-            adminRemark: req.adminRemark || '',
-            services: (req.services || []).map((svc) => {
+        requests: visibleRequests.map((req) => {
+            const resolveStatus = (svc) => {
                 const svcId = String(svc?._id || svc);
                 let status = req.approvalStatus || 'pending';
                 if (req.serviceStatuses && req.serviceStatuses.length > 0) {
                     const ss = req.serviceStatuses.find(s => String(s.serviceId) === svcId);
                     status = ss ? ss.status : 'pending';
                 }
-                return { id: svc._id, title: svc.title, status };
-            }),
+                return status;
+            };
+
+            return {
+            requestId: req._id,
+            category: req.category ? {
+                id: req.category._id || req.category,
+                name: req.category.name || null,
+                icon: req.category.icon || null
+            } : null,
+            subcategories: (req.subcategories || []).map((sub) => ({
+                id: sub?._id || sub,
+                name: sub?.name || null,
+                icon: sub?.icon || null
+            })),
+            requestedAt: req.requestedAt || null,
+            approvalStatus: req.approvalStatus,
+            adminRemark: req.adminRemark || '',
+            services: (req.services || []).map((svc) => mapService(svc, { fields: { status: resolveStatus(svc) } })),
             approvedServices: (req.services || []).filter((svc) => {
                 const svcId = String(svc?._id || svc);
                 if (req.serviceStatuses && req.serviceStatuses.length > 0) {
@@ -4812,7 +4835,7 @@ const getExtraServiceApprovalRequests = async (vendorId) => {
                     return ss ? ss.status === 'approved' : req.approvalStatus === 'approved';
                 }
                 return req.approvalStatus === 'approved';
-            }).map((svc) => ({ id: svc._id, title: svc.title })),
+            }).map((svc) => mapService(svc)),
             pendingServices: (req.services || []).filter((svc) => {
                 const svcId = String(svc?._id || svc);
                 if (req.serviceStatuses && req.serviceStatuses.length > 0) {
@@ -4820,18 +4843,21 @@ const getExtraServiceApprovalRequests = async (vendorId) => {
                     return ss ? ss.status === 'pending' : req.approvalStatus === 'pending';
                 }
                 return req.approvalStatus === 'pending';
-            }).map((svc) => ({ id: svc._id, title: svc.title })),
+            }).map((svc) => mapService(svc)),
             disapprovedServices: req.serviceStatuses && req.serviceStatuses.length > 0
                 ? (req.serviceStatuses || [])
                     .filter(s => s.status === 'disapproved')
                     .map(s => {
                         const svc = (req.services || []).find(service => String(service?._id || service) === String(s.serviceId));
-                        return svc ? { id: svc._id, title: svc.title } : { id: s.serviceId, title: 'Disapproved Service' };
+                        return svc
+                            ? mapService(svc)
+                            : { id: s.serviceId, title: 'Disapproved Service', photo: null };
                     })
                 : (req.approvalStatus === 'disapproved'
-                    ? (req.services || []).map((svc) => ({ id: svc._id, title: svc.title }))
+                    ? (req.services || []).map((svc) => mapService(svc))
                     : []),
-        }))
+            };
+        })
     };
 };
 
