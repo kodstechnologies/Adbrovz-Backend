@@ -3880,20 +3880,27 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
 
         const membershipAmount = Number(feeDetails?.breakdown?.basePlan?.price || 0);
         const renewalAmount = Math.max(0, Number(feeDetails.subtotal || 0) - membershipAmount);
+        const duration = `${feeDetails.validityDays} days`;
         return {
             vendorId: vendorId.toString(),
+            vendorName: vendor.name || null,
             planId: feeDetails.planId,
             membershipAmount,
+            vendorBaseMembershipFee: membershipAmount,
             renewalAmount,
             gstAmount: Number(feeDetails.gstAmount || 0),
             totalAmount: 0,
             totalFee: 0,
             subtotal: Number(feeDetails.subtotal || 0),
             gstPercent: Number(feeDetails.gstPercent || 0),
+            duration,
+            durationMonths: feeDetails.durationMonths,
             validityDays: feeDetails.validityDays,
             razorpayKeyId: feeDetails.razorpayKeyId,
-            status: 'COMPLETED',
+            status: 'completed',
             razorpayOrder: null,
+            services: [],
+            serviceSelectionsTotal: renewalAmount,
             membershipVerifyPayment: true,
             isRegistered: vendor.isRegistered,
             expiryDate: newExpiryDate,
@@ -3934,26 +3941,34 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
 
     const membershipAmount = Number(feeDetails?.breakdown?.basePlan?.price || 0);
     const renewalAmount = Math.max(0, Number(feeDetails.subtotal || 0) - membershipAmount);
+    const vendor = await Vendor.findById(vendorId).select('name');
 
     return {
         vendorId: vendorId.toString(),
+        vendorName: vendor?.name || null,
         planId: feeDetails.planId,
         membershipAmount,
+        vendorBaseMembershipFee: membershipAmount,
         renewalAmount,
         gstAmount: Number(feeDetails.gstAmount || 0),
         totalAmount: Number(totalFee || 0),
         totalFee,
         subtotal: Number(feeDetails.subtotal || 0),
         gstPercent: Number(feeDetails.gstPercent || 0),
+        duration: `${feeDetails.validityDays} days`,
+        durationMonths: feeDetails.durationMonths,
         validityDays: feeDetails.validityDays,
         razorpayKeyId: feeDetails.razorpayKeyId,
+        status: razorpayOrder.status,
         razorpayOrder: {
             id: razorpayOrder.id,
             amount: razorpayOrder.amount,
             amountInRupees: razorpayOrder.amount / 100,
             currency: razorpayOrder.currency,
             status: razorpayOrder.status,
-        }
+        },
+        services: [],
+        serviceSelectionsTotal: renewalAmount,
     };
 };
 
