@@ -80,9 +80,19 @@ const countCouponUsesByAccount = async (couponCode, accountId, options = {}) => 
 
   if (role === 'vendor') {
     const PaymentRecord = require('../models/PaymentRecord.model');
-    const or = [{ 'metadata.couponCode': String(couponCode).toUpperCase() }];
+    const mongoose = require('mongoose');
+    const code = String(couponCode).toUpperCase();
+    const or = [
+      { 'metadata.couponCode': code },
+      { 'metadata.code': code },
+      { 'metadata.couponId': code },
+    ];
     if (options.couponId) {
-      or.push({ 'metadata.couponId': String(options.couponId) });
+      const couponIdStr = String(options.couponId);
+      or.push({ 'metadata.couponId': couponIdStr });
+      if (mongoose.Types.ObjectId.isValid(couponIdStr) && couponIdStr.length === 24) {
+        or.push({ 'metadata.couponId': new mongoose.Types.ObjectId(couponIdStr) });
+      }
     }
     return PaymentRecord.countDocuments({
       vendor: accountId,
@@ -111,9 +121,7 @@ const getCouponUsageLimitMessage = async (coupon, accountId, role = 'user') => {
     couponId: coupon._id,
   });
   if (used >= limit) {
-    return limit === 1
-      ? 'You have already used this coupon'
-      : `You have reached the usage limit for this coupon (${limit} times)`;
+    return 'You have already used this coupon';
   }
   return null;
 };

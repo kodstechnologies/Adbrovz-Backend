@@ -757,6 +757,25 @@ const _couponMetadata = (applied) => {
     };
 };
 
+const _resolveCouponMetadata = async (couponId) => {
+    if (!couponId) return {};
+    const Coupon = require('../../models/Coupon.model');
+    const couponRef = String(couponId).trim();
+    let coupon = _isMongoObjectId(couponRef) ? await Coupon.findById(couponRef) : null;
+    if (!coupon) {
+        coupon = await Coupon.findOne({ code: couponRef.toUpperCase() });
+    }
+    if (!coupon) {
+        return { couponId: couponRef, couponCode: couponRef.toUpperCase() };
+    }
+    return {
+        couponId: coupon._id.toString(),
+        couponCode: coupon.code,
+        discountType: coupon.discountType,
+        discountValue: coupon.discountValue,
+    };
+};
+
 /**
  * Get full coupon details by code (or id) for the logged-in vendor.
  */
@@ -800,6 +819,10 @@ const getVendorCoupon = async (vendorId, couponRef) => {
         couponId: coupon._id,
     });
     const usageLimitMessage = await getCouponUsageLimitMessage(coupon, vendorId, 'vendor');
+
+    if (usageLimitPerUser && timesUsed >= usageLimitPerUser) {
+        throw new ApiError(400, 'You have already used this coupon');
+    }
 
     const couponJson = coupon.toJSON ? coupon.toJSON() : coupon;
     delete couponJson.applicableUsers;
@@ -1251,7 +1274,7 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
         basePlanFee: calc.basePlanFee,
         durationMonths: durationMonths || calc.durationMonths,
         ..._couponMetadata(appliedCoupon),
-        ...(couponId && !appliedCoupon ? { couponId: String(couponId) } : {})
+        ...(couponId && !appliedCoupon ? await _resolveCouponMetadata(couponId) : {})
     };
 
     if (totalFee < 0) {
@@ -3830,7 +3853,7 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
     const paymentMetadata = {
         ...(feeDetails.breakdown || {}),
         ..._couponMetadata(appliedCoupon),
-        ...(couponId && !appliedCoupon ? { couponId: String(couponId) } : {})
+        ...(couponId && !appliedCoupon ? await _resolveCouponMetadata(couponId) : {})
     };
 
     // Validate fee amount
