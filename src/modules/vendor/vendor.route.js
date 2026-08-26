@@ -74,6 +74,7 @@ router.post('/purchase-categories/verify-payment', authenticate, authorize(ROLES
 router.get('/purchase-categories', authenticate, authorize(ROLES.VENDOR), vendorController.getPurchaseCategories);
 
 // Registration utility routes (Can be called during registration flow)
+router.get('/get-coupons', authenticate, authorize(ROLES.VENDOR), vendorController.getCoupons);
 router.post('/get-membership', vendorController.getMembership);
 router.get('/membership-plans', optionalAuth, vendorController.getMembershipPlans);
 router.get('/membership-detail', authenticate, authorize(ROLES.VENDOR), vendorController.getVendorMembership);
