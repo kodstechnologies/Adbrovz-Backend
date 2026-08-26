@@ -1175,7 +1175,7 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
  * vendorId is extracted from token (req.user), NOT from URL
  */
 const createMembershipOrder = async (vendorId, payload = {}) => {
-    const { durationMonths, amount, membershipId, planId } = payload;
+    const { durationMonths, amount, totalAmount, totalFee: bodyTotalFee, membershipId, planId } = payload;
     let couponId = _resolveCouponIdentifier(payload);
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
@@ -1208,7 +1208,27 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
     let totalFee = calc.grandTotal;
     let appliedCoupon = null;
 
-    if (couponId) {
+    const requestedAmount = amount ?? totalAmount ?? bodyTotalFee;
+    const parsedAmount = requestedAmount === undefined || requestedAmount === null || requestedAmount === ''
+        ? null
+        : Number(requestedAmount);
+    if (parsedAmount !== null && (!Number.isFinite(parsedAmount) || parsedAmount < 0)) {
+        throw new ApiError(400, 'Valid amount is required');
+    }
+
+    if (parsedAmount !== null) {
+        // Client amount is the exact Razorpay payable.
+        totalFee = parsedAmount;
+        combinedSubtotal = parsedAmount;
+        finalGst = 0;
+        if (couponId) {
+            appliedCoupon = await _getVendorCouponDiscount({
+                couponId,
+                vendorId,
+                baseAmount: parsedAmount,
+            });
+        }
+    } else if (couponId) {
         appliedCoupon = await _applyMembershipCoupon({
             couponId,
             vendorId,

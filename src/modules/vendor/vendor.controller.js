@@ -216,7 +216,7 @@ const getServiceApprovalStatus = asyncHandler(async (req, res) => {
 /**
  * Create Razorpay order for membership payment
  * vendorId is taken from token — NOT from URL
- * POST /vendors/membership/create  body: { couponId | couponCode | code, planId, membershipId, durationMonths }
+ * POST /vendors/membership/create  body: { amount, couponId | couponCode | code, planId, membershipId, durationMonths }
  */
 const createMembershipOrder = asyncHandler(async (req, res) => {
     const vendorId = req.user.userId || req.user.id || req.user._id;
