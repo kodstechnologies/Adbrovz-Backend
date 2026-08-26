@@ -12,26 +12,36 @@ jobs:
 
     steps:
       - name: Deploy backend on VPS
-        run: |
-          set -e
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
 
-          echo "🚀 Starting deployment..."
+          script: |
+            set -e
 
-          cd /root/Adbrovz-Backend
+            echo "🚀 Starting deployment..."
 
-          echo "📥 Pulling latest code..."
-          git reset --hard
-          git pull origin main
+            cd /root/Adbrovz-Backend
 
-          echo "📝 Creating .env file..."
-          cat > .env <<EOF
-          ${{ secrets.ENV_FILE }}
-          EOF
+            echo "📥 Pulling latest code..."
+            git reset --hard
+            git pull origin main
 
-          echo "📦 Installing dependencies..."
-          npm install --production
+            echo "📝 Creating .env file..."
+            cat > .env <<'EOF'
+            ${{ secrets.ENV_FILE }}
+            EOF
 
-          echo "🔄 Restarting backend..."
-          pm2 restart adbrovz-backend || pm2 start src/server.js --name adbrovz-backend
+            echo "📦 Installing dependencies..."
+            npm install --production
 
-          echo "✅ Backend deployed successfully!"
+            echo "🔄 Restarting backend..."
+            pm2 restart adbrovz-backend || pm2 start src/server.js --name adbrovz-backend
+
+            echo "💾 Saving PM2 process list..."
+            pm2 save
+
+            echo "✅ Backend deployed successfully!"
