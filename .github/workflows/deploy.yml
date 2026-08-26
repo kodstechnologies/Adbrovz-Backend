@@ -10,13 +10,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check SSH connectivity
+        run: |
+          HOST="${{ secrets.VPS_HOST }}"
+          PORT="${{ secrets.VPS_PORT }}"
+          PORT="${PORT:-22}"
+
+          if [ -z "$HOST" ]; then
+            echo "VPS_HOST secret is empty. Set it to the server public IPv4 address."
+            exit 1
+          fi
+
+          echo "Checking SSH reachability on port $PORT..."
+          for i in 1 2 3 4 5 6; do
+            if nc -z -w 10 "$HOST" "$PORT"; then
+              echo "SSH port is reachable"
+              exit 0
+            fi
+            echo "Attempt $i/6 failed, retrying in 10s..."
+            sleep 10
+          done
+
+          echo "Cannot reach ${HOST}:${PORT} from GitHub Actions."
+          echo "Open TCP $PORT on the VPS firewall / cloud security group for 0.0.0.0/0 (or GitHub IP ranges)."
+          exit 1
+
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.2
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-
+          port: ${{ secrets.VPS_PORT || 22 }}
+          timeout: 90s
+          command_timeout: 30m
+          script_stop: true
           script: |
             set -e
 
