@@ -1110,6 +1110,7 @@ const _formatBooking = (bookingDoc, role) => {
     if (bookingObj.category) {
         bookingObj.categoryName = bookingObj.category.title || bookingObj.category.name || "N/A";
         bookingObj.categoryId = bookingObj.category._id ? bookingObj.category._id : bookingObj.category;
+        bookingObj.categoryImage = bookingObj.category.icon || bookingObj.category.image || bookingObj.category.photo || null;
     }
 
     // Remove rejectedServices history array from the response as requested
@@ -2138,15 +2139,29 @@ const getVendorBookingHistory = async (vendorId) => {
     })
         .select('-rejectedVendors -laterVendors')
         .populate('services.service', 'title serviceCharge photo')
+        .populate('category', 'name icon')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
 
+    const withCategoryFields = (booking) => {
+        const obj = booking.toObject ? booking.toObject() : booking;
+        const cat = obj.category;
+        const isPopulated = !!(cat && typeof cat === 'object' && (cat.name || cat.title || cat.icon));
+        obj.categoryName = isPopulated ? (cat.name || cat.title || 'N/A') : 'N/A';
+        obj.categoryImage = isPopulated ? (cat.icon || cat.image || cat.photo || null) : null;
+        obj.categoryId = isPopulated ? (cat._id || cat.id) : (cat || null);
+        if (isPopulated) {
+            obj.category = cat._id || cat.id;
+        }
+        return obj;
+    };
+
     const categorized = {
-        pending: activeAndHistoryBookings.filter(b => ['pending', 'on_the_way', 'arrived'].includes(b.status)),
-        ongoing: activeAndHistoryBookings.filter(b => b.status === 'ongoing'),
-        completed: activeAndHistoryBookings.filter(b => b.status === 'completed'),
+        pending: activeAndHistoryBookings.filter(b => ['pending', 'on_the_way', 'arrived'].includes(b.status)).map(withCategoryFields),
+        ongoing: activeAndHistoryBookings.filter(b => b.status === 'ongoing').map(withCategoryFields),
+        completed: activeAndHistoryBookings.filter(b => b.status === 'completed').map(withCategoryFields),
         cancelled: activeAndHistoryBookings.filter(b => ['cancelled', 'auto_cancelled'].includes(b.status)).map(b => {
-            const obj = b.toObject();
+            const obj = withCategoryFields(b);
             obj.cancelledBy = obj.cancellation?.cancelledBy || 'unknown';
             const cancelledByLabel = {
                 'user': 'Cancelled by User',
