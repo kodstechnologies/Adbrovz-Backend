@@ -609,6 +609,72 @@ const _resolveCouponIdentifier = (input = {}) =>
 const _isMongoObjectId = (value) => /^[a-fA-F0-9]{24}$/.test(String(value || '').trim());
 
 /**
+ * Validate a vendor coupon and subtract it from a base amount.
+ * amount: total - value (e.g. ₹100 off)
+ * percent: total - (total * value / 100) (e.g. 10% off)
+ */
+const _getVendorCouponDiscount = async ({ couponId, vendorId, baseAmount }) => {
+    if (!couponId) return null;
+
+    const Coupon = require('../../models/Coupon.model');
+    const {
+        getCouponStatusMessage,
+        isAccountEligibleForCoupon,
+        getCouponUsageLimitMessage,
+    } = require('../../utils/couponValidity');
+
+    const couponRef = String(couponId).trim();
+    let coupon = null;
+    if (_isMongoObjectId(couponRef)) {
+        coupon = await Coupon.findById(couponRef);
+    }
+    if (!coupon) {
+        coupon = await Coupon.findOne({ code: couponRef.toUpperCase() });
+    }
+    if (!coupon || !coupon.isActive) {
+        throw new ApiError(400, 'Invalid or inactive coupon');
+    }
+
+    const statusMessage = getCouponStatusMessage(coupon);
+    if (statusMessage) {
+        throw new ApiError(400, statusMessage);
+    }
+
+    if (!isAccountEligibleForCoupon(coupon, vendorId, 'vendor')) {
+        throw new ApiError(400, 'This coupon is not applicable for you');
+    }
+
+    const usageLimitMessage = await getCouponUsageLimitMessage(coupon, vendorId, 'vendor');
+    if (usageLimitMessage) {
+        throw new ApiError(400, usageLimitMessage);
+    }
+
+    const amount = Number(baseAmount) || 0;
+    if (amount <= 0) {
+        throw new ApiError(400, 'Coupon cannot be applied if amount is 0');
+    }
+
+    let discount = 0;
+    if (coupon.discountType === 'amount') {
+        discount = Number(coupon.discountValue) || 0;
+    } else if (coupon.discountType === 'percent') {
+        discount = (amount * coupon.discountValue) / 100;
+    }
+
+    discount = Math.min(discount, amount);
+    discount = Math.round(discount * 100) / 100;
+
+    return {
+        couponId: coupon._id.toString(),
+        couponCode: coupon.code,
+        discountType: coupon.discountType,
+        discountValue: coupon.discountValue,
+        couponDiscount: discount,
+        discountedAmount: Math.max(0, Math.round((amount - discount) * 100) / 100),
+    };
+};
+
+/**
  * Resolve a vendor coupon by id or code (e.g. DEMO11) and apply it to the membership subtotal.
  * GST is recalculated on the discounted subtotal. Does not change API response shape.
  */
@@ -3630,50 +3696,80 @@ const getMembershipRenewalFeeDetails = async (vendorId, { planId, membershipId, 
 /**
  * Membership Renewal: Create order
  */
-const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, durationMonths } = {}) => {
+const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, durationMonths, couponId, couponID, coupon_id } = {}) => {
+    couponId = couponId || couponID || coupon_id;
     const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { planId, membershipId, durationMonths });
 
+    let totalFee = Number(feeDetails.totalFee || 0);
+    let appliedCoupon = null;
+    if (couponId) {
+        appliedCoupon = await _getVendorCouponDiscount({
+            couponId,
+            vendorId,
+            baseAmount: totalFee,
+        });
+        totalFee = appliedCoupon.discountedAmount;
+    }
+
+    const paymentMetadata = {
+        ...(feeDetails.breakdown || {}),
+        ..._couponMetadata(appliedCoupon),
+    };
+
     // Validate fee amount
-    if (feeDetails.totalFee < 0) {
+    if (totalFee < 0) {
         throw new ApiError(400, 'Renewal fee cannot be negative.');
     }
-    if (feeDetails.totalFee === 0) {
-        // No payment needed, create completed payment record
+    if (totalFee === 0) {
         await PaymentRecord.create({
             vendor: vendorId,
-            orderId: null,
+            orderId: `free_mren_${String(vendorId).slice(-8)}_${Date.now()}`,
             purpose: 'MEMBERSHIP_RENEWAL',
             amount: 0,
             gstAmount: 0,
             totalAmount: 0,
             planId: feeDetails.planId,
             validityDays: feeDetails.validityDays,
-            metadata: feeDetails.breakdown,
+            metadata: paymentMetadata,
             status: 'COMPLETED'
         });
-        return { ...feeDetails, status: 'COMPLETED', razorpayOrder: null };
+        const membershipAmount = Number(feeDetails?.breakdown?.basePlan?.price || 0);
+        const renewalAmount = Math.max(0, Number(feeDetails.subtotal || 0) - membershipAmount);
+        return {
+            vendorId: vendorId.toString(),
+            planId: feeDetails.planId,
+            membershipAmount,
+            renewalAmount,
+            gstAmount: Number(feeDetails.gstAmount || 0),
+            totalAmount: 0,
+            totalFee: 0,
+            subtotal: Number(feeDetails.subtotal || 0),
+            gstPercent: Number(feeDetails.gstPercent || 0),
+            validityDays: feeDetails.validityDays,
+            razorpayKeyId: feeDetails.razorpayKeyId,
+            status: 'COMPLETED',
+            razorpayOrder: null
+        };
     }
-
 
     let razorpayOrder;
     try {
         razorpayOrder = await getRazorpay().orders.create({
-            amount: Math.round(feeDetails.totalFee * 100),
+            amount: Math.round(totalFee * 100),
             currency: 'INR',
             receipt: `m_ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
         });
 
-        // Log the pending payment record
         await PaymentRecord.create({
             vendor: vendorId,
             orderId: razorpayOrder.id,
             purpose: 'MEMBERSHIP_RENEWAL',
             amount: feeDetails.subtotal,
             gstAmount: feeDetails.gstAmount,
-            totalAmount: feeDetails.totalFee,
+            totalAmount: totalFee,
             planId: feeDetails.planId,
             validityDays: feeDetails.validityDays,
-            metadata: feeDetails.breakdown,
+            metadata: paymentMetadata,
             status: 'PENDING'
         });
     } catch (error) {
@@ -3691,8 +3787,8 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
         membershipAmount,
         renewalAmount,
         gstAmount: Number(feeDetails.gstAmount || 0),
-        totalAmount: Number(feeDetails.totalFee || 0),
-        totalFee: feeDetails.totalFee,
+        totalAmount: Number(totalFee || 0),
+        totalFee,
         subtotal: Number(feeDetails.subtotal || 0),
         gstPercent: Number(feeDetails.gstPercent || 0),
         validityDays: feeDetails.validityDays,

@@ -69,11 +69,6 @@ router.post('/purchase-categories/payment-details',
     },
     vendorController.getPurchasePaymentDetail
 );
-
-router.get('/get-coupons', authenticate, authorize(ROLES.VENDOR), vendorController.getCoupons);
-router.get('/get-coupons/:code', authenticate, authorize(ROLES.VENDOR), vendorController.getCoupons); 
-
-
 router.post('/purchase-categories/create-order', authenticate, authorize(ROLES.VENDOR, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.createPurchaseOrder);
 router.post('/purchase-categories/verify-payment', authenticate, authorize(ROLES.VENDOR, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.verifyPurchasePayment);
 router.get('/purchase-categories', authenticate, authorize(ROLES.VENDOR), vendorController.getPurchaseCategories);
@@ -81,10 +76,7 @@ router.get('/purchase-categories', authenticate, authorize(ROLES.VENDOR), vendor
 // Registration utility routes (Can be called during registration flow)
 router.post('/get-membership', vendorController.getMembership);
 router.get('/membership-plans', optionalAuth, vendorController.getMembershipPlans);
-router.post('/membership-detail', authenticate, authorize(ROLES.VENDOR), vendorController.getVendorMembership);
-router.post('/membership-details', authenticate, authorize(ROLES.VENDOR), vendorController.getVendorMembership);
 router.get('/membership-detail', authenticate, authorize(ROLES.VENDOR), vendorController.getVendorMembership);
-router.get('/membership-details', authenticate, authorize(ROLES.VENDOR), vendorController.getVendorMembership);
 router.get('/:vendorId/membership-detail', authenticate, authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getVendorMembership);
 router.get('/services/approval-status', authenticate, authorize(ROLES.VENDOR), vendorController.getServiceApprovalStatus);
 router.get('/register/select-services', authenticate, authorize(ROLES.VENDOR, ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), vendorController.getSelectedServices);
