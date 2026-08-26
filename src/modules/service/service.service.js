@@ -1425,22 +1425,22 @@ const getAllSubcategoriesWithServices = async () => {
  */
 const getServiceCatalogue = async () => {
     const categories = await Category.find({ isActive: { $ne: false } })
-        .select('name _id')
+        .select('name _id icon')
         .sort({ order: 1, name: 1 })
         .lean();
 
     const subcategories = await Subcategory.find({ isActive: { $ne: false } })
-        .select('name _id category')
+        .select('name _id category icon')
         .sort({ order: 1, name: 1 })
         .lean();
 
     const serviceTypes = await ServiceType.find({ isActive: { $ne: false } })
-        .select('name _id category subcategory')
+        .select('name _id category subcategory photo')
         .sort({ order: 1, name: 1 })
         .lean();
 
     const services = await Service.find({ isActive: { $ne: false } })
-        .select('title _id serviceType subcategory category')
+        .select('title _id serviceType subcategory category photo')
         .sort({ title: 1 })
         .lean();
 
@@ -1456,7 +1456,8 @@ const getServiceCatalogue = async () => {
 
         acc[typeId].push({
             serviceId: service._id.toString(),
-            serviceName: service.title
+            serviceName: service.title,
+            photo: service.photo || null
         });
 
         return acc;
@@ -1475,6 +1476,7 @@ const getServiceCatalogue = async () => {
         acc[subcategoryId].push({
             typeId: type._id.toString(),
             typeName: type.name,
+            photo: type.photo || null,
             services: servicesByType[type._id.toString()] || []
         });
 
@@ -1494,6 +1496,7 @@ const getServiceCatalogue = async () => {
         acc[categoryId].push({
             subcategoryId: subcategory._id.toString(),
             subcategoryName: subcategory.name,
+            icon: subcategory.icon || null,
             serviceTypes: (typesBySubcategory[subcategory._id.toString()] || []).filter(
                 type => type.services.length > 0
             )
@@ -1506,6 +1509,7 @@ const getServiceCatalogue = async () => {
         .map(category => ({
             categoryId: category._id.toString(),
             categoryName: category.name,
+            icon: category.icon || null,
             subcategories: (subcategoriesByCategory[category._id.toString()] || []).filter(
                 subcategory => subcategory.serviceTypes.length > 0
             )
