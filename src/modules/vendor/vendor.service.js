@@ -1221,7 +1221,7 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
         totalFee = parsedAmount;
         combinedSubtotal = parsedAmount;
         finalGst = 0;
-        if (couponId) {
+        if (couponId && parsedAmount > 0) {
             appliedCoupon = await _getVendorCouponDiscount({
                 couponId,
                 vendorId,
@@ -1250,17 +1250,19 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
         serviceSelectionsTotal: calc.servicesSubtotal,
         basePlanFee: calc.basePlanFee,
         durationMonths: durationMonths || calc.durationMonths,
-        ..._couponMetadata(appliedCoupon)
+        ..._couponMetadata(appliedCoupon),
+        ...(couponId && !appliedCoupon ? { couponId: String(couponId) } : {})
     };
 
     if (totalFee < 0) {
         throw new ApiError(400, 'Membership fee must not be negative');
     }
-    // Allow zero-fee orders: skip Razorpay and mark payment as completed
-    if (totalFee === 0) {
+    // Amount 0: skip Razorpay and activate membership immediately
+    if (Math.round(Number(totalFee) * 100) <= 0) {
+        const freeOrderId = `free_mem_${vendor._id.toString().slice(-8)}_${Date.now()}`;
         await PaymentRecord.create({
             vendor: vendorId,
-            orderId: `free_mem_${vendor._id.toString().slice(-8)}_${Date.now()}`,
+            orderId: freeOrderId,
             purpose: 'MEMBERSHIP_PURCHASE',
             amount: 0,
             gstAmount: 0,
@@ -1271,6 +1273,86 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
             createdAt: new Date(),
             updatedAt: new Date()
         });
+
+        vendor.membership = vendor.membership || {};
+        vendor.membership.membershipId = calc.planId;
+        vendor.membership.totalAmount = 0;
+        vendor.membership.gstAmount = 0;
+        vendor.membership.subtotal = 0;
+        vendor.membership.fee = 0;
+        vendor.membership.membershipFee = calc.basePlanFee;
+        vendor.membership.serviceFee = calc.servicesSubtotal;
+        vendor.membership.durationMonths = durationMonths || calc.durationMonths;
+
+        const now = new Date();
+        vendor.membership.startDate = vendor.membership.startDate || now;
+        const expiryDate = new Date(vendor.membership.startDate);
+        expiryDate.setDate(expiryDate.getDate() + Number(calc.validityDays));
+        vendor.membership.expiryDate = expiryDate;
+
+        if (vendor.isVerified) {
+            vendor.serviceRenewal = vendor.serviceRenewal || {};
+            vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || now;
+            const renExpiry = new Date(vendor.serviceRenewal.startDate);
+            const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 0;
+            renExpiry.setDate(renExpiry.getDate() + Number(renewalDays));
+            vendor.serviceRenewal.expiryDate = vendor.serviceRenewal.expiryDate || renExpiry;
+
+            if (vendor.selectedCategories && vendor.selectedCategories.length > 0) {
+                vendor.categorySubscriptions = vendor.categorySubscriptions || [];
+                const categoryExpiry = new Date(now);
+                categoryExpiry.setDate(categoryExpiry.getDate() + Number(renewalDays));
+
+                for (const catId of vendor.selectedCategories) {
+                    const existingSub = vendor.categorySubscriptions.find(s => s.category && s.category.toString() === catId.toString());
+                    if (!existingSub) {
+                        const category = await Category.findById(catId).select('membershipCharge membershipFee');
+                        const fee = category ? (category.membershipCharge || category.membershipFee || 0) : 0;
+                        vendor.categorySubscriptions.push({
+                            category: catId,
+                            subcategories: vendor.selectedSubcategories || [],
+                            services: vendor.selectedServices || [],
+                            startDate: now,
+                            expiryDate: categoryExpiry,
+                            fee,
+                            status: 'ACTIVE'
+                        });
+                    }
+                }
+            }
+            vendor.registrationStep = 'COMPLETED';
+        } else {
+            vendor.registrationStep = 'MEMBERSHIP_PAID';
+        }
+
+        vendor.membershipVerifyPayment = true;
+        vendor.isRegistered = true;
+        await vendor.save();
+
+        const docTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+        const documentStatuses = {};
+        docTypes.forEach(doc => {
+            const d = vendor.documents?.[doc];
+            documentStatuses[doc] = {
+                status: (d && typeof d === 'object') ? (d.status || 'pending') : 'pending',
+                reason: (d && typeof d === 'object') ? (d.reason || null) : null,
+            };
+        });
+
+        emitToVendor(vendor._id, 'membership_activated', {
+            membership: {
+                startDate: vendor.membership.startDate,
+                expiryDate: vendor.membership.expiryDate,
+                durationMonths: vendor.membership.durationMonths || 3,
+            },
+            documentStatus: vendor.documentStatus,
+            isVerified: vendor.isVerified,
+            isRegistered: vendor.isRegistered,
+            membershipVerifyPayment: vendor.membershipVerifyPayment,
+            documents: documentStatuses,
+            message: 'Membership activated successfully!',
+        });
+
         return {
             vendorId: vendor._id,
             vendorName: vendor.name,
@@ -1280,7 +1362,15 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
             razorpayKeyId: config.RAZORPAY_KEY_ID,
             razorpayOrder: null,
             services: calc.itemBreakdown,
-            serviceSelectionsTotal: calc.servicesSubtotal
+            serviceSelectionsTotal: calc.servicesSubtotal,
+            membershipVerifyPayment: true,
+            isRegistered: vendor.isRegistered,
+            membership: {
+                startDate: vendor.membership.startDate,
+                expiryDate: vendor.membership.expiryDate,
+                durationMonths: vendor.membership.durationMonths || 3,
+                isActive: true,
+            }
         };
     }
 
@@ -3728,7 +3818,7 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
     // If client sends amount, that is the base total to calculate and pay.
     let totalFee = parsedAmount !== null ? parsedAmount : Number(feeDetails.totalFee || 0);
     let appliedCoupon = null;
-    if (couponId) {
+    if (couponId && totalFee > 0) {
         appliedCoupon = await _getVendorCouponDiscount({
             couponId,
             vendorId,
@@ -3740,13 +3830,39 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
     const paymentMetadata = {
         ...(feeDetails.breakdown || {}),
         ..._couponMetadata(appliedCoupon),
+        ...(couponId && !appliedCoupon ? { couponId: String(couponId) } : {})
     };
 
     // Validate fee amount
     if (totalFee < 0) {
         throw new ApiError(400, 'Renewal fee cannot be negative.');
     }
-    if (totalFee === 0) {
+    // Amount 0: skip Razorpay and extend membership immediately
+    if (Math.round(Number(totalFee) * 100) <= 0) {
+        const vendor = await Vendor.findById(vendorId);
+        if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+        const now = new Date();
+        const validityDays = Number(feeDetails.validityDays);
+        const baseDate = (vendor.membership?.expiryDate && vendor.membership.expiryDate > now)
+            ? vendor.membership.expiryDate
+            : now;
+        const newExpiryDate = new Date(baseDate);
+        newExpiryDate.setDate(newExpiryDate.getDate() + validityDays);
+
+        vendor.membership = vendor.membership || {};
+        vendor.membership.expiryDate = newExpiryDate;
+        vendor.membership.startDate = vendor.membership.startDate || now;
+        vendor.membership.durationMonths = feeDetails.durationMonths;
+        vendor.membership.membershipId = feeDetails.planId || vendor.membership.membershipId;
+        vendor.membership.totalAmount = 0;
+        vendor.membership.gstAmount = 0;
+        vendor.membership.subtotal = 0;
+        vendor.membership.fee = 0;
+        vendor.membershipVerifyPayment = true;
+        vendor.isRegistered = true;
+        await vendor.save();
+
         await PaymentRecord.create({
             vendor: vendorId,
             orderId: `free_mren_${String(vendorId).slice(-8)}_${Date.now()}`,
@@ -3756,9 +3872,12 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
             totalAmount: 0,
             planId: feeDetails.planId,
             validityDays: feeDetails.validityDays,
+            previousExpiryDate: baseDate,
+            newExpiryDate,
             metadata: paymentMetadata,
             status: 'COMPLETED'
         });
+
         const membershipAmount = Number(feeDetails?.breakdown?.basePlan?.price || 0);
         const renewalAmount = Math.max(0, Number(feeDetails.subtotal || 0) - membershipAmount);
         return {
@@ -3774,7 +3893,16 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
             validityDays: feeDetails.validityDays,
             razorpayKeyId: feeDetails.razorpayKeyId,
             status: 'COMPLETED',
-            razorpayOrder: null
+            razorpayOrder: null,
+            membershipVerifyPayment: true,
+            isRegistered: vendor.isRegistered,
+            expiryDate: newExpiryDate,
+            membership: {
+                startDate: vendor.membership.startDate,
+                expiryDate: newExpiryDate,
+                durationMonths: vendor.membership.durationMonths,
+                isActive: true,
+            }
         };
     }
 
