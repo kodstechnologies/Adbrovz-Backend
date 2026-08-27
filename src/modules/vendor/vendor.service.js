@@ -2214,6 +2214,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
             categoryMap.set(catId, {
                 categoryId: cat._id,
                 categoryName: cat.name,
+                description: cat.description || '',
                 icon: cat.icon || null,
                 categoryCharge: _getMembershipCharge(cat, 'category'),
                 isPurchased: finalPurchasedCategoryIds.has(catId),
@@ -2231,6 +2232,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
             subNode = {
                 subcategoryId: sub._id,
                 subcategoryName: sub.name,
+                description: sub.description || '',
                 icon: sub.icon || null,
                 subcategoryCharge: _getMembershipCharge(sub, 'subcategory'),
                 isPurchased: finalPurchasedSubcategoryIds.has(subId),
@@ -2249,6 +2251,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
             typeNode = {
                 typeId: type._id,
                 typeName: type.name,
+                description: type.description || '',
                 photo: type.photo || null,
                 typeCharge: _getMembershipCharge(type, 'serviceType'),
                 // A type is purchased if it has a purchased service OR was selected during registration
@@ -2299,6 +2302,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
         typeNode.services.push({
             serviceId: service._id,
             serviceName: service.title,
+            description: service.description || '',
             photo: service.photo || null,
             serviceCharge: serviceRegistrationCharge,
             isPurchased: isServicePurchased,
