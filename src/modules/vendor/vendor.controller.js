@@ -550,7 +550,9 @@ const requestExtraServiceApproval = asyncHandler(async (req, res) => {
 
 const getExtraServiceApprovalRequests = asyncHandler(async (req, res) => {
     const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
+    console.log('vendorId', vendorId);
     const result = await vendorService.getExtraServiceApprovalRequests(vendorId);
+    // console.log('result-------', result);
     res.status(200).json(
         new ApiResponse(200, result, 'Extra service approval status retrieved successfully')
     );
@@ -617,8 +619,11 @@ const activateAddCategory = asyncHandler(async (req, res) => {
  * Get available categories for purchase (Excluding already selected ones)
  */
 const getPurchaseCategories = asyncHandler(async (req, res) => {
+    console.log('req.user-------', req.user);
     const vendorId = req.user.userId || req.user.id || req.user._id;
+    console.log('vendorId-------', vendorId);
     const categories = await vendorService.getAvailablePurchaseCategories(vendorId);
+    console.log('purchase-categories count-------', Array.isArray(categories) ? categories.length : 0);
     res.status(200).json(
         new ApiResponse(200, categories, 'Available categories fetched successfully')
     );
@@ -630,14 +635,16 @@ const getPurchaseCategories = asyncHandler(async (req, res) => {
  * Returns an itemised payment breakdown for the selected services.
  */
 const getPurchasePaymentDetail = asyncHandler(async (req, res) => {
-    const vendorId = req.params.vendorId || req.user.id;
+    const vendorId = req.params.vendorId || req.user.id
+    console.log('vendorId-------', vendorId);
     const { serviceIds } = req.body;
-
+    console.log('serviceIds-------', serviceIds);
     if (!serviceIds || !Array.isArray(serviceIds)) {
         throw new ApiError(400, 'serviceIds must be an array');
     }
 
     const detail = await vendorService.calculatePurchasePaymentDetail(vendorId, serviceIds);
+    console.log('detail-------', detail);
     res.status(200).json(new ApiResponse(200, detail, 'Purchase payment details calculated'));
 });
 

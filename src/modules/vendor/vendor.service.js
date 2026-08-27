@@ -2134,27 +2134,9 @@ const getAvailablePurchaseCategories = async (vendorId) => {
     const allServices = await Service.find({ isActive: { $ne: false } }).lean();
     const allServiceTypes = await ServiceType.find({ isActive: { $ne: false } }).lean();
 
-    const { isCategoryValid, isSubcategoryValid, isServiceTypeValid } = require('../service/service.service');
-
-    const validCategoryIds = new Set();
-    const validSubcategoryIds = new Set();
-    const validServiceTypeIds = new Set();
-
-    for (const cat of allCategories) {
-        if (await isCategoryValid(cat._id)) {
-            validCategoryIds.add(cat._id.toString());
-        }
-    }
-    for (const sub of allSubcategories) {
-        if (await isSubcategoryValid(sub._id)) {
-            validSubcategoryIds.add(sub._id.toString());
-        }
-    }
-    for (const type of allServiceTypes) {
-        if (await isServiceTypeValid(type._id)) {
-            validServiceTypeIds.add(type._id.toString());
-        }
-    }
+    const validCategoryIds = new Set(allCategories.map(c => c._id.toString()));
+    const validSubcategoryIds = new Set(allSubcategories.map(s => s._id.toString()));
+    const validServiceTypeIds = new Set(allServiceTypes.map(t => t._id.toString()));
 
     const selectedCategoryIds = new Set((vendor.selectedCategories || []).map(id => id.toString()));
     const selectedSubcategoryIds = new Set((vendor.selectedSubcategories || []).map(id => id.toString()));
@@ -2194,6 +2176,34 @@ const getAvailablePurchaseCategories = async (vendorId) => {
     const finalPurchasedSubcategoryIds = new Set([...selectedSubcategoryIds, ...purchasedSubcategoryIdsFromServices]);
     const finalPurchasedTypeIds        = new Set([...(vendor.selectedServiceTypes || []).map(id => id.toString()), ...purchasedTypeIdsFromServices]);
 
+    const extraServiceStatusById = new Map();
+    for (const req of vendor.extraServiceRequests || []) {
+        for (const svc of req.services || []) {
+            const svcId = String(svc?._id || svc);
+            let extraStatus = req.approvalStatus || 'pending';
+            if (req.serviceStatuses && req.serviceStatuses.length > 0) {
+                const ss = req.serviceStatuses.find(s => String(s.serviceId) === svcId);
+                extraStatus = ss ? ss.status : 'pending';
+            }
+            extraServiceStatusById.set(svcId, extraStatus);
+        }
+    }
+
+    const resolveItemStatus = (isOwned, extraStatus) => {
+        if (isOwned) return 'purchased';
+        if (extraStatus === 'approved') return 'purchased';
+        if (extraStatus === 'disapproved' || extraStatus === 'rejected') return 'rejected';
+        if (extraStatus === 'pending') return 'pending';
+        return null;
+    };
+
+    const rollupStatus = (childStatuses, isOwned) => {
+        if (isOwned || childStatuses.includes('purchased')) return 'purchased';
+        if (childStatuses.includes('pending')) return 'pending';
+        if (childStatuses.includes('rejected')) return 'rejected';
+        return null;
+    };
+
     const categoryMap = new Map();
     const subcategoryMap = new Map(allSubcategories.map(sub => [sub._id.toString(), sub]));
     const typeMap = new Map(allServiceTypes.map(type => [type._id.toString(), type]));
@@ -2207,6 +2217,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
                 icon: cat.icon || null,
                 categoryCharge: _getMembershipCharge(cat, 'category'),
                 isPurchased: finalPurchasedCategoryIds.has(catId),
+                status: null,
                 subCategories: []
             });
         }
@@ -2223,6 +2234,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
                 icon: sub.icon || null,
                 subcategoryCharge: _getMembershipCharge(sub, 'subcategory'),
                 isPurchased: finalPurchasedSubcategoryIds.has(subId),
+                status: null,
                 types: []
             };
             catNode.subCategories.push(subNode);
@@ -2241,6 +2253,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
                 typeCharge: _getMembershipCharge(type, 'serviceType'),
                 // A type is purchased if it has a purchased service OR was selected during registration
                 isPurchased: finalPurchasedTypeIds.has(typeId),
+                status: null,
                 services: []
             };
             subNode.types.push(typeNode);
@@ -2266,6 +2279,8 @@ const getAvailablePurchaseCategories = async (vendorId) => {
 
         const isServicePurchased = selectedServiceIds.has(service._id.toString());
         const serviceRegistrationCharge = _getMembershipCharge(service, 'service');
+        const extraStatus = extraServiceStatusById.get(service._id.toString());
+        const serviceStatus = resolveItemStatus(isServicePurchased, extraStatus);
 
 
         // Rule 1: Category/subcategory charges are suppressed if purchased via ANY service.
@@ -2288,6 +2303,7 @@ const getAvailablePurchaseCategories = async (vendorId) => {
             serviceCharge: serviceRegistrationCharge,
             isPurchased: isServicePurchased,
             isSelectable: !isServicePurchased,
+            status: serviceStatus,
             payable: {
                 categoryCharge: categoryChargeToPay,
                 subcategoryCharge: subcategoryChargeToPay,
@@ -2299,6 +2315,16 @@ const getAvailablePurchaseCategories = async (vendorId) => {
                 total: totalToPay
             }
         });
+    }
+
+    for (const catNode of categoryMap.values()) {
+        for (const subNode of catNode.subCategories) {
+            for (const typeNode of subNode.types) {
+                typeNode.status = rollupStatus(typeNode.services.map(s => s.status), typeNode.isPurchased);
+            }
+            subNode.status = rollupStatus(subNode.types.map(t => t.status), subNode.isPurchased);
+        }
+        catNode.status = rollupStatus(catNode.subCategories.map(s => s.status), catNode.isPurchased);
     }
 
     return Array.from(categoryMap.values());
