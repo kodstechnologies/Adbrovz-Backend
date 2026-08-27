@@ -4655,9 +4655,51 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
     const feeDetails = await getAddCategoryFeeDetails(vendorId, { categoryId, subcategoryIds, serviceIds });
 
     const totalToPay = feeDetails.totalWithGst;
+    const paymentMetadata = {
+        ...feeDetails.breakdown,
+        selectedSubcategories: subcategoryIds,
+        selectedServices: serviceIds,
+        categoryId: categoryId,
+        approvalRequestId: approvedRequest._id,
+        isProrated: (feeDetails.prorationContext?.remainingDays || feeDetails.renewalDays) < feeDetails.renewalDays,
+        alignedExpiryDate: feeDetails.prorationContext?.expiryDate
+    };
 
-    if (totalToPay <= 0) {
-        throw new ApiError(400, 'Total fee for adding category is zero. Cannot create payment order.');
+    // Amount 0: skip Razorpay and activate the extra services immediately
+    if (Math.round(Number(totalToPay) * 100) <= 0) {
+        const freeOrderId = `free_add_cat_${vendorId.toString().slice(-8)}_${Date.now()}`;
+        await PaymentRecord.create({
+            vendor: vendorId,
+            orderId: freeOrderId,
+            purpose: 'CATEGORY_PURCHASE',
+            amount: 0,
+            gstAmount: 0,
+            totalAmount: 0,
+            status: 'COMPLETED',
+            metadata: paymentMetadata
+        });
+
+        await verifyAddCategoryPayment(vendorId, {
+            razorpay_order_id: freeOrderId,
+            razorpay_payment_id: `free_${Date.now()}`,
+            razorpay_signature: 'skipped_zero_amount',
+            isAdminBypass: true,
+            categoryId,
+            selectedSubcategories: subcategoryIds,
+            selectedServices: serviceIds,
+        });
+
+        return {
+            ...feeDetails,
+            status: 'completed',
+            razorpayOrder: {
+                id: freeOrderId,
+                amount: 0,
+                amountInRupees: 0,
+                currency: 'INR',
+                status: 'completed',
+            }
+        };
     }
 
     let razorpayOrder;
@@ -4681,15 +4723,7 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
             gstAmount: feeDetails.gstAmount,
             totalAmount: totalToPay,
             status: 'PENDING',
-            metadata: {
-                ...feeDetails.breakdown,
-                selectedSubcategories: subcategoryIds,
-                selectedServices: serviceIds,
-                categoryId: categoryId,
-                approvalRequestId: approvedRequest._id,
-                isProrated: (feeDetails.prorationContext?.remainingDays || feeDetails.renewalDays) < feeDetails.renewalDays,
-                alignedExpiryDate: feeDetails.prorationContext?.expiryDate
-            }
+            metadata: paymentMetadata
         });
 
     } catch (error) {
@@ -5442,11 +5476,15 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     }
 
     // Derive which categories / subcategories / types are already paid
-    const allServices = await Service.find({}).lean();
+    const parsedIds = serviceIds.map((id) => id.toString());
+    const lookupIds = [...new Set([...purchasedServiceIds, ...parsedIds])];
+    const relevantServices = lookupIds.length
+        ? await Service.find({ _id: { $in: lookupIds } }).lean()
+        : [];
     const purchasedCategoryIds   = new Set();
     const purchasedSubcategoryIds = new Set();
     const purchasedTypeIds        = new Set();
-    for (const s of allServices) {
+    for (const s of relevantServices) {
         if (purchasedServiceIds.has(s._id.toString())) {
             if (s.category)    purchasedCategoryIds.add(s.category.toString());
             if (s.subcategory) purchasedSubcategoryIds.add(s.subcategory.toString());
@@ -5459,12 +5497,17 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     const finalPurchasedTypeIds        = new Set([...selectedTypeIds,        ...purchasedTypeIds]);
 
     // ── 2. Load the requested services with their parent documents ──
-    const parsedIds  = serviceIds.map(id => id.toString());
-    const targetServices = allServices.filter(s => parsedIds.includes(s._id.toString()));
+    const targetServices = relevantServices.filter((s) => parsedIds.includes(s._id.toString()));
 
-    const allCategories    = await Category.find({}).lean();
-    const allSubcategories = await Subcategory.find({}).lean();
-    const allTypes         = await ServiceType.find({}).lean();
+    const parentCatIds = [...new Set(targetServices.map((s) => s.category?.toString()).filter(Boolean))];
+    const parentSubIds = [...new Set(targetServices.map((s) => s.subcategory?.toString()).filter(Boolean))];
+    const parentTypeIds = [...new Set(targetServices.map((s) => s.serviceType?.toString()).filter(Boolean))];
+
+    const [allCategories, allSubcategories, allTypes] = await Promise.all([
+        parentCatIds.length ? Category.find({ _id: { $in: parentCatIds } }).lean() : [],
+        parentSubIds.length ? Subcategory.find({ _id: { $in: parentSubIds } }).lean() : [],
+        parentTypeIds.length ? ServiceType.find({ _id: { $in: parentTypeIds } }).lean() : [],
+    ]);
 
     const catMap  = new Map(allCategories.map(c => [c._id.toString(), c]));
     const subMap  = new Map(allSubcategories.map(s => [s._id.toString(), s]));

@@ -2,14 +2,16 @@ const mongoose = require('mongoose');
 const app = require('./app');
 const config = require('./config/env');
 const { initSocket } = require('./socket');
+const { connectDB: connectMongo } = require('./config/db');
+const { isTransientMongoError } = require('./utils/mongoRetry');
 
 /**
  * Handle uncaught exceptions
  */
 process.on('uncaughtException', (err) => {
-  console.error('❌ UNCAUGHT EXCEPTION');
-  console.error(err);
-  process.exit(1);
+    console.error('❌ UNCAUGHT EXCEPTION');
+    console.error(err);
+    process.exit(1);
 });
 
 /**
@@ -17,8 +19,7 @@ process.on('uncaughtException', (err) => {
  */
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(config.MONGODB_URI);
-    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    const conn = await connectMongo(config.MONGODB_URI);
   } catch (error) {
     console.error('❌ MongoDB connection failed');
     console.error(error.message);
@@ -71,6 +72,10 @@ const startServer = async () => {
   process.on('unhandledRejection', (err) => {
     console.error('❌ UNHANDLED REJECTION');
     console.error(err);
+    if (isTransientMongoError(err)) {
+      console.warn('Transient MongoDB network error — keeping server running');
+      return;
+    }
     server.close(() => process.exit(1));
   });
 

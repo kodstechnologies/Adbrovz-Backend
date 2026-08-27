@@ -643,7 +643,8 @@ const getPurchasePaymentDetail = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'serviceIds must be an array');
     }
 
-    const detail = await vendorService.calculatePurchasePaymentDetail(vendorId, serviceIds);
+    const { withMongoRetry } = require('../../utils/mongoRetry');
+    const detail = await withMongoRetry(() => vendorService.calculatePurchasePaymentDetail(vendorId, serviceIds));
     console.log('detail-------', detail);
     res.status(200).json(new ApiResponse(200, detail, 'Purchase payment details calculated'));
 });

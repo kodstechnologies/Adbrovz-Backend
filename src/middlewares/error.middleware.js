@@ -56,6 +56,11 @@ const errorHandler = (err, req, res, next) => {
     error = new ApiError(401, MESSAGES.AUTH.TOKEN_EXPIRED);
   }
 
+  const { isTransientMongoError } = require('../utils/mongoRetry');
+  if (isTransientMongoError(err)) {
+    error = new ApiError(503, 'Database connection interrupted. Please retry.');
+  }
+
   res.status(error.statusCode || 500).json({
     success: false,
     message: error.message || MESSAGES.SERVER_ERROR,

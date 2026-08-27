@@ -11,6 +11,7 @@ const path = require('path');
 const config = require('./config/env');
 const routes = require('./routes');
 const vendorRoutes = require('./modules/vendor/vendor.route');
+const bookingRoutes = require('./modules/booking/booking.route');
 const { errorHandler, notFoundHandler } = require('./middlewares/error.middleware');
 
 const app = express();
@@ -162,9 +163,11 @@ app.get('/health', (req, res) => {
  */
 app.use('/api', routes);
 app.use(`/api/${config.API_VERSION}`, routes);
-// Flutter vendor app calls /vendor/... without the /api/v1 prefix
+// Flutter / proxy often omit the /api/v1 prefix
 app.use('/vendor', vendorRoutes);
 app.use('/vendors', vendorRoutes);
+app.use('/bookings', bookingRoutes);
+app.use('/booking', bookingRoutes);
 
 /**
  * 404 handler
