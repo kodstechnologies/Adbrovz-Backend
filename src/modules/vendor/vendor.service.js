@@ -1617,6 +1617,16 @@ const approveVendorServices = async (vendorId, serviceData) => {
         }
     }
 
+    const approvedIdSet = new Set((vendor.selectedServices || []).map((id) => String(id)));
+    const previousDisapproved = (vendor.disapprovedServices || []).map((id) => String(id._id || id));
+    const disapprovedIdSet = new Set(previousDisapproved);
+    originalServiceIds.forEach((id) => {
+        if (!approvedIdSet.has(String(id))) disapprovedIdSet.add(String(id));
+    });
+    approvedIdSet.forEach((id) => disapprovedIdSet.delete(id));
+    vendor.approvedServices = Array.from(approvedIdSet);
+    vendor.disapprovedServices = Array.from(disapprovedIdSet);
+
     // For first-time registration approval flow, recalculate and persist membership fee
     if (!vendorAlreadyPaid) {
         // Auto-derive parent hierarchy

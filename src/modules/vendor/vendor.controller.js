@@ -106,8 +106,9 @@ const selectServices = asyncHandler(async (req, res) => {
  */
 const getSelectedServices = asyncHandler(async (req, res) => {
     const vendorId = req.params.vendorId || req.user.userId || req.user._id;
+    console.log('DEBUG: getSelectedServices called for vendorId:', vendorId);
     const overrides = {};
-
+console.log('DEBUG: req.query', req.query);
     if (req.query.serviceIds) {
         overrides.serviceIds = Array.isArray(req.query.serviceIds)
             ? req.query.serviceIds
@@ -127,65 +128,108 @@ const getSelectedServices = asyncHandler(async (req, res) => {
 
     const result = await vendorService.getVendorMembershipDetails(vendorId, overrides);
 
+    const normalizeApprovalStatus = (status) => {
+        const s = String(status || '').toLowerCase().trim();
+        if (s === 'approved') return 'approved';
+        if (s === 'rejected' || s === 'disapproved' || s === 'disapprove') return 'disapproved';
+        if (s === 'disabled' || s === 'inactive' || s === 'disable') return 'disabled';
+        return 'pending';
+    };
+console.log('DEBUG: result', result);
     // Vendor-level approval status applies ONLY to primary (selectedServices) services.
-    // Extra service requests each carry their own independent approvalStatus.
-    const rawStatus = String(result?.serviceApprovalStatus || '').toLowerCase();
-    const primaryApprovalStatus = rawStatus === 'approved'
-        ? 'approved'
-        : (rawStatus === 'rejected' || rawStatus === 'disapproved' ? 'disapproved' : 'pending');
+    // Extra / disapproved services keep their own status.
+    const primaryApprovalStatus = normalizeApprovalStatus(result?.serviceApprovalStatus);
 
-    // Primary services — all share the vendor-level approval status
-    const services = (result?.selectedServices || []).map((service) => ({
-        id: service.id,
-        title: service.title,
-        approvalStatus: primaryApprovalStatus,
-        isExtraService: false
-    }));
-
-    // Fetch vendor to access extraServiceRequests with their OWN per-request approvalStatus
     const Vendor = require('../../models/Vendor.model');
     const vendor = await Vendor.findById(vendorId)
-        .populate('extraServiceRequests.services', 'title');
+        .populate('selectedServices', 'title isActive')
+        .populate('disapprovedServices', 'title isActive')
+        .populate('extraServiceRequests.services', 'title isActive');
+
+    const listedIds = new Set();
+    const services = [];
+
+    const pushService = (item) => {
+        if (!item || !item.id) return;
+        const id = String(item.id);
+        if (listedIds.has(id)) {
+            const existing = services.find((s) => String(s.id) === id);
+            if (existing && item.approvalStatus === 'disapproved') {
+                existing.approvalStatus = 'disapproved';
+            }
+            return;
+        }
+        listedIds.add(id);
+        services.push(item);
+    };
+
+    const primarySource = (vendor?.selectedServices?.length
+        ? vendor.selectedServices.map((service) => ({
+            id: service._id ? service._id.toString() : String(service.id || service),
+            title: service.title,
+            isActive: service.isActive
+        }))
+        : (result?.selectedServices || []).map((service) => ({
+            id: service.id,
+            title: service.title,
+            isActive: service.isActive
+        }))
+    );
+
+    primarySource.forEach((service) => {
+        pushService({
+            id: service.id,
+            title: service.title,
+            approvalStatus: service.isActive === false ? 'disabled' : primaryApprovalStatus,
+            isExtraService: false
+        });
+    });
+
+    (vendor?.disapprovedServices || []).forEach((svc) => {
+        if (!svc) return;
+        pushService({
+            id: svc._id ? svc._id.toString() : String(svc.id || svc),
+            title: svc.title || 'Service',
+            approvalStatus: svc.isActive === false ? 'disabled' : 'disapproved',
+            isExtraService: false
+        });
+    });
 
     if (vendor && vendor.extraServiceRequests) {
-        // Build set of service IDs already in primary selectedServices to avoid duplicates
-        const primaryServiceIds = new Set(
-            (result?.selectedServices || []).map(s => String(s.id))
-        );
-
         vendor.extraServiceRequests.forEach(request => {
-            if (request.services && request.services.length > 0) {
-                request.services.forEach(svc => {
-                    if (!svc) return;
-                    const svcId = svc._id ? svc._id.toString() : String(svc.id || svc);
+            const extraServices = [];
+            (request.services || []).forEach((svc) => {
+                if (svc) extraServices.push(svc);
+            });
+            (request.serviceStatuses || []).forEach((entry) => {
+                const already = extraServices.some((svc) => String(svc._id || svc.id || svc) === String(entry.serviceId));
+                if (!already && entry.serviceId) extraServices.push({ _id: entry.serviceId, title: 'Service' });
+            });
 
-                    // Determine individual service status
-                    let serviceStatus = request.approvalStatus || 'pending';
-                    if (request.serviceStatuses && request.serviceStatuses.length > 0) {
-                        const serviceStatusEntry = request.serviceStatuses.find(
-                            s => String(s.serviceId) === svcId
-                        );
-                        if (serviceStatusEntry) {
-                            serviceStatus = serviceStatusEntry.status;
-                        }
+            extraServices.forEach(svc => {
+                const svcId = svc._id ? svc._id.toString() : String(svc.id || svc);
+
+                let serviceStatus = request.approvalStatus || 'pending';
+                if (request.serviceStatuses && request.serviceStatuses.length > 0) {
+                    const serviceStatusEntry = request.serviceStatuses.find(
+                        s => String(s.serviceId) === svcId
+                    );
+                    if (serviceStatusEntry) {
+                        serviceStatus = serviceStatusEntry.status;
                     }
+                }
 
-                    // Skip disapproved services entirely
-                    if (serviceStatus === 'disapproved') return;
+                serviceStatus = normalizeApprovalStatus(serviceStatus);
+                if (svc.isActive === false) serviceStatus = 'disabled';
 
-                    // Only include extra-service entries that are NOT already in primary selectedServices
-                    // (approved extra services that got merged into selectedServices don't show twice)
-                    if (!primaryServiceIds.has(svcId)) {
-                        services.push({
-                            id: svcId,
-                            title: `${svc.title} (Extra Service)`,
-                            approvalStatus: serviceStatus,
-                            isExtraService: true,
-                            requestId: request._id ? request._id.toString() : undefined
-                        });
-                    }
+                pushService({
+                    id: svcId,
+                    title: `${svc.title || 'Service'} (Extra Service)`,
+                    approvalStatus: serviceStatus,
+                    isExtraService: true,
+                    requestId: request._id ? request._id.toString() : undefined
                 });
-            }
+            });
         });
     }
 
@@ -194,7 +238,7 @@ const getSelectedServices = asyncHandler(async (req, res) => {
         isserviceapproval: primaryApprovalStatus === 'approved',
         services
     };
-
+console.log('DEBUG: responseData', responseData);
     res.status(200).json(
         new ApiResponse(200, responseData, 'Vendor selected services retrieved successfully')
     );
