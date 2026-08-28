@@ -3913,9 +3913,10 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
         vendor.isRegistered = true;
         await vendor.save();
 
+        const freeOrderId = `free_mren_${String(vendorId).slice(-8)}_${Date.now()}`;
         await PaymentRecord.create({
             vendor: vendorId,
-            orderId: `free_mren_${String(vendorId).slice(-8)}_${Date.now()}`,
+            orderId: freeOrderId,
             purpose: 'MEMBERSHIP_RENEWAL',
             amount: 0,
             gstAmount: 0,
@@ -3948,7 +3949,13 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
             validityDays: feeDetails.validityDays,
             razorpayKeyId: feeDetails.razorpayKeyId,
             status: 'completed',
-            razorpayOrder: null,
+            razorpayOrder: {
+                id: freeOrderId,
+                amount: 0,
+                amountInRupees: 0,
+                currency: 'INR',
+                status: 'completed'
+            },
             services: [],
             serviceSelectionsTotal: renewalAmount,
             membershipVerifyPayment: true,
@@ -4112,34 +4119,98 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
 /**
  * Service Renewal: Create order
  */
-const createServiceRenewalOrder = async (vendorId) => {
+const createServiceRenewalOrder = async (vendorId, { amount, totalAmount, totalFee: bodyTotalFee, couponId, couponID, coupon_id } = {}) => {
+    couponId = couponId || couponID || coupon_id;
     const feeDetails = await getServiceRenewalFeeDetails(vendorId);
 
+    const requestedAmount = amount ?? totalAmount ?? bodyTotalFee;
+    const parsedAmount = requestedAmount === undefined || requestedAmount === null || requestedAmount === ''
+        ? null
+        : Number(requestedAmount);
+    if (parsedAmount !== null && (!Number.isFinite(parsedAmount) || parsedAmount < 0)) {
+        throw new ApiError(400, 'Valid amount is required');
+    }
+
+    let totalFee = parsedAmount !== null ? parsedAmount : Number(feeDetails.totalFee || 0);
+
+    const paymentMetadata = {
+        ...(feeDetails.serviceRenewal?.breakdown || {}),
+        ...(couponId ? await _resolveCouponMetadata(couponId) : {})
+    };
+
     // Validate fee amount
-    if (feeDetails.totalFee < 0) {
+    if (totalFee < 0) {
         throw new ApiError(400, 'Renewal fee cannot be negative.');
     }
-    // If zero fee, skip Razorpay and create completed payment record
-    if (feeDetails.totalFee === 0) {
+
+    // If zero fee or passed amount is 0, skip Razorpay, activate service renewal immediately
+    if (Math.round(Number(totalFee) * 100) <= 0) {
+        const vendor = await Vendor.findById(vendorId);
+        if (!vendor) throw new ApiError(404, 'Vendor not found');
+
+        const now = new Date();
+        vendor.serviceRenewal = vendor.serviceRenewal || {};
+
+        const baseDate = (vendor.serviceRenewal.expiryDate && vendor.serviceRenewal.expiryDate > now)
+            ? vendor.serviceRenewal.expiryDate
+            : now;
+
+        const newExpiryDate = new Date(baseDate);
+        const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
+        newExpiryDate.setDate(newExpiryDate.getDate() + Number(renewalDays));
+
+        vendor.serviceRenewal.expiryDate = newExpiryDate;
+        vendor.serviceRenewal.startDate = vendor.serviceRenewal.startDate || now;
+        vendor.serviceRenewal.fee = 0;
+
+        // Align all active category subscriptions in categorySubscriptions to the same newExpiryDate
+        if (vendor.categorySubscriptions && Array.isArray(vendor.categorySubscriptions)) {
+            vendor.categorySubscriptions.forEach(sub => {
+                if (sub.status === 'ACTIVE') {
+                    sub.expiryDate = newExpiryDate;
+                }
+            });
+        }
+
+        await vendor.save();
+
+        const freeOrderId = `free_ren_${String(vendorId).slice(-8)}_${Date.now()}`;
         await PaymentRecord.create({
             vendor: vendorId,
-            orderId: null,
+            orderId: freeOrderId,
             purpose: 'SERVICE_RENEWAL',
             amount: 0,
             gstAmount: 0,
             totalAmount: 0,
-            validityDays: 30,
+            validityDays: Number(renewalDays) || 30,
+            previousExpiryDate: baseDate,
+            newExpiryDate,
             status: 'COMPLETED',
+            metadata: paymentMetadata,
         });
-        return { ...feeDetails, status: 'COMPLETED', razorpayOrder: null };
+
+        return {
+            ...feeDetails,
+            totalFee: 0,
+            totalAmount: 0,
+            subtotal: 0,
+            gstAmount: 0,
+            status: 'completed',
+            expiryDate: newExpiryDate,
+            razorpayOrder: {
+                id: freeOrderId,
+                amount: 0,
+                amountInRupees: 0,
+                currency: 'INR',
+                status: 'completed',
+            }
+        };
     }
-
-
 
     let razorpayOrder;
     try {
         razorpayOrder = await getRazorpay().orders.create({
-            amount: Math.round(feeDetails.totalFee * 100),
+            amount: Math.round(totalFee * 100),
             currency: 'INR',
             receipt: `ren_${vendorId.toString().slice(-10)}_${Date.now()}`,
             notes: {
@@ -4155,9 +4226,10 @@ const createServiceRenewalOrder = async (vendorId) => {
             purpose: 'SERVICE_RENEWAL',
             amount: feeDetails.subtotal,
             gstAmount: feeDetails.gstAmount,
-            totalAmount: feeDetails.totalFee,
+            totalAmount: totalFee,
             validityDays: 30, // Service renewal is always 30 days
-            status: 'PENDING'
+            status: 'PENDING',
+            metadata: paymentMetadata
         });
     } catch (error) {
         console.error('Razorpay Service Renewal Order Error:', error);
@@ -4167,6 +4239,8 @@ const createServiceRenewalOrder = async (vendorId) => {
 
     return {
         ...feeDetails,
+        totalFee,
+        totalAmount: totalFee,
         status: razorpayOrder.status,
         razorpayOrder: {
             id: razorpayOrder.id,

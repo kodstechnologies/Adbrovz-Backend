@@ -116,7 +116,10 @@ router.patch('/register/:vendorId/add-category/approval/:requestId', authenticat
 // Service Renewal API
 router.get('/renewal/fee', authenticate, authorize(ROLES.VENDOR), vendorController.getServiceRenewalFee);
 router.post('/renewal/create-order', authenticate, authorize(ROLES.VENDOR), vendorController.createServiceRenewalOrder);
+router.post('/renewal/createOrder', authenticate, authorize(ROLES.VENDOR), vendorController.createServiceRenewalOrder);
+router.post('/renewal/create', authenticate, authorize(ROLES.VENDOR), vendorController.createServiceRenewalOrder);
 router.post('/renewal/verify-payment', authenticate, authorize(ROLES.VENDOR), vendorController.verifyServiceRenewalPayment);
+router.post('/renewal/verify', authenticate, authorize(ROLES.VENDOR), vendorController.verifyServiceRenewalPayment);
 
 // Membership Renewal API
 router.get('/membership/renewal/fee', authenticate, authorize(ROLES.VENDOR), vendorController.getMembershipRenewalFee);
