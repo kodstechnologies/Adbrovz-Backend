@@ -832,6 +832,42 @@ const getBookingTimeRange = async (booking) => {
     return { start, end };
 };
 
+const serviceWithSubcategoryPopulate = (path, select) => ({
+    path,
+    ...(select ? { select } : {}),
+    populate: { path: 'subcategory', select: 'name icon' },
+});
+
+const resolveCategoryImage = (bookingObj) => {
+    const serviceGroups = [
+        ...(bookingObj.services || []),
+        ...(bookingObj.userRequestedServices || []),
+        ...(bookingObj.proposedServices || []),
+    ];
+
+    for (const item of serviceGroups) {
+        const svc = item?.service;
+        if (!svc || typeof svc !== 'object') continue;
+
+        const sub = svc.subcategory;
+        if (sub && typeof sub === 'object') {
+            const subImage = sub.icon || sub.image || sub.photo;
+            if (subImage) return subImage;
+        }
+
+        if (svc.photo) return svc.photo;
+    }
+
+    return null;
+};
+
+const normalizeVendorPhoto = (vendor) => {
+    if (!vendor || typeof vendor !== 'object') return;
+    if (!vendor.photo && vendor.documents?.photo?.url) {
+        vendor.photo = vendor.documents.photo.url;
+    }
+};
+
 
 /**
  * Helper to consistently format a booking object (convert to IST, handle OTP visibility, etc.)
@@ -839,7 +875,7 @@ const getBookingTimeRange = async (booking) => {
 const _formatBooking = (bookingDoc, role) => {
     let bookingObj;
     if (bookingDoc && typeof bookingDoc.toObject === 'function') {
-        bookingObj = bookingDoc.toObject();
+        bookingObj = bookingDoc.toObject({ virtuals: true });
     } else if (bookingDoc && typeof bookingDoc.toJSON === 'function') {
         bookingObj = bookingDoc.toJSON();
     } else {
@@ -1108,10 +1144,21 @@ const _formatBooking = (bookingDoc, role) => {
     }
 
     if (bookingObj.category) {
-        bookingObj.categoryName = bookingObj.category.title || bookingObj.category.name || "N/A";
-        bookingObj.categoryId = bookingObj.category._id ? bookingObj.category._id : bookingObj.category;
-        bookingObj.categoryImage = bookingObj.category.icon || bookingObj.category.image || bookingObj.category.photo || null;
+        const cat = bookingObj.category;
+        const isPopulated = !!(cat && typeof cat === 'object' && (cat.name || cat.title || cat.icon));
+        bookingObj.categoryName = isPopulated ? (cat.name || cat.title || 'N/A') : 'N/A';
+        bookingObj.categoryImage = isPopulated ? (cat.icon || cat.image || cat.photo || null) : null;
+        bookingObj.categoryId = isPopulated ? String(cat._id || cat.id) : String(cat);
+        if (isPopulated) {
+            bookingObj.category = String(cat._id || cat.id);
+        }
     }
+
+    if (!bookingObj.categoryImage) {
+        bookingObj.categoryImage = resolveCategoryImage(bookingObj);
+    }
+
+    normalizeVendorPhoto(bookingObj.vendor);
 
     // Remove rejectedServices history array from the response as requested
     delete bookingObj.rejectedServices;
@@ -1150,11 +1197,11 @@ const getBookingDetails = async (bookingId, userId, role) => {
     }
 
     const booking = await Booking.findOne(query)
-        .populate('services.service')
-        .populate('proposedServices.service')
-        .populate('userRequestedServices.service')
-        .populate('rejectedServices.service')
-        .populate('category')
+        .populate(serviceWithSubcategoryPopulate('services.service'))
+        .populate(serviceWithSubcategoryPopulate('proposedServices.service'))
+        .populate(serviceWithSubcategoryPopulate('userRequestedServices.service'))
+        .populate(serviceWithSubcategoryPopulate('rejectedServices.service'))
+        .populate('category', 'name icon')
         .populate('vendor', 'name phoneNumber photo documents.photo.url')
         .populate('user', 'name phoneNumber photo');
 
@@ -2538,9 +2585,10 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
 
 const getBookingsByUser = async (userId) => {
     const bookings = await Booking.find({ user: userId })
-        .populate('services.service', 'title serviceCharge photo')
-        .populate('proposedServices.service', 'title serviceCharge photo')
-        .populate('userRequestedServices.service', 'title serviceCharge photo')
+        .populate(serviceWithSubcategoryPopulate('services.service', 'title serviceCharge photo subcategory'))
+        .populate(serviceWithSubcategoryPopulate('proposedServices.service', 'title serviceCharge photo subcategory'))
+        .populate(serviceWithSubcategoryPopulate('userRequestedServices.service', 'title serviceCharge photo subcategory'))
+        .populate('category', 'name icon')
         .populate('vendor', 'name phoneNumber photo documents.photo.url')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
@@ -2553,12 +2601,19 @@ const getBookingsByUser = async (userId) => {
     const feedbackBookingIds = new Set(feedbacks.map(f => f.booking.toString()));
 
     return formattedBookings.map(fb => {
-        if (fb.actions && feedbackBookingIds.has(fb._id.toString())) {
+        if (fb.actions && feedbackBookingIds.has(String(fb._id || fb.id))) {
             fb.actions.canGiveFeedback = false;
         }
         return fb;
     });
 };
+
+const categorizeMyBookings = (bookings) => ({
+    pending: bookings.filter((b) => ['pending_acceptance', 'pending'].includes(b.status)),
+    active: bookings.filter((b) => ['on_the_way', 'arrived', 'ongoing'].includes(b.status)),
+    completed: bookings.filter((b) => b.status === 'completed'),
+    cancelled: bookings.filter((b) => ['cancelled', 'auto_cancelled'].includes(b.status)),
+});
 
 const getBookingsByVendor = async (vendorId) => {
     const Vendor = require('../../models/Vendor.model');
@@ -2568,9 +2623,10 @@ const getBookingsByVendor = async (vendorId) => {
     }
 
     const bookings = await Booking.find({ vendor: vendorId })
-        .populate('services.service', 'title serviceCharge photo')
-        .populate('proposedServices.service', 'title serviceCharge photo')
-        .populate('userRequestedServices.service', 'title serviceCharge photo')
+        .populate(serviceWithSubcategoryPopulate('services.service', 'title serviceCharge photo subcategory'))
+        .populate(serviceWithSubcategoryPopulate('proposedServices.service', 'title serviceCharge photo subcategory'))
+        .populate(serviceWithSubcategoryPopulate('userRequestedServices.service', 'title serviceCharge photo subcategory'))
+        .populate('category', 'name icon')
         .populate('user', 'name phoneNumber photo')
         .populate('vendor', 'name phoneNumber photo documents.photo.url')
         .sort({ createdAt: -1 });
@@ -2585,9 +2641,10 @@ const getCompletedBookingsByUser = async (userId) => {
         user: userId,
         status: 'completed'
     })
-        .populate('services.service', 'title serviceCharge photo')
-        .populate('proposedServices.service', 'title serviceCharge photo')
-        .populate('userRequestedServices.service', 'title serviceCharge photo')
+        .populate(serviceWithSubcategoryPopulate('services.service', 'title serviceCharge photo subcategory'))
+        .populate(serviceWithSubcategoryPopulate('proposedServices.service', 'title serviceCharge photo subcategory'))
+        .populate(serviceWithSubcategoryPopulate('userRequestedServices.service', 'title serviceCharge photo subcategory'))
+        .populate('category', 'name icon')
         .populate('vendor', 'name phoneNumber photo documents.photo.url')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
@@ -2600,7 +2657,7 @@ const getCompletedBookingsByUser = async (userId) => {
     const feedbackBookingIds = new Set(feedbacks.map(f => f.booking.toString()));
 
     return formattedBookings.map(fb => {
-        if (fb.actions && feedbackBookingIds.has(fb._id.toString())) {
+        if (fb.actions && feedbackBookingIds.has(String(fb._id || fb.id))) {
             fb.actions.canGiveFeedback = false;
         }
         return fb;
@@ -4299,6 +4356,7 @@ module.exports = {
     rescheduleBooking,
     getBookingsByUser,
     getBookingsByVendor,
+    categorizeMyBookings,
     getCompletedBookingsByUser,
     retrySearchVendors,
     getVendorBookingHistory,

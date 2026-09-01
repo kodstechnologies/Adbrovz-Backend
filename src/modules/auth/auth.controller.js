@@ -1,6 +1,7 @@
 const asyncHandler = require('../../utils/asyncHandler');
 const ApiResponse = require('../../utils/ApiResponse');
 const authService = require('./auth.service');
+const addressService = require('./address.service');
 const MESSAGES = require('../../constants/messages');
 const User = require('../../models/User.model');
 const Vendor = require('../../models/Vendor.model');
@@ -96,6 +97,28 @@ const userUpdatePin = asyncHandler(async (req, res) => {
 const userVerifyContact = asyncHandler(async (req, res) => {
   const { email, phoneNumber } = req.body;
   const result = await authService.verifyUserContact(email, phoneNumber);
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
+const addUserAddress = asyncHandler(async (req, res) => {
+  const result = await addressService.addUserAddress(req.user.id, req.body);
+  res.status(201).json(new ApiResponse(201, result, 'Address added successfully'));
+});
+
+const getUserAddresses = asyncHandler(async (req, res) => {
+  const addressId = req.query.addressId;
+  const defaultAddress = String(req.query.defaultAddress || '').toLowerCase() === 'true';
+  const result = await addressService.getUserAddresses(req.user.id, { addressId, defaultAddress });
+  res.status(200).json(new ApiResponse(200, result, 'Addresses fetched successfully'));
+});
+
+const updateUserAddress = asyncHandler(async (req, res) => {
+  const result = await addressService.updateUserAddress(req.user.id, req.params.addressId, req.body);
+  res.status(200).json(new ApiResponse(200, result, 'Address updated successfully'));
+});
+
+const deleteUserAddress = asyncHandler(async (req, res) => {
+  const result = await addressService.deleteUserAddress(req.user.id, req.params.addressId);
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
@@ -278,6 +301,10 @@ module.exports = {
   userVerifyPin,
   userUpdatePin,
   userVerifyContact,
+  addUserAddress,
+  getUserAddresses,
+  updateUserAddress,
+  deleteUserAddress,
   sendUserPhoneOtp,
   verifyUserPhoneOtp,
   userForgotPin,

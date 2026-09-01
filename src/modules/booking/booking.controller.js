@@ -142,45 +142,7 @@ const getMyBookings = asyncHandler(async (req, res) => {
             ? await bookingService.getBookingsByVendor(userId)
             : await bookingService.getBookingsByUser(userId);
 
-    const statusMap = {
-        'pending_acceptance': 'Pending Acceptance',
-        'pending': 'Accepted',
-        'on_the_way': 'Vendor on the Way',
-        'arrived': 'Vendor Arrived',
-        'ongoing': 'Working',
-        'completed': 'Completed',
-    };
-
-    const cancelledStatusMap = {
-        'user': role === 'vendor' ? 'Cancelled by User' : 'Cancelled by You',
-        'vendor': role === 'user' ? 'Cancelled by Vendor' : 'Cancelled by You',
-        'system': 'Auto Cancelled'
-    };
-
-    const enhanceBooking = (b) => {
-        const obj = b.toObject ? b.toObject() : b;
-        obj.displayStatus = statusMap[obj.status] || obj.status;
-        if (['cancelled', 'auto_cancelled'].includes(obj.status)) {
-            obj.cancelledBy = obj.cancellation?.cancelledBy || 'unknown';
-            obj.displayStatus = cancelledStatusMap[obj.cancelledBy] || 'Cancelled';
-        }
-        return obj;
-    };
-
-    const categorized = {
-        pending: rawBookings
-            .filter(b => b.status === 'pending')
-            .map(enhanceBooking),
-        active: rawBookings
-            .filter(b => ['on_the_way', 'arrived', 'ongoing'].includes(b.status))
-            .map(enhanceBooking),
-        completed: rawBookings
-            .filter(b => b.status === 'completed')
-            .map(enhanceBooking),
-        cancelled: rawBookings
-            .filter(b => ['cancelled', 'auto_cancelled'].includes(b.status))
-            .map(enhanceBooking)
-    };
+    const categorized = bookingService.categorizeMyBookings(rawBookings);
 
     res.status(200).json(
         new ApiResponse(200, categorized, 'Bookings retrieved successfully')

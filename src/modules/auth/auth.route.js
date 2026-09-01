@@ -27,7 +27,9 @@ const {
   validateVendorVerifyContact,
   validateSendPhoneOtp,
   validateVerifyPhoneOtp,
-  validateForgotPin
+  validateForgotPin,
+  validateAddUserAddress,
+  validateUpdateUserAddress,
 } = require('../../validators/auth.validator');
 const { authLimiter, otpLimiter } = require('../../middlewares/rateLimiter.middleware');
 const { authenticate, authorize } = require('../../middlewares/auth.middleware');
@@ -56,6 +58,12 @@ router.post('/users/update-pin', authenticate, authLimiter, validateUserUpdatePi
 router.post('/users/send-phone-otp', otpLimiter, validateSendPhoneOtp, authController.sendUserPhoneOtp);
 router.post('/users/verify-phone-otp', authLimiter, validateVerifyPhoneOtp, authController.verifyUserPhoneOtp);
 router.post('/users/forgot-pin', authLimiter, validateForgotPin, authController.userForgotPin);
+
+// address
+router.post('/users/address', authenticate, authorize(ROLES.USER), validateAddUserAddress, authController.addUserAddress);
+router.get('/users/address', authenticate, authorize(ROLES.USER), authController.getUserAddresses);
+router.patch('/users/address/:addressId', authenticate, authorize(ROLES.USER), validateUpdateUserAddress, authController.updateUserAddress);
+router.delete('/users/address/:addressId', authenticate, authorize(ROLES.USER), authController.deleteUserAddress);
 
 // ======================== VENDOR ROUTES ========================
 router.post('/vendors/signup', authLimiter, uploadVendorDocs, processVendorDocs, validateVendorSignup, authController.vendorSignup);
@@ -87,6 +95,7 @@ router.post(
   validateVerifyPhoneOtp,
   authController.verifyVendorUnlockPhoneOtp
 );
+
 
 // ======================== ADMIN ROUTES ========================
 router.post('/admins/signup', authLimiter, validateAdminSignup, authController.adminSignup);

@@ -370,6 +370,35 @@ const userUpdatePinSchema = Joi.object({
   }),
 });
 
+const addUserAddressSchema = Joi.object({
+  title: Joi.string().trim().min(1).max(50).required().messages({
+    'any.required': 'Title is required',
+  }),
+  address: Joi.string().trim().min(3).max(500).required().messages({
+    'any.required': 'Address is required',
+  }),
+  phoneNo: Joi.string()
+    .pattern(phonePattern)
+    .required()
+    .messages({
+      'string.pattern.base': 'Invalid phone number format.',
+      'any.required': 'Phone number is required',
+    }),
+  isDefault: Joi.boolean().optional(),
+});
+
+const updateUserAddressSchema = Joi.object({
+  title: Joi.string().trim().min(1).max(50).optional(),
+  address: Joi.string().trim().min(3).max(500).optional(),
+  phoneNo: Joi.string()
+    .pattern(phonePattern)
+    .optional()
+    .messages({
+      'string.pattern.base': 'Invalid phone number format.',
+    }),
+  isDefault: Joi.boolean().optional(),
+}).min(1);
+
 const sendPhoneOtpSchema = Joi.object({
   phoneNumber: Joi.string()
     .pattern(phonePattern)
@@ -487,6 +516,8 @@ module.exports = {
   validateSendPhoneOtp: validate(sendPhoneOtpSchema, 'body'),
   validateVerifyPhoneOtp: validate(verifyPhoneOtpSchema, 'body'),
   validateForgotPin: validate(forgotPinSchema, 'body'),
+  validateAddUserAddress: validate(addUserAddressSchema, 'body'),
+  validateUpdateUserAddress: validate(updateUserAddressSchema, 'body'),
 };
 
 
