@@ -1037,7 +1037,7 @@ const emitToVendor = (vendorId, event, data) => {
     console.log(`[SOCKET DEBUG] emitToVendor called: event='${event}', vendorId='${vIdStr}', stringified='${vIdStr}', matchedSockets=${sockets.length}, allRegisteredVendors=[${[...activeVendors.keys()].join(', ')}]`);
 
     // Copy to diagnostics room so the Socket Simulator page captures all system booking actions in real time
-    if (['new_booking_request', 'booking_status_updated', 'booking_accepted_success', 'booking_rejected_success', 'booking_created_success', 'booking_search_update', 'service_approval_response', 'service_approval_update', 'extra_service_approval_update'].includes(event)) {
+    if (['new_booking_request', 'booking_status_updated', 'booking_accepted_success', 'booking_rejected_success', 'booking_created_success', 'booking_search_update', 'booking_cancellation', 'service_approval_response', 'service_approval_update', 'extra_service_approval_update'].includes(event)) {
         io.to('diagnostics').emit(event, data);
         console.log(`📡 [DIAGNOSTICS] Forwarded copy of '${event}' to diagnostics room`);
     }
@@ -1068,7 +1068,7 @@ const emitToUser = (userId, event, data) => {
     console.log(`[SOCKET DEBUG] emitToUser called: event='${event}', userId='${userId}', stringified='${userIdStr}', matchedSockets=${sockets.length}, allRegisteredUsers=[${[...activeUsers.keys()].join(', ')}]`);
 
     // Copy to diagnostics room so the Socket Simulator page captures all system booking actions in real time
-    if (['new_booking_request', 'booking_status_updated', 'booking_accepted_success', 'booking_rejected_success', 'booking_created_success', 'booking_search_update', 'service_approval_response', 'service_approval_update', 'extra_service_approval_update'].includes(event)) {
+    if (['new_booking_request', 'booking_status_updated', 'booking_accepted_success', 'booking_rejected_success', 'booking_created_success', 'booking_search_update', 'booking_cancellation', 'service_approval_response', 'service_approval_update', 'extra_service_approval_update'].includes(event)) {
         io.to('diagnostics').emit(event, data);
         console.log(`📡 [DIAGNOSTICS] Forwarded copy of '${event}' to diagnostics room`);
     }

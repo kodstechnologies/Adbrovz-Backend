@@ -47,6 +47,7 @@ const notificationSchema = new mongoose.Schema(
         'membership_warning',
         'membership_expired',
         'purchase_success',
+        'booking_already_accepted',
       ],
       required: true,
     },

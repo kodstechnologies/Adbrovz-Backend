@@ -384,6 +384,13 @@ const addUserAddressSchema = Joi.object({
       'string.pattern.base': 'Invalid phone number format.',
       'any.required': 'Phone number is required',
     }),
+  lat: Joi.number().min(-90).max(90).optional(),
+  long: Joi.number().min(-180).max(180).optional(),
+  latitude: Joi.number().min(-90).max(90).optional(),
+  longitude: Joi.number().min(-180).max(180).optional(),
+  pincode: Joi.string().trim().min(4).max(10).optional(),
+  pinCode: Joi.string().trim().min(4).max(10).optional(),
+  postalCode: Joi.string().trim().min(4).max(10).optional(),
   isDefault: Joi.boolean().optional(),
 });
 
@@ -396,6 +403,13 @@ const updateUserAddressSchema = Joi.object({
     .messages({
       'string.pattern.base': 'Invalid phone number format.',
     }),
+  lat: Joi.number().min(-90).max(90).optional(),
+  long: Joi.number().min(-180).max(180).optional(),
+  latitude: Joi.number().min(-90).max(90).optional(),
+  longitude: Joi.number().min(-180).max(180).optional(),
+  pincode: Joi.string().trim().min(4).max(10).optional(),
+  pinCode: Joi.string().trim().min(4).max(10).optional(),
+  postalCode: Joi.string().trim().min(4).max(10).optional(),
   isDefault: Joi.boolean().optional(),
 }).min(1);
 

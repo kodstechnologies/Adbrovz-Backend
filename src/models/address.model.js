@@ -27,6 +27,19 @@ const addressSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    lat: {
+      type: Number,
+      default: null,
+    },
+    long: {
+      type: Number,
+      default: null,
+    },
+    pincode: {
+      type: String,
+      trim: true,
+      default: '',
+    },
   },
   {
     timestamps: true,

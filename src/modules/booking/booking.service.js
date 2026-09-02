@@ -55,6 +55,30 @@ const buildSearchTimingPayload = ({ searchId, retryCount, waves, totalSearchTime
     };
 };
 
+const buildBookingSocketRef = (booking) => ({
+    bookingId: String(booking?._id || booking?.id),
+    bookingID: booking?.bookingID || String(booking?._id || booking?.id),
+});
+
+const ELIGIBLE_VENDOR_REGISTRATION_STEPS = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'];
+
+const toServiceObjectIds = (booking) => {
+    const rawIds = (booking.services || [])
+        .map((item) => item.service?._id || item.service?.id || item.service)
+        .filter(Boolean);
+    return [...new Set(rawIds.map((id) => String(id)))].map((id) => new mongoose.Types.ObjectId(id));
+};
+
+const buildVendorServiceMatchFilter = (serviceObjectIds) => {
+    if (!serviceObjectIds.length) return null;
+    return {
+        $or: [
+            { approvedServices: { $all: serviceObjectIds } },
+            { selectedServices: { $all: serviceObjectIds } }
+        ]
+    };
+};
+
 // Radius expansion tiers are now dynamic and fetched from GlobalConfig (admin settings)
 
 /**
@@ -319,9 +343,9 @@ const acceptBooking = async (vendorId, bookingId) => {
     // ── Emit acceptance update IMMEDIATELY after locking ──
     try {
         const { emitToUser } = require('../../socket');
+        const bookingRef = buildBookingSocketRef(booking);
         emitToUser(booking.user, 'booking_search_update', {
-            bookingId: booking._id,
-            bookingID: booking.bookingID,
+            ...bookingRef,
             status: 'accepted',
             message: 'A vendor has accepted your booking request!',
             searchCompleted: true,
@@ -348,14 +372,24 @@ const acceptBooking = async (vendorId, bookingId) => {
     const { emitToUser, emitToVendor, activeVendors, getIo } = require('../../socket');
 
     const userIdStr = booking.user.toString();
+    const bookingRef = buildBookingSocketRef(booking);
     console.log(`[SOCKET] Emitting standard status updates to user: ${userIdStr}`);
 
     emitToUser(userIdStr, 'booking_status_updated', userPayload);
     emitToVendor(vendorId, 'booking_status_updated', vendorPayload);
 
+    // User app navigates on this event from the vendor-search screen
+    emitToUser(userIdStr, 'booking_accepted_success', {
+        ...bookingRef,
+        status: 'accepted',
+        message: 'A vendor has accepted your booking request!'
+    });
+
     // ── Emit specialized success event for multi-device sync ──
     emitToVendor(vendorId, 'booking_accepted_success', {
+        ...bookingRef,
         booking: vendorPayload,
+        status: 'accepted',
         message: 'Booking accepted successfully'
     });
 
@@ -1583,7 +1617,7 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
         if (broadcast) {
             const { emitToUser } = require('../../socket');
             emitToUser(booking.user, 'booking_search_update', {
-                bookingId: booking._id,
+                ...buildBookingSocketRef(booking),
                 status: 'failed',
                 message: 'Vendor search failed: Missing location coordinates.'
             });
@@ -1595,24 +1629,8 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
     // 1. Determine Dynamic Radius and Waves
     const retryCount = booking.retryCount || 0;
     console.log(`[TRACKING-FLOW] [STEP 2.3] Current retryCount (Wave index): ${retryCount}`);
-    
-    // Fetch settings for all rows
-    const [r1_km, r1_min, r2_km, r2_min, r3_km, r3_min] = await Promise.all([
-        adminService.getSetting('notifications.radius_row1_km'),
-        adminService.getSetting('notifications.radius_row1_mins'),
-        adminService.getSetting('notifications.radius_row2_km'),
-        adminService.getSetting('notifications.radius_row2_mins'),
-        adminService.getSetting('notifications.radius_row3_km'),
-        adminService.getSetting('notifications.radius_row3_mins')
-    ]);
 
-    const waves = [
-        { km: Number(r1_km) || 1, mins: Number(r1_min) || 5 },
-        { km: Number(r2_km) || 1, mins: Number(r2_min) || 10 },
-        { km: Number(r3_km) || 1, mins: Number(r3_min) || 15 }
-    ];
-
-    const totalSearchTimeMins = waves.reduce((sum, wave) => sum + wave.mins, 0);
+    const { waves, totalSearchTimeMins } = await getSearchWaveConfig();
     const currentWave = waves[Math.min(retryCount, waves.length - 1)];
     const radiusInKm = currentWave.km;
     
@@ -1628,10 +1646,9 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
 
     const ignoredVendors = [
         ...(booking.rejectedVendors || []),
-        ...(booking.laterVendors || []),
-        ...(booking.notifiedVendors || []) // Exclude already notified vendors to prevent spamming
+        ...(booking.laterVendors || [])
     ].map(id => id.toString());
-    console.log(`[TRACKING-FLOW] [STEP 2.7] Ignored/excluded vendor IDs (rejected/later/already-notified):`, ignoredVendors);
+    console.log(`[TRACKING-FLOW] [STEP 2.7] Ignored/excluded vendor IDs (rejected/later only):`, ignoredVendors);
 
     // ── Find vendors whose bookings overlap with this booking's time range ──
     // Only exclude vendors whose existing booking's time slot conflicts with the new booking
@@ -1656,25 +1673,20 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
     console.log(`[TRACKING-FLOW] [STEP 2.8] Found ${serviceIdsInCategories.length} services in categoryIds [${categoryIds}] for cross-matching`);
 
     // ── Geospatial Query ──
-    const serviceIds = (booking.services || []).map(s => s.service);
+    const serviceObjectIds = toServiceObjectIds(booking);
     let categoryOrServiceFilter = [];
+    const serviceMatchFilter = buildVendorServiceMatchFilter(serviceObjectIds);
 
-    if (serviceIds.length > 0) {
-        const mongoose = require('mongoose');
-        const serviceObjectIds = serviceIds.map(id => new mongoose.Types.ObjectId(id));
-        // STRICT match: Vendor must have ALL requested services explicitly.
-        // Removed the $or fallback to categoryIds to prevent vendors from receiving
-        // notifications for services they haven't explicitly purchased/selected.
-        categoryOrServiceFilter = [
-            { selectedServices: { $all: serviceObjectIds } }
-        ];
-        console.log(`[TRACKING-FLOW] [STEP 2.9] Applied STRICT Service Filter (ALL serviceIds must match):`, serviceIds);
+    if (serviceMatchFilter) {
+        categoryOrServiceFilter = [serviceMatchFilter];
+        console.log(`[TRACKING-FLOW] [STEP 2.9] Applied service filter (approved OR selected, ALL required):`, serviceObjectIds.map(String));
     } else {
         categoryOrServiceFilter = [
             { selectedCategories: { $in: categoryIds } }
         ];
         if (serviceIdsInCategories.length > 0) {
             categoryOrServiceFilter.push({ selectedServices: { $in: serviceIdsInCategories } });
+            categoryOrServiceFilter.push({ approvedServices: { $in: serviceIdsInCategories } });
         }
         console.log(`[TRACKING-FLOW] [STEP 2.9] Applied Category/Service fallback filter`);
     }
@@ -1683,9 +1695,11 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
-        isOnline: true,
-        registrationStep: 'COMPLETED',
+        isLocked: { $ne: true },
+        registrationStep: { $in: ELIGIBLE_VENDOR_REGISTRATION_STEPS },
         deletedAt: null,
+        'liveLocation.coordinates.0': { $ne: 0 },
+        'liveLocation.coordinates.1': { $ne: 0 },
         $and: [
             {
                 $or: [
@@ -1857,20 +1871,9 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
             const { emitToVendor, isVendorOnline, activeVendors } = require('../../socket');
             const notificationService = require('../notification/notification.service');
 
-            // Build a Set of already-notified vendor IDs for O(1) dedup lookup
-            const alreadyNotifiedSet = new Set(
-                (booking.notifiedVendors || []).map(id => id.toString())
-            );
-
             const notificationPromises = vendors.map(async (v) => {
                 const vendorIdStr = v._id.toString();
                 const vendorNameStr = v.name || 'Unknown';
-
-                // ── Deduplication guard ──
-                if (alreadyNotifiedSet.has(vendorIdStr)) {
-                    console.log(`[TRACKING-FLOW] [STEP 2.15] Skipping Vendor ${vendorNameStr} (${vendorIdStr}) — already notified previously for Booking ${booking._id}`);
-                    return null;
-                }
 
                 const online = isVendorOnline(vendorIdStr);
                 const matchedSockets = activeVendors.get(vendorIdStr) || [];
@@ -1880,21 +1883,17 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                 try {
                     require('fs').appendFileSync(require('path').join(__dirname, '../../../scratch/notify_debug.txt'), `[DEBUG] ${new Date().toISOString()} | Booking: ${booking._id} | Vendor: ${vendorIdStr} | Socket Online: ${online} | Sockets: ${matchedSockets.join(',')} | FCM Token Present: ${!!v.fcmToken}\n`);
                 } catch(e) {}
-                
 
-                // ── Socket + FCM Hybrid: Send BOTH socket AND FCM to ensure delivery ──
-                // Socket for real-time in-app notifications when app is active
-                // FCM as guaranteed delivery mechanism for all cases (background, inactive, offline)
-                
-                // 1. Always send Socket Notification if vendor is online
+                let notifiedThisRound = false;
+
+                // Socket for real-time in-app notifications when vendor app is connected
                 if (online) {
                     console.log(`[TRACKING-FLOW] [STEP 2.17a] Vendor is ONLINE. Emitting 'new_booking_request' via socket(s): ${matchedSockets.join(', ')}`);
                     emitToVendor(vendorIdStr, 'new_booking_request', payload);
-                    broadcastCount++;
+                    notifiedThisRound = true;
                 }
                 
-                // 2. ALWAYS send FCM Push Notification as a reliable fallback (whether online or offline)
-                // This ensures delivery even if socket fails or app is in background
+                // FCM fallback — also notify when socket is offline so nearby vendors still get the request
                 if (v.fcmToken) {
                     console.log(`[TRACKING-FLOW] [STEP 2.17b] Sending FCM push notification to Vendor ${vendorNameStr}...`);
                     
@@ -1916,14 +1915,19 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                         fcmToken: v.fcmToken
                     }).then(() => {
                         console.log(`[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to Vendor ${vendorNameStr}`);
+                        notifiedThisRound = true;
                     }).catch(err => {
                         console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
                     });
-                } else {
-                    console.log(`[TRACKING-FLOW] [STEP 2.17c] Vendor ${vendorNameStr} has no FCM token. Skipping push notification.`);
+                } else if (!online) {
+                    console.log(`[TRACKING-FLOW] [STEP 2.17c] Vendor ${vendorNameStr} has no socket connection and no FCM token.`);
                 }
 
-                return v._id;
+                if (notifiedThisRound) {
+                    broadcastCount++;
+                }
+
+                return notifiedThisRound ? v._id : null;
             });
 
             const notifiedIds = (await Promise.all(notificationPromises)).filter(Boolean);
@@ -1939,20 +1943,22 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
             const { emitToUser } = require('../../socket');
             console.log(`[TRACKING-FLOW] [STEP 2.21] Emitting booking_search_update to user: ${booking.user}. notifiedCount: ${broadcastCount}`);
             emitToUser(booking.user, 'booking_search_update', {
-                bookingId: booking._id,
-                bookingID: booking.bookingID,
+                ...buildBookingSocketRef(booking),
                 status: 'searching',
                 radius: radiusInKm,
                 vendorCount: broadcastCount,
+                matchedVendorCount: vendors.length,
                 ...buildSearchTimingPayload({
                     searchId: currentSearchId,
                     retryCount,
                     waves,
                     totalSearchTimeMins
                 }),
-                message: broadcastCount > 0 
-                  ? `Searching in ${radiusInKm}km radius... notified ${broadcastCount} vendors.`
-                  : `Searching in ${radiusInKm}km radius... no vendors online nearby right now.`
+                message: vendors.length === 0
+                  ? `No matching vendors found within ${radiusInKm}km. Expanding search...`
+                  : broadcastCount > 0
+                    ? `Searching in ${radiusInKm}km radius... notified ${broadcastCount} vendor(s).`
+                    : `Found ${vendors.length} nearby vendor(s) but none could be reached. Retrying...`
             });
 
             // ── Schedule Search Expansion (Dynamic Waves) ──
@@ -1986,14 +1992,13 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                         // Don't change status to invalid enum value. Keep as 'pending_acceptance' so user can retry.
                         console.warn(`[TRACKING-FLOW] [STEP 4.1] Hard-Stop completed. No vendors found for booking ${booking._id}. Notifying user.`);
                         
-                        emitToUser(booking.user, 'booking_search_update', {
-                            bookingId: booking._id,
-                            bookingID: booking.bookingID,
+                        emitToUser(current.user, 'booking_search_update', {
+                            ...buildBookingSocketRef(current),
                             status: 'search_completed_no_vendors',
                             message: `Could not find any vendors within ${waves[waves.length - 1].km}km after ${waves[waves.length - 1].mins} minutes of searching. Please try again manually.`,
                             searchCompleted: true,
                             ...buildSearchTimingPayload({
-                                searchId: booking.searchId,
+                                searchId: current.searchId,
                                 retryCount,
                                 waves,
                                 totalSearchTimeMins
@@ -2054,8 +2059,7 @@ const rejectBooking = async (vendorId, bookingId) => {
                 totalSearchTimeMins
             });
             emitToUser(booking.user, 'booking_search_update', {
-                bookingId: booking._id,
-                bookingID: booking.bookingID,
+                ...buildBookingSocketRef(booking),
                 status: 'searching',
                 message: 'That vendor rejected the request. Continuing search...',
                 searchCompleted: false,
@@ -2131,8 +2135,7 @@ const markBookingLater = async (vendorId, bookingId) => {
                 totalSearchTimeMins
             });
             emitToUser(booking.user, 'booking_search_update', {
-                bookingId: booking._id,
-                bookingID: booking.bookingID,
+                ...buildBookingSocketRef(booking),
                 status: 'searching',
                 message: 'Vendor marked for later. Continuing search...',
                 searchCompleted: false,
@@ -2290,7 +2293,18 @@ const cancelBooking = async (userId, bookingId, reason) => {
         .populate('user', 'name phoneNumber photo');
 
     const { emitToUser, emitToVendor } = require('../../socket');
+    const bookingRef = buildBookingSocketRef(booking);
     emitToUser(booking.user, 'booking_status_updated', populatedBooking);
+    emitToUser(booking.user, 'booking_search_update', {
+        ...bookingRef,
+        status: 'cancelled',
+        message: reason || 'Cancelled by user while searching',
+        searchCompleted: true
+    });
+    emitToUser(booking.user, 'booking_cancellation', {
+        ...bookingRef,
+        cancellation: booking.cancellation
+    });
     if (booking.vendor) {
         emitToVendor(booking.vendor, 'booking_cancellation', populatedBooking);
 
@@ -2379,10 +2393,11 @@ const vendorCancelBooking = async (vendorId, bookingId, reason) => {
         .populate('user', 'name phoneNumber photo');
 
     const { emitToUser, emitToVendor } = require('../../socket');
+    const bookingRef = buildBookingSocketRef(booking);
     emitToUser(booking.user, 'booking_status_updated', populatedBooking);
     emitToUser(booking.user, 'booking_cancellation', {
-        ...populatedBooking.toObject(),
-        message: 'The vendor has cancelled your booking.'
+        ...bookingRef,
+        cancellation: { reason: booking.cancellation?.reason || 'Vendor unavailable' }
     });
 
     // ── Send Push Notification to User ──
@@ -2745,15 +2760,38 @@ const retrySearchVendors = async (userId, bookingId) => {
     await booking.save();
     console.log(`[DEBUG] retrySearchVendors: Status reset to ${booking.status}, exclusion lists cleared.`);
 
-    const nearby = await searchVendors(booking, true);
+    const freshBooking = await Booking.findById(booking._id);
+    const { waves, totalSearchTimeMins } = await getSearchWaveConfig();
+
+    try {
+        const { emitToUser } = require('../../socket');
+        emitToUser(freshBooking.user, 'booking_search_update', {
+            ...buildBookingSocketRef(freshBooking),
+            status: 'searching',
+            message: 'Restarting vendor search...',
+            searchCompleted: false,
+            ...buildSearchTimingPayload({
+                searchId: freshBooking.searchId,
+                retryCount: 0,
+                waves,
+                totalSearchTimeMins
+            })
+        });
+    } catch (socketErr) {
+        console.error('[SOCKET] Failed to emit retry search update:', socketErr.message);
+    }
+
+    const nearby = await searchVendors(freshBooking, true);
 
     return {
         found: nearby.length > 0,
         count: nearby.length,
         notifiedVendorIds: nearby.map(v => v.vendorId),
+        bookingId: String(freshBooking._id),
+        bookingID: freshBooking.bookingID,
         message: nearby.length > 0
-            ? `Search restarted. Notified ${nearby.length} vendors.`
-            : 'No vendors are currently available nearby.'
+            ? `Search restarted. Notified ${nearby.length} vendor(s).`
+            : 'No matching vendors are currently available nearby. Please try again in a few minutes.'
     };
 };
 

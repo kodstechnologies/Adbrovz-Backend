@@ -9,10 +9,36 @@ const formatAddress = (doc) => ({
   title: doc.title,
   address: doc.address,
   phoneNo: doc.phoneNo,
+  lat: doc.lat ?? null,
+  long: doc.long ?? null,
+  pincode: doc.pincode || '',
   isDefault: doc.isDefault,
   createdAt: doc.createdAt,
   updatedAt: doc.updatedAt,
 });
+
+const resolveLatLong = (payload = {}) => {
+  const lat = payload.lat ?? payload.latitude;
+  const long = payload.long ?? payload.longitude ?? payload.lng;
+
+  const parsedLat = lat === undefined || lat === null || lat === '' ? undefined : Number(lat);
+  const parsedLong = long === undefined || long === null || long === '' ? undefined : Number(long);
+
+  if (parsedLat !== undefined && (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90)) {
+    throw new ApiError(400, 'Invalid latitude');
+  }
+  if (parsedLong !== undefined && (!Number.isFinite(parsedLong) || parsedLong < -180 || parsedLong > 180)) {
+    throw new ApiError(400, 'Invalid longitude');
+  }
+
+  return { lat: parsedLat, long: parsedLong };
+};
+
+const resolvePincode = (payload = {}) => {
+  const pincode = payload.pincode ?? payload.pinCode ?? payload.postalCode;
+  if (pincode === undefined || pincode === null) return undefined;
+  return String(pincode).trim();
+};
 
 const setDefaultAddress = async (userId, addressId) => {
   await Address.updateMany(
@@ -43,6 +69,8 @@ const addUserAddress = async (userId, payload) => {
 
   const existingCount = await Address.countDocuments({ user: userId });
   const shouldBeDefault = existingCount === 0 || payload.isDefault === true;
+  const { lat, long } = resolveLatLong(payload);
+  const pincode = resolvePincode(payload);
 
   const address = await Address.create({
     user: userId,
@@ -50,6 +78,9 @@ const addUserAddress = async (userId, payload) => {
     address: payload.address,
     phoneNo: payload.phoneNo,
     isDefault: shouldBeDefault,
+    ...(lat !== undefined ? { lat } : {}),
+    ...(long !== undefined ? { long } : {}),
+    ...(pincode !== undefined ? { pincode } : {}),
   });
 
   if (shouldBeDefault && existingCount > 0) {
@@ -106,6 +137,13 @@ const updateUserAddress = async (userId, addressId, payload) => {
   if (payload.title !== undefined) address.title = payload.title;
   if (payload.address !== undefined) address.address = payload.address;
   if (payload.phoneNo !== undefined) address.phoneNo = payload.phoneNo;
+
+  const { lat, long } = resolveLatLong(payload);
+  if (lat !== undefined) address.lat = lat;
+  if (long !== undefined) address.long = long;
+
+  const pincode = resolvePincode(payload);
+  if (pincode !== undefined) address.pincode = pincode;
 
   if (payload.isDefault === true) {
     address.isDefault = true;
