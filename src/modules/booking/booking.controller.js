@@ -251,6 +251,19 @@ const getVendorHistory = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Get incoming booking requests for vendor (pending_acceptance)
+ */
+const getVendorIncomingRequests = asyncHandler(async (req, res) => {
+    const vendorId = req.user?._id || req.user?.userId || req.user?.id;
+
+    const result = await bookingService.getVendorIncomingRequests(vendorId);
+
+    res.status(200).json(
+        new ApiResponse(200, result, 'Incoming booking requests retrieved successfully')
+    );
+});
+
+/**
  * Get vendor later bookings list
  */
 const getVendorLaterBookings = asyncHandler(async (req, res) => {
@@ -557,6 +570,7 @@ module.exports = {
     getBookingById,
     getCompletedHistory,
     getVendorHistory,
+    getVendorIncomingRequests,
     getVendorLaterBookings,
     retrySearch,
 

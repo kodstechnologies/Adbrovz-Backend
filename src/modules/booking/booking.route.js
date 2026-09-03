@@ -7,7 +7,9 @@ const { authenticate } = require('../../middlewares/auth.middleware');
  * VENDOR – HISTORY (must be before /vendor/:id)
  */
 router.get('/vendor/history', authenticate, bookingController.getVendorHistory);
+router.get('/vendor/incoming', authenticate, bookingController.getVendorIncomingRequests);
 router.get('/vendors/history', authenticate, bookingController.getVendorHistory);
+router.get('/vendors/incoming', authenticate, bookingController.getVendorIncomingRequests);
 router.get('/history', authenticate, bookingController.getVendorHistory);
 router.get('/vendor/later', authenticate, bookingController.getVendorLaterBookings);
 
