@@ -1425,7 +1425,7 @@ const getAllSubcategoriesWithServices = async () => {
  */
 const getServiceCatalogue = async () => {
     const categories = await Category.find({ isActive: { $ne: false } })
-        .select('name _id icon')
+        .select('name _id icon description slotStartTime slotEndTime')
         .sort({ order: 1, name: 1 })
         .lean();
 
@@ -1510,6 +1510,9 @@ const getServiceCatalogue = async () => {
             categoryId: category._id.toString(),
             categoryName: category.name,
             icon: category.icon || null,
+            description: category.description || null,
+            slotStartTime: category.slotStartTime || '08:00',
+            slotEndTime: category.slotEndTime || '20:00',
             subcategories: (subcategoriesByCategory[category._id.toString()] || []).filter(
                 subcategory => subcategory.serviceTypes.length > 0
             )

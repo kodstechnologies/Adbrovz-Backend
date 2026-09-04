@@ -367,7 +367,9 @@ const getSubcategoriesWithServices = asyncHandler(async (req, res) => {
 
 // Get nested catalogue
 const getServiceCatalogue = asyncHandler(async (req, res) => {
+    
     const catalogue = await serviceService.getServiceCatalogue();
+    console.log(catalogue,"==========catalogue=========")
     res.status(200).json(
         new ApiResponse(200, catalogue, 'Service catalogue retrieved successfully')
     );
