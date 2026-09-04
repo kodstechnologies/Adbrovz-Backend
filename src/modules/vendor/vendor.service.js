@@ -4688,10 +4688,12 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
 /**
  * Add Category: Create order
  */
-const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [], serviceIds = [], approvalRequestId, subcategories: payloadSubcategories, services: payloadServices } = {}) => {
+const createAddCategoryOrder = async (vendorId, { amount: requestAmount, categoryId, subcategoryIds = [], serviceIds = [], approvalRequestId, subcategories: payloadSubcategories, services: payloadServices } = {}) => {
     // Support aliases often used by frontend
     if ((!subcategoryIds || !subcategoryIds.length) && payloadSubcategories) subcategoryIds = payloadSubcategories;
     if ((!serviceIds || !serviceIds.length) && payloadServices) serviceIds = payloadServices;
+
+    console.log(`📥 [createAddCategoryOrder] requestAmount=${requestAmount}`);
 
     const vendor = await Vendor.findById(vendorId).select('extraServiceRequests');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
@@ -4738,19 +4740,27 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
 
     const feeDetails = await getAddCategoryFeeDetails(vendorId, { categoryId, subcategoryIds, serviceIds });
 
+    // Use categoryId derived inside feeDetails if not provided in request
+    const resolvedCategoryId = categoryId || feeDetails.categoryId;
+
     const totalToPay = feeDetails.totalWithGst;
     const paymentMetadata = {
-        ...feeDetails.breakdown,
+        categoryId: resolvedCategoryId,
         selectedSubcategories: subcategoryIds,
         selectedServices: serviceIds,
-        categoryId: categoryId,
         approvalRequestId: approvedRequest._id,
+        breakdown: feeDetails.breakdown,
         isProrated: (feeDetails.prorationContext?.remainingDays || feeDetails.renewalDays) < feeDetails.renewalDays,
         alignedExpiryDate: feeDetails.prorationContext?.expiryDate
     };
 
-    // Amount 0: skip Razorpay and activate the extra services immediately
-    if (Math.round(Number(totalToPay) * 100) <= 0) {
+    // Use the exact amount passed by frontend; fall back to calculated if not provided
+    const finalAmount = (requestAmount !== undefined && requestAmount !== null && !isNaN(Number(requestAmount)))
+        ? Number(requestAmount)
+        : totalToPay;
+
+    // If amount is 0: skip Razorpay and activate immediately
+    if (Math.round(finalAmount * 100) <= 0) {
         const freeOrderId = `free_add_cat_${vendorId.toString().slice(-8)}_${Date.now()}`;
         await PaymentRecord.create({
             vendor: vendorId,
@@ -4768,7 +4778,7 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
             razorpay_payment_id: `free_${Date.now()}`,
             razorpay_signature: 'skipped_zero_amount',
             isAdminBypass: true,
-            categoryId,
+            categoryId: resolvedCategoryId,
             selectedSubcategories: subcategoryIds,
             selectedServices: serviceIds,
         });
@@ -4788,8 +4798,12 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
 
     let razorpayOrder;
     try {
+        const razorpayAmount = Math.round(finalAmount * 100);
+
+        console.log(`💳 [createAddCategoryOrder] razorpayAmount=${razorpayAmount} paise (₹${finalAmount})`);
+
         razorpayOrder = await getRazorpay().orders.create({
-            amount: Math.round(totalToPay * 100),
+            amount: razorpayAmount,
             currency: 'INR',
             receipt: `add_cat_${vendorId.toString().slice(-10)}_${Date.now()}`,
             notes: {
@@ -4805,7 +4819,7 @@ const createAddCategoryOrder = async (vendorId, { categoryId, subcategoryIds = [
             purpose: 'CATEGORY_PURCHASE',
             amount: feeDetails.totalCharge,
             gstAmount: feeDetails.gstAmount,
-            totalAmount: totalToPay,
+            totalAmount: razorpayAmount / 100,
             status: 'PENDING',
             metadata: paymentMetadata
         });

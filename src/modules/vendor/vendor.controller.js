@@ -621,6 +621,7 @@ const reviewExtraServiceApprovalRequest = asyncHandler(async (req, res) => {
  * Add Category: Create Razorpay order
  */
 const createAddCategoryOrder = asyncHandler(async (req, res) => {
+    console.log(req.body,"------------")
     const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
     const result = await vendorService.createAddCategoryOrder(vendorId, req.body);
     res.status(200).json(
