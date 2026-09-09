@@ -264,6 +264,7 @@ const initSocket = (server) => {
                     },
                     location: { 
                         address: '123 Premium Glassmorphism Blvd, Indiranagar', 
+                         areaName: data?.areaName || '',
                         latitude: 12.9715987, 
                         longitude: 77.5945627 
                     },

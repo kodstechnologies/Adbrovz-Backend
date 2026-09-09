@@ -8,6 +8,7 @@ const Category = require('../../models/Category.model');
 const Coupon = require('../../models/Coupon.model');
 const { ROLES } = require('../../constants/roles');
 const { calculateDistance } = require('../../utils/location');
+const { generateOTP } = require('../../utils/otp');
 
 const ApiError = require('../../utils/ApiError');
 const cacheService = require('../../services/cache.service');
@@ -327,7 +328,7 @@ const acceptBooking = async (vendorId, bookingId) => {
 
         // Finalize existing Booking
         booking.vendor = vendorId;
-        booking.otp = { startOTP: '1234', completionOTP: null };
+        booking.otp = { startOTP: generateOTP(4), completionOTP: null };
         if (gracePeriodEnd) booking.gracePeriodEnd = gracePeriodEnd;
         booking.statusHistory.push({ status: 'pending', timestamp: new Date(), actor: 'vendor' });
         
@@ -575,7 +576,7 @@ const startWork = async (vendorId, bookingId, enteredOTP) => {
         throw new ApiError(400, 'Vendor must arrive before starting work');
     }
 
-    const validStartOTP = booking.otp?.startOTP || '1234';
+    const validStartOTP = booking.otp?.startOTP;
     // ── Per-service price confirmation check ──
     // Work can only start once ALL services have been price-confirmed by the user.
     const unconfirmedServices = (booking.services || []).filter(s => !s.isPriceConfirmed);
@@ -680,9 +681,9 @@ const requestCompletionOTP = async (vendorId, bookingId) => {
         throw new ApiError(400, `${zeroAmountMainServices.length} service(s) have zero amount. Please propose a price first.`);
     }
 
-    const completionOTP = '4321';
+    const completionOTP = generateOTP(4);
     if (!booking.otp) {
-        booking.otp = { startOTP: '1234', completionOTP };
+        booking.otp = { startOTP: generateOTP(4), completionOTP };
     } else {
         booking.otp.completionOTP = completionOTP;
     }
@@ -741,7 +742,7 @@ const completeWork = async (vendorId, bookingId, enteredOTP, paymentMethod) => {
         throw new ApiError(400, 'Completion OTP was never requested');
     }
 
-    const validCompletionOTP = booking.otp?.completionOTP || '4321';
+    const validCompletionOTP = booking.otp?.completionOTP;
     if (!enteredOTP || enteredOTP.toString() !== validCompletionOTP) {
         throw new ApiError(400, 'Invalid Completion OTP');
     }
@@ -1013,7 +1014,7 @@ const _formatBooking = (bookingDoc, role) => {
         const isVendorRole = role === 'vendor' || role === 'Vendor';
 
         if (isUserRole) {
-            const startOTPCode = bookingObj.otp.startOTP || '1234';
+            const startOTPCode = bookingObj.otp.startOTP || null;
             const completionOTPCode = bookingObj.otp.completionOTP || null;
 
             bookingObj.currentOTP = {
@@ -1976,7 +1977,7 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                 message: vendors.length === 0
                   ? `No matching vendors found within ${radiusInKm}km. Expanding search...`
                   : broadcastCount > 0
-                    ? `Searching in ${radiusInKm}km radius... notified ${broadcastCount} vendor(s).`
+                    ? `Searching in -_- ${radiusInKm}km radius... notified ${broadcastCount} vendor(s).`
                     : `Found ${vendors.length} nearby vendor(s) but none could be reached. Retrying...`
             });
 
