@@ -377,6 +377,9 @@ const addUserAddressSchema = Joi.object({
   address: Joi.string().trim().min(3).max(500).required().messages({
     'any.required': 'Address is required',
   }),
+  areaName: Joi.string().trim().min(1).max(200).required().messages({
+    'any.required': 'Area name is required',
+  }),
   phoneNo: Joi.string()
     .pattern(phonePattern)
     .required()

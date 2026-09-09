@@ -1194,6 +1194,24 @@ const _formatBooking = (bookingDoc, role) => {
 
     normalizeVendorPhoto(bookingObj.vendor);
 
+    // Attach clean vendorDetails when a vendor has accepted the booking
+    if (bookingObj.vendor && typeof bookingObj.vendor === 'object' && bookingObj.vendor.name) {
+        const v = bookingObj.vendor;
+        bookingObj.vendorDetails = {
+            id: String(v._id || v.id),
+            name: v.name || null,
+            phoneNumber: v.phoneNumber || null,
+            photo: (v.documents && v.documents.photo && v.documents.photo.url) || v.photo || null,
+            rating: (v.performance && v.performance.rating) || 0,
+            totalRatings: (v.performance && v.performance.totalRatings) || 0,
+            workCity: v.workCity || null,
+            workState: v.workState || null,
+            address: v.address || null,
+        };
+    } else {
+        bookingObj.vendorDetails = null;
+    }
+
     // Remove rejectedServices history array from the response as requested
     delete bookingObj.rejectedServices;
 
@@ -1394,6 +1412,7 @@ const createBooking = async (userId, bookingData) => {
         scheduledDate,
         scheduledTime,
         address,
+        areaName,
         totalPrice,
         latitude,
         longitude,
@@ -1546,7 +1565,7 @@ const createBooking = async (userId, bookingData) => {
         services: processedServices,
         scheduledDate: new Date(bookingDate),
         scheduledTime: bookingTime,
-        location: { address, latitude, longitude, pincode },
+        location: { address, areaName, latitude, longitude, pincode },
         pricing: { 
             basePrice: calculatedBasePrice,
             travelCharge: calculatedTravelCharge,
@@ -2604,7 +2623,7 @@ const getBookingsByUser = async (userId) => {
         .populate(serviceWithSubcategoryPopulate('proposedServices.service', 'title serviceCharge photo subcategory'))
         .populate(serviceWithSubcategoryPopulate('userRequestedServices.service', 'title serviceCharge photo subcategory'))
         .populate('category', 'name icon')
-        .populate('vendor', 'name phoneNumber photo documents.photo.url')
+        .populate('vendor', 'name phoneNumber documents.photo.url performance workCity workState address')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
     

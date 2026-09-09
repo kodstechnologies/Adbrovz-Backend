@@ -101,6 +101,7 @@ const userVerifyContact = asyncHandler(async (req, res) => {
 });
 
 const addUserAddress = asyncHandler(async (req, res) => {
+  console.log(req.body,"----")
   const result = await addressService.addUserAddress(req.user.id, req.body);
   res.status(201).json(new ApiResponse(201, result, 'Address added successfully'));
 });
@@ -284,7 +285,15 @@ const verifyVendorUnlockPhoneOtp = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
+const getSupport = asyncHandler(async (req, res) => {
+    res.status(200).json(
+        new ApiResponse(200, { phoneNumber: '8884745611' }, 'Support contact retrieved successfully')
+    );
+});
+
 module.exports = {
+  // Support
+  getSupport,
   // User
   userSignup,
   userInitiateSignup,

@@ -40,6 +40,12 @@ const addressSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+      areaName: {
+      type: String,
+      required: true,
+      default: '',
+      trim: true,
+    },
   },
   {
     timestamps: true,

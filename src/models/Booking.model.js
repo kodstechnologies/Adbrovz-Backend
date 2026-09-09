@@ -80,6 +80,7 @@ const bookingSchema = new mongoose.Schema(
     },
     location: {
       address: { type: String, required: true },
+      areaName: { type: String },
       latitude: { type: Number },
       longitude: { type: Number },
       pincode: { type: String },

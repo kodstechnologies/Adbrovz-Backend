@@ -8,6 +8,7 @@ const formatAddress = (doc) => ({
   id: doc._id.toString(),
   title: doc.title,
   address: doc.address,
+  areaName: doc.areaName || '',
   phoneNo: doc.phoneNo,
   lat: doc.lat ?? null,
   long: doc.long ?? null,
@@ -78,6 +79,7 @@ const addUserAddress = async (userId, payload) => {
     address: payload.address,
     phoneNo: payload.phoneNo,
     isDefault: shouldBeDefault,
+    ...(payload.areaName !== undefined ? { areaName: payload.areaName } : {}),
     ...(lat !== undefined ? { lat } : {}),
     ...(long !== undefined ? { long } : {}),
     ...(pincode !== undefined ? { pincode } : {}),
@@ -137,6 +139,7 @@ const updateUserAddress = async (userId, addressId, payload) => {
   if (payload.title !== undefined) address.title = payload.title;
   if (payload.address !== undefined) address.address = payload.address;
   if (payload.phoneNo !== undefined) address.phoneNo = payload.phoneNo;
+  if (payload.areaName !== undefined) address.areaName = payload.areaName;
 
   const { lat, long } = resolveLatLong(payload);
   if (lat !== undefined) address.lat = lat;
