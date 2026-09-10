@@ -4364,6 +4364,15 @@ const getMembershipPlansWithStatus = async (vendorId) => {
     }
 
     return {
+        currentPlan: (() => {
+            const current = allPlans.find(p => p.isCurrent);
+            if (!current) return null;
+            return {
+                ...current,
+                startDate: vendor.membership?.startDate || null,
+                expiryDate: vendor.membership?.expiryDate || null,
+            };
+        })(),
         plans: allPlans
     };
 };
