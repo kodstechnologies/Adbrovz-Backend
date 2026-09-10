@@ -4955,11 +4955,31 @@ const getExtraServiceApprovalRequests = async (vendorId) => {
     });
 
     const purchasedServiceIds = new Set((vendor.selectedServices || []).map((service) => String(service?._id || service)));
-    const visibleRequests = (vendor.extraServiceRequests || []).filter((req) => {
-        if (req.approvalStatus !== 'approved') return true;
-        const requestServiceIds = (req.services || []).map((service) => String(service?._id || service));
-        // Keep approved requests that still have at least one service not yet purchased
-        return requestServiceIds.some((serviceId) => !purchasedServiceIds.has(serviceId));
+    const allRequests = vendor.extraServiceRequests || [];
+
+    // Check globally: does any request have at least one pending or approved service?
+    const anyPendingOrApproved = allRequests.some((req) => {
+        if (req.serviceStatuses && req.serviceStatuses.length > 0) {
+            return req.serviceStatuses.some(s => s.status === 'pending' || s.status === 'approved');
+        }
+        return req.approvalStatus === 'pending' || req.approvalStatus === 'approved';
+    });
+
+    const visibleRequests = allRequests.filter((req) => {
+        const isFullyDisapproved = req.serviceStatuses && req.serviceStatuses.length > 0
+            ? req.serviceStatuses.every(s => s.status === 'disapproved')
+            : req.approvalStatus === 'disapproved';
+
+        // Hide fully disapproved requests if no other request has pending/approved
+        if (isFullyDisapproved && !anyPendingOrApproved) return false;
+
+        // For approved requests, hide if all services already purchased
+        if (req.approvalStatus === 'approved' && !(req.serviceStatuses && req.serviceStatuses.length > 0)) {
+            const requestServiceIds = (req.services || []).map((service) => String(service?._id || service));
+            return requestServiceIds.some((serviceId) => !purchasedServiceIds.has(serviceId));
+        }
+
+        return true;
     });
 
     return {

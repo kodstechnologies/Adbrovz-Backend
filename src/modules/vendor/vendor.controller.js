@@ -601,7 +601,7 @@ const getExtraServiceApprovalRequests = asyncHandler(async (req, res) => {
     const vendorId = req.params.vendorId || req.user.userId || req.user.id || req.user._id;
     console.log('vendorId', vendorId);
     const result = await vendorService.getExtraServiceApprovalRequests(vendorId);
-    // console.log('result-------', result);
+    console.log('result-------', result);
     res.status(200).json(
         new ApiResponse(200, result, 'Extra service approval status retrieved successfully')
     );
