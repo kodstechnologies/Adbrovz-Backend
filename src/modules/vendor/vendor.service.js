@@ -3232,11 +3232,6 @@ const getDashboardMetrics = async (vendorId) => {
     const Booking = require('../../models/Booking.model');
     const vendorIdObj = new mongoose.Types.ObjectId(vendorId);
 
-    // Get current month start and end dates
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-
     // 1. Get vendor credits (coins) and verification status
     const vendor = await Vendor.findById(vendorIdObj).select('coins isVerified documentStatus');
     
@@ -3246,8 +3241,8 @@ const getDashboardMetrics = async (vendorId) => {
             credits: vendor?.coins || 0,
             pendingJobs: 0,
             ongoingJobs: 0,
-            jobsCompletedThisMonth: 0,
-            earningsThisMonth: 0,
+            jobsCompleted: 0,
+            earnings: 0,
             jobProgress: 0,
             isVerified: false,
             message: 'Complete your verification to view booking data'
@@ -3256,60 +3251,94 @@ const getDashboardMetrics = async (vendorId) => {
 
     const credits = vendor?.coins || 0;
 
-    // 2. Get pending jobs (Awaiting Confirmation)
+    // 2. Get pending jobs (Awaiting Confirmation) - ALL TIME
     const pendingJobs = await Booking.countDocuments({
         vendor: vendorIdObj,
         status: 'pending'
     });
 
-    // 3. Get ongoing jobs (In Progress)
+    // 3. Get ongoing jobs (In Progress) - ALL TIME
     const ongoingJobs = await Booking.countDocuments({
         vendor: vendorIdObj,
         status: { $in: ['pending', 'on_the_way', 'arrived', 'ongoing'] }
     });
 
-    // 4. Get completed jobs THIS MONTH
-    const completedBookingsThisMonth = await Booking.find({
+    // 4. Get completed jobs - ALL TIME TOTAL
+    const completedBookingsAllTime = await Booking.find({
         vendor: vendorIdObj,
-        status: 'completed',
-        updatedAt: { $gte: startOfMonth, $lte: endOfMonth }
-    }).select('pricing services');
+        status: 'completed'
+    }).select('pricing services createdAt');
 
-    const jobsCompletedThisMonth = completedBookingsThisMonth.length;
+    const jobsCompletedAllTime = completedBookingsAllTime.length;
 
-    // 5. Calculate earnings THIS MONTH
+    // 5. Calculate earnings
+    const now30 = new Date();
+
+    // This month: 1st of current month to today
+    const startOfThisMonth = new Date(now30.getFullYear(), now30.getMonth(), 1);
+    // Last month: 1st to last day of previous month
+    const startOfLastMonth = new Date(now30.getFullYear(), now30.getMonth() - 1, 1);
+    const endOfLastMonth = new Date(now30.getFullYear(), now30.getMonth(), 0, 23, 59, 59, 999);
+
+    let earningsAllTime = 0;
     let earningsThisMonth = 0;
-    completedBookingsThisMonth.forEach(booking => {
-        if (booking.pricing && booking.pricing.totalPrice) {
-            earningsThisMonth += booking.pricing.totalPrice;
-        } else if (booking.services && booking.services.length > 0) {
-            // Fallback to summing up service prices
-            booking.services.forEach(s => {
-                earningsThisMonth += (s.finalPrice || s.adminPrice || 0) * (s.quantity || 1);
-            });
-        }
+    let earningsLastMonth = 0;
+    let jobsLast30 = 0;
+
+    completedBookingsAllTime.forEach(booking => {
+        const amount = (booking.pricing?.totalPrice) ||
+            (booking.services || []).reduce((s, sv) => s + (sv.finalPrice || sv.adminPrice || 0) * (sv.quantity || 1), 0);
+        earningsAllTime += amount;
+        const bookedAt = new Date(booking.createdAt);
+        if (bookedAt >= startOfThisMonth) { earningsThisMonth += amount; jobsLast30++; }
+        else if (bookedAt >= startOfLastMonth && bookedAt <= endOfLastMonth) { earningsLastMonth += amount; }
     });
 
-    // 6. Job Progress: (Completed This Month / Total Active Jobs This Month) * 100
-    const totalActiveBookingsThisMonth = await Booking.countDocuments({
+    // Growth % of this month vs last month
+    let earningsGrowth = '0%';
+    if (earningsLastMonth > 0) {
+        const g = Math.round(((earningsThisMonth - earningsLastMonth) / earningsLastMonth) * 100);
+        earningsGrowth = (g >= 0 ? '+' : '') + g + '%';
+    } else if (earningsThisMonth > 0) {
+        earningsGrowth = '+100%';
+    }
+
+    // Total earnings growth = this month as % of all time
+    let totalEarningsGrowth = '0%';
+    if (earningsAllTime > 0 && earningsThisMonth > 0) {
+        const tg = Math.round((earningsThisMonth / earningsAllTime) * 100);
+        totalEarningsGrowth = tg + '%';
+    }
+
+    // 6. Job Progress: (Completed All Time / Total Active Jobs All Time) * 100
+    const totalActiveBookingsAllTime = await Booking.countDocuments({
         vendor: vendorIdObj,
-        status: { $in: ['pending_acceptance', 'pending', 'on_the_way', 'arrived', 'ongoing', 'completed'] },
-        createdAt: { $gte: startOfMonth, $lte: endOfMonth }
+        status: { $in: ['pending_acceptance', 'pending', 'on_the_way', 'arrived', 'ongoing', 'completed'] }
     });
 
     let jobProgress = 0;
-    if (totalActiveBookingsThisMonth > 0) {
-        jobProgress = Math.round((jobsCompletedThisMonth / totalActiveBookingsThisMonth) * 100);
+    if (totalActiveBookingsAllTime > 0) {
+        jobProgress = Math.round((jobsCompletedAllTime / totalActiveBookingsAllTime) * 100);
     }
 
     return {
         earnings: {
             amount: earningsThisMonth,
-            growth: "+0%" // Mock data. Can be updated to calculate real MoM growth later
+            growth: earningsGrowth,
+            period: 'This month'
+        },
+        totalEarnings: {
+            amount: earningsAllTime,
+            growth: totalEarningsGrowth,
+            period: 'All time'
         },
         jobsCompleted: {
-            count: jobsCompletedThisMonth,
-            growth: "This Month"
+            count: jobsLast30,
+            period: 'This month'
+        },
+        totalJobsCompleted: {
+            count: jobsCompletedAllTime,
+            period: 'All time'
         },
         pendingJobs: {
             count: pendingJobs,
@@ -3325,7 +3354,7 @@ const getDashboardMetrics = async (vendorId) => {
         },
         jobProgress: {
             percentage: jobProgress,
-            description: `${jobProgress}% jobs completed this month`
+            description: `${jobProgress}% jobs completed overall`
         }
     };
 };
