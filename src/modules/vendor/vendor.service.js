@@ -4499,8 +4499,31 @@ const getMembershipPlansWithStatus = async (vendorId) => {
         if (vendor.membership.startDate && vendor.membership.expiryDate) {
             const start = new Date(vendor.membership.startDate);
             const expiry = new Date(vendor.membership.expiryDate);
-            const diffTime = Math.abs(expiry - start);
-            actualValidityDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); // Convert ms to days
+            
+            // More accurate day difference calculation
+            // Reset time components to midnight to avoid time-of-day issues
+            const startDate = new Date(start);
+            const expiryDate = new Date(expiry);
+            startDate.setHours(0, 0, 0, 0);
+            expiryDate.setHours(0, 0, 0, 0);
+            
+            const diffTime = expiryDate.getTime() - startDate.getTime();
+            const calculatedDays = Math.max(1, Math.round(diffTime / (1000 * 60 * 60 * 24)));
+            
+            // Check if it's approximately a standard plan duration
+            const monthsDiff = (expiryDate.getFullYear() - startDate.getFullYear()) * 12 + 
+                              (expiryDate.getMonth() - startDate.getMonth());
+            
+            // Standardize to common plan durations
+            if (monthsDiff === 3 && calculatedDays >= 89 && calculatedDays <= 92) {
+                actualValidityDays = 90; // 3 months ≈ 90 days
+            } else if (monthsDiff === 6 && calculatedDays >= 179 && calculatedDays <= 183) {
+                actualValidityDays = 180; // 6 months ≈ 180 days
+            } else if (monthsDiff === 12 && calculatedDays >= 355 && calculatedDays <= 365) {
+                actualValidityDays = 360; // 12 months ≈ 360 days
+            } else {
+                actualValidityDays = calculatedDays; // Use exact calculation
+            }
         }
         
         currentPlan = {
