@@ -4432,7 +4432,9 @@ const verifyServiceRenewalPayment = async (vendorId, { razorpay_order_id, razorp
  * API 1: List all membership plans with vendor context (expiry and renewal totals)
  */
 const getMembershipPlansWithStatus = async (vendorId) => {
-    const vendor = await Vendor.findById(vendorId);
+    const vendor = await Vendor.findById(vendorId)
+        .populate('membership.membershipId', 'name price validityDays durationMonths')
+        .populate('membership.category', 'name');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const plans = [
@@ -4468,17 +4470,77 @@ const getMembershipPlansWithStatus = async (vendorId) => {
         allPlans.push(planObj);
     }
 
+    // Get the actual current plan from stored membership data
+    let currentPlan = null;
+    if (vendor.membership) {
+        // Get plan name from populated membershipId or fallback
+        let planName = 'Unknown';
+        let validityDays = 90;
+        
+        if (vendor.membership.membershipId) {
+            // membershipId is populated, so we can access its properties directly
+            if (typeof vendor.membership.membershipId === 'object' && vendor.membership.membershipId.name) {
+                planName = vendor.membership.membershipId.name;
+                validityDays = vendor.membership.membershipId.validityDays || 90;
+            } else {
+                // Fallback: determine plan name from duration
+                const duration = vendor.membership.durationMonths || 3;
+                planName = duration === 3 ? 'Basic' : duration === 6 ? 'Pro' : 'Elite';
+            }
+        } else if (vendor.membership.durationMonths) {
+            // Determine plan name from duration months
+            const duration = vendor.membership.durationMonths;
+            planName = duration === 3 ? 'Basic' : duration === 6 ? 'Pro' : 'Elite';
+        }
+        
+        // Calculate actual validity days from startDate and expiryDate if both exist
+        let actualValidityDays = validityDays; // Default to plan validity
+        
+        if (vendor.membership.startDate && vendor.membership.expiryDate) {
+            const start = new Date(vendor.membership.startDate);
+            const expiry = new Date(vendor.membership.expiryDate);
+            const diffTime = Math.abs(expiry - start);
+            actualValidityDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); // Convert ms to days
+        }
+        
+        currentPlan = {
+            id: vendor.membership.membershipId 
+                ? (typeof vendor.membership.membershipId === 'object' 
+                    ? vendor.membership.membershipId._id.toString() 
+                    : vendor.membership.membershipId.toString())
+                : null,
+            name: planName,
+            isCurrent: true,
+            renewal: vendor.membership.totalAmount || 0, // total amount paid
+            renewalAmount: vendor.membership.serviceFee || 0, // service fee component
+            membershipAmount: vendor.membership.membershipFee || 0, // base plan fee
+            gstAmount: vendor.membership.gstAmount || 0,
+            totalAmount: vendor.membership.totalAmount || 0,
+            gstPercent: vendor.membership.gstAmount && vendor.membership.subtotal 
+                ? Math.round((vendor.membership.gstAmount / vendor.membership.subtotal) * 100)
+                : 0,
+            validityDays: actualValidityDays, // Use calculated validity days
+            startDate: vendor.membership.startDate || null,
+            expiryDate: vendor.membership.expiryDate || null,
+            durationMonths: vendor.membership.durationMonths || 3,
+            // Include all stored membership fields
+            storedData: {
+                membershipFee: vendor.membership.membershipFee,
+                serviceFee: vendor.membership.serviceFee,
+                gstAmount: vendor.membership.gstAmount,
+                totalAmount: vendor.membership.totalAmount,
+                subtotal: vendor.membership.subtotal,
+                fee: vendor.membership.fee,
+                category: vendor.membership.category
+            }
+        };
+    }
+
     return {
-        currentPlan: (() => {
-            const current = allPlans.find(p => p.isCurrent);
-            if (!current) return null;
-            return {
-                ...current,
-                startDate: vendor.membership?.startDate || null,
-                expiryDate: vendor.membership?.expiryDate || null,
-            };
-        })(),
-        plans: allPlans
+        currentPlan,
+        plans: allPlans,
+        // Also include raw membership data for debugging/verification
+        rawMembershipData: vendor.membership || null
     };
 };
 
