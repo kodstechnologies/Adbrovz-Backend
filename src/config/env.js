@@ -82,6 +82,9 @@ const config = {
   LOG_LEVEL: process.env.LOG_LEVEL || 'info',
   LOG_DIR: process.env.LOG_DIR || 'logs',
 
+  // CDN
+  CDN_BASE_URL: process.env.CDN_BASE_URL || 'http://cdn.adbrovz.tech/cdn/images/',
+
   // CORS
   CORS_ORIGIN: process.env.CORS_ORIGIN || '*',
 

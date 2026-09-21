@@ -98,17 +98,33 @@ const processVendorDocs = async (req, res, next) => {
 
     // No files uploaded — just parse JSON fields and continue
     if (!req.files || req.files.length === 0) {
+        console.log('[VENDOR UPLOAD] No files received');
         parseJsonFields();
         return next();
     }
+
+    console.log(`[VENDOR UPLOAD] Received ${req.files.length} file(s):`, req.files.map(f => ({
+        fieldname: f.fieldname,
+        originalname: f.originalname,
+        mimetype: f.mimetype,
+        size: f.size
+    })));
 
     try {
         const uploadPromises = [];
 
         for (const file of req.files) {
+            console.log(`[VENDOR UPLOAD] Processing file: ${file.fieldname} (${file.mimetype}, ${file.size} bytes)`);
             uploadPromises.push(
                 cloudinaryService.uploadToCloudinary(file.buffer, 'vendors/documents')
-                    .then(result => ({ fieldName: file.fieldname, url: result.secure_url }))
+                    .then(result => {
+                        console.log(`[VENDOR UPLOAD] Successfully uploaded ${file.fieldname}: ${result.secure_url}`);
+                        return { fieldName: file.fieldname, url: result.secure_url };
+                    })
+                    .catch(error => {
+                        console.error(`[VENDOR UPLOAD] Failed to upload ${file.fieldname}:`, error);
+                        throw error;
+                    })
             );
         }
 
@@ -124,6 +140,7 @@ const processVendorDocs = async (req, res, next) => {
         // Parse JSON array fields after file upload
         parseJsonFields();
 
+        console.log('[VENDOR UPLOAD] Final req.body after upload:', Object.keys(req.body).filter(k => !k.startsWith('selected')));
         next();
     } catch (error) {
         console.error('Vendor document upload error:', error);

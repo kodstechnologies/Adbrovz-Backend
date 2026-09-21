@@ -7,7 +7,8 @@ const sharp = require('sharp');
 // in case any service expects it to exist.
 const cloudinary = {}; 
 
-const CDN_BASE_URL = 'http://cdn.adbrovz.tech/cdn/images/';
+const config = require('../config/env');
+const CDN_BASE_URL = config.CDN_BASE_URL || 'http://cdn.adbrovz.tech/cdn/images/';
 const UPLOAD_DIR = path.join(__dirname, '../../uploads/images');
 
 // Ensure upload directory exists

@@ -95,6 +95,12 @@ const vendorSchema = new mongoose.Schema(
       enum: ['pending', 'approved'],
       default: 'pending',
     },
+    servicesSelectedAt: {
+      type: Date,
+    },
+    servicesApprovedAt: {
+      type: Date,
+    },
     tcAcceptance: {
       type: Boolean,
       default: false,
@@ -110,32 +116,56 @@ const vendorSchema = new mongoose.Schema(
       photo: {
         url: { type: String, default: '' },
         status: { type: String, enum: ['pending', 'verified', 'approved', 'rejected'], default: 'pending' },
-        reason: { type: String }
+        reason: { type: String },
+        uploadedAt: { type: Date },
+        verifiedAt: { type: Date },
+        rejectedAt: { type: Date },
+        rejectionCount: { type: Number, default: 0 },
       },
       idProof: {
         url: { type: String, default: '' },
         status: { type: String, enum: ['pending', 'verified', 'approved', 'rejected'], default: 'pending' },
-        reason: { type: String }
+        reason: { type: String },
+        uploadedAt: { type: Date },
+        verifiedAt: { type: Date },
+        rejectedAt: { type: Date },
+        rejectionCount: { type: Number, default: 0 },
       },
       addressProof: {
         url: { type: String, default: '' },
         status: { type: String, enum: ['pending', 'verified', 'approved', 'rejected'], default: 'pending' },
-        reason: { type: String }
+        reason: { type: String },
+        uploadedAt: { type: Date },
+        verifiedAt: { type: Date },
+        rejectedAt: { type: Date },
+        rejectionCount: { type: Number, default: 0 },
       },
       workProof: {
         url: { type: String, default: '' },
         status: { type: String, enum: ['pending', 'verified', 'approved', 'rejected'], default: 'pending' },
-        reason: { type: String }
+        reason: { type: String },
+        uploadedAt: { type: Date },
+        verifiedAt: { type: Date },
+        rejectedAt: { type: Date },
+        rejectionCount: { type: Number, default: 0 },
       },
       bankProof: {
         url: { type: String, default: '' },
         status: { type: String, enum: ['pending', 'verified', 'approved', 'rejected'], default: 'pending' },
-        reason: { type: String }
+        reason: { type: String },
+        uploadedAt: { type: Date },
+        verifiedAt: { type: Date },
+        rejectedAt: { type: Date },
+        rejectionCount: { type: Number, default: 0 },
       },
       policeVerification: {
         url: { type: String, default: '' },
         status: { type: String, enum: ['pending', 'verified', 'approved', 'rejected'], default: 'pending' },
-        reason: { type: String }
+        reason: { type: String },
+        uploadedAt: { type: Date },
+        verifiedAt: { type: Date },
+        rejectedAt: { type: Date },
+        rejectionCount: { type: Number, default: 0 },
       },
     },
     documentStatus: {

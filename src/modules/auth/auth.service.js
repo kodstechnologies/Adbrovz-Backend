@@ -435,13 +435,20 @@ const vendorSignup = async (body) => {
   }
 
   // Document object helper
+  const signupNow = new Date();
+  const withUploadMeta = (url) => ({
+    url: url || '',
+    status: 'pending',
+    uploadedAt: url ? signupNow : undefined,
+    rejectionCount: 0,
+  });
   const docObj = {
-    photo: { url: photo || '' },
-    idProof: { url: idProof || '' },
-    addressProof: { url: addressProof || '' },
-    workProof: { url: workProof || '' },
-    bankProof: { url: bankProof || '' },
-    policeVerification: { url: policeVerification || '' }
+    photo: withUploadMeta(photo),
+    idProof: withUploadMeta(idProof),
+    addressProof: withUploadMeta(addressProof),
+    workProof: withUploadMeta(workProof),
+    bankProof: withUploadMeta(bankProof),
+    policeVerification: withUploadMeta(policeVerification),
   };
 
   // Create or Update Vendor
@@ -730,7 +737,7 @@ const verifySignupOTP = async (phoneNumber, otp, role = 'user', req = null) => {
  * - Creates a login session and returns loginId
  */
 const initiateVendorLogin = async ({ phoneNumber }) => {
-  const vendor = await Vendor.findOne({ phoneNumber, deletedAt: null });
+  const vendor = await Vendor.findOne({ phoneNumber, deletedAt: null }).select('+pin');
 
   if (!vendor) {
     throw new ApiError(401, "The mobile number not registered please signup to continue");
@@ -744,6 +751,18 @@ const initiateVendorLogin = async ({ phoneNumber }) => {
   */
 
   const isAccountLock = !!(vendor.isLocked && vendor.lockUntil && vendor.lockUntil > Date.now());
+  const isPinAvelable = !!(vendor.pin && String(vendor.pin).trim());
+
+  // No PIN set — remove incomplete vendor so they can signup again
+  if (!isPinAvelable) {
+    await Vendor.findByIdAndDelete(vendor._id);
+    return {
+      loginId: null,
+      isAccountLock: false,
+      isPinAvelable: false,
+      message: 'Please enter your PIN.',
+    };
+  }
 
   const loginId = crypto.randomUUID();
   const loginKey = `login:session:vendor:${loginId}`;
@@ -754,6 +773,7 @@ const initiateVendorLogin = async ({ phoneNumber }) => {
   return {
     loginId,
     isAccountLock,
+    isPinAvelable,
     message: isAccountLock
       ? MESSAGES.AUTH.ACCOUNT_LOCKED
       : 'Please enter your PIN.',

@@ -881,6 +881,15 @@ const getAllVendors = async () => {
             ]
         })
         .populate({
+            path: 'disapprovedServices',
+            select: 'title serviceCharge membershipFee membershipCharge renewalCharge serviceRenewalCharge subcategory category serviceType',
+            populate: [
+                { path: 'category', select: 'name serviceCharge membershipCharge membershipFee' },
+                { path: 'subcategory', select: 'name serviceCharge membershipCharge membershipFee' },
+                { path: 'serviceType', select: 'name serviceCharge membershipCharge' }
+            ]
+        })
+        .populate({
             path: 'categorySubscriptions.category',
             select: 'name membershipCharge membershipFee'
         })
@@ -1536,6 +1545,7 @@ const selectServices = async (vendorId, body) => {
     vendor.membership.durationMonths = durationMonths;
     vendor.registrationStep = 'SERVICES_SELECTED';
     vendor.serviceApprovalStatus = 'pending';
+    vendor.servicesSelectedAt = new Date();
 
     await vendor.save();
 
@@ -1653,6 +1663,7 @@ const approveVendorServices = async (vendorId, serviceData) => {
     }
     // Set approval status and persist changes
     vendor.serviceApprovalStatus = 'approved';
+    vendor.servicesApprovedAt = new Date();
     await vendor.save();
 
     // Determine approved vs not approved services
@@ -2443,12 +2454,21 @@ const verifyDocument = async (vendorId, payload = {}) => {
     const newReason = isApprovedOrVerified ? null : (reason || (vendor.documents[docType]?.reason) || null);
 
     const url = (currentDoc && typeof currentDoc === 'object' ? currentDoc.url : (typeof currentDoc === 'string' ? currentDoc : '')) || '';
+    const now = new Date();
+    const prevRejectionCount = (currentDoc && typeof currentDoc === 'object' && currentDoc.rejectionCount) ? Number(currentDoc.rejectionCount) : 0;
+    const uploadedAt = (currentDoc && typeof currentDoc === 'object' && currentDoc.uploadedAt)
+        ? currentDoc.uploadedAt
+        : (url ? (vendor.createdAt || now) : null);
 
     // Use vendor.set for deep object persistence reliability
     vendor.set(`documents.${docType}`, {
         url,
         status: lowerStatus,
-        reason: newReason
+        reason: newReason,
+        uploadedAt,
+        verifiedAt: isApprovedOrVerified ? now : ((currentDoc && typeof currentDoc === 'object') ? currentDoc.verifiedAt : null),
+        rejectedAt: lowerStatus === 'rejected' ? now : ((currentDoc && typeof currentDoc === 'object') ? currentDoc.rejectedAt : null),
+        rejectionCount: lowerStatus === 'rejected' ? prevRejectionCount + 1 : prevRejectionCount,
     });
 
     // CRITICAL: Ensure Mongoose detects the change in the nested 'documents' object
@@ -2568,13 +2588,29 @@ const verifyAllDocuments = async (vendorId, adminId, payload = {}) => {
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const docs = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
+    const now = new Date();
     docs.forEach(doc => {
         const val = vendor.documents[doc];
         if (typeof val === 'string' && val) {
-            vendor.set(`documents.${doc}`, { url: val, status: 'verified', reason: null });
+            vendor.set(`documents.${doc}`, {
+                url: val,
+                status: 'verified',
+                reason: null,
+                uploadedAt: vendor.createdAt || now,
+                verifiedAt: now,
+                rejectedAt: null,
+                rejectionCount: 0,
+            });
         } else if (val && typeof val === 'object' && val.url) {
-            vendor.set(`documents.${doc}.status`, 'verified');
-            vendor.set(`documents.${doc}.reason`, null);
+            vendor.set(`documents.${doc}`, {
+                url: val.url,
+                status: 'verified',
+                reason: null,
+                uploadedAt: val.uploadedAt || vendor.createdAt || now,
+                verifiedAt: now,
+                rejectedAt: val.rejectedAt || null,
+                rejectionCount: val.rejectionCount || 0,
+            });
         }
     });
 
@@ -2704,20 +2740,32 @@ const rejectVendorAccount = async (vendorId, { reason }) => {
 
     // Always set ALL document slots to rejected (whether they have URLs or not)
     // This ensures the status virtual correctly returns 'REJECTED' regardless of upload state
+    const now = new Date();
     docTypes.forEach(type => {
         const val = vendor.documents[type];
         let existingUrl = '';
+        let uploadedAt = null;
+        let rejectionCount = 0;
+        let verifiedAt = null;
 
         if (typeof val === 'string') {
             existingUrl = val || '';
+            uploadedAt = existingUrl ? (vendor.createdAt || now) : null;
         } else if (val && typeof val === 'object') {
             existingUrl = val.url || '';
+            uploadedAt = val.uploadedAt || (existingUrl ? (vendor.createdAt || now) : null);
+            rejectionCount = Number(val.rejectionCount || 0);
+            verifiedAt = val.verifiedAt || null;
         }
 
         vendor.set(`documents.${type}`, {
             url: existingUrl,
             status: 'rejected',
-            reason: reason || 'Account rejected by admin'
+            reason: reason || 'Account rejected by admin',
+            uploadedAt,
+            verifiedAt,
+            rejectedAt: now,
+            rejectionCount: rejectionCount + 1,
         });
     });
 
@@ -3364,6 +3412,10 @@ const getDashboardMetrics = async (vendorId) => {
  * Vendor: Reupload rejected documents
  */
 const reuploadDocuments = async (vendorId, uploadedDocs) => {
+    console.log('[REUPLOAD DOCS] Starting reupload for vendor:', vendorId);
+    console.log('[REUPLOAD DOCS] Uploaded docs keys:', Object.keys(uploadedDocs));
+    console.log('[REUPLOAD DOCS] Uploaded docs values:', Object.entries(uploadedDocs).map(([k, v]) => [k, typeof v === 'string' && v.length > 50 ? v.substring(0, 50) + '...' : v]));
+    
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
@@ -3375,6 +3427,8 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
     Object.keys(uploadedDocs).forEach(key => {
         normalizedUploadedDocs[key.toLowerCase()] = uploadedDocs[key];
     });
+    
+    console.log('[REUPLOAD DOCS] Normalized keys:', Object.keys(normalizedUploadedDocs));
 
     // Also update other profile fields if provided
     if (uploadedDocs.name) vendor.name = uploadedDocs.name;
@@ -3397,25 +3451,39 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
     docTypes.forEach(doc => {
         // Use lowercase check for uploadedDocs keys
         const incomingUrl = normalizedUploadedDocs[doc.toLowerCase()];
+        console.log(`[REUPLOAD DOCS] Checking doc type '${doc}', incomingUrl:`, incomingUrl ? 'YES' : 'NO');
 
         if (incomingUrl) {
+            const existing = vendor.documents[doc];
+            const prevRejectionCount = (existing && typeof existing === 'object') ? Number(existing.rejectionCount || 0) : 0;
+            const prevRejectedAt = (existing && typeof existing === 'object') ? existing.rejectedAt : null;
             // Update the document URL and change status back to 'pending'
             vendor.set(`documents.${doc}`, {
                 url: incomingUrl,
                 status: 'pending',
-                reason: null
+                reason: null,
+                uploadedAt: new Date(),
+                verifiedAt: null,
+                rejectedAt: prevRejectedAt || null,
+                rejectionCount: prevRejectionCount,
             });
             updated = true;
+            console.log(`[REUPLOAD DOCS] Updated document '${doc}' with URL:`, incomingUrl.substring(0, 50) + '...');
         }
     });
 
+    console.log('[REUPLOAD DOCS] Updated flag:', updated);
+    console.log('[REUPLOAD DOCS] Uploaded docs count:', Object.keys(uploadedDocs).length);
+    
     if (updated || Object.keys(uploadedDocs).length > 0) {
         vendor.markModified('documents');
 
         // If there are still rejected documents, keep status rejected, else pending
         const hasRejectedDocs = docTypes.some(type => {
             const d = vendor.documents[type];
-            return d && typeof d === 'object' && canonicalizeStatus(d.status) === 'rejected';
+            const status = d && typeof d === 'object' ? canonicalizeStatus(d.status) : null;
+            console.log(`[REUPLOAD DOCS] Document ${type} status:`, status);
+            return status === 'rejected';
         });
 
         if (hasRejectedDocs) {
@@ -3424,7 +3492,14 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
             vendor.documentStatus = 'pending';
         }
 
+        // Set isVerified to false when new documents are uploaded
+        vendor.isVerified = false;
+
+        console.log('[REUPLOAD DOCS] Saving vendor with documentStatus:', vendor.documentStatus, 'isVerified:', vendor.isVerified);
         await vendor.save();
+        console.log('[REUPLOAD DOCS] Vendor saved successfully');
+    } else {
+        console.log('[REUPLOAD DOCS] No updates needed');
     }
 
     const payload = _getVerificationPayload(vendor);
@@ -3432,6 +3507,7 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
 
     emitToVendor(vendor._id, 'verification_status_response', payload);
 
+    console.log('[REUPLOAD DOCS] Returning result, isVerified:', vendor.isVerified);
     return { vendor, isVerified: vendor.isVerified, payload };
 };
 
