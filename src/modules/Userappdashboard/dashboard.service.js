@@ -272,11 +272,8 @@ const getBestServices = async () => {
     const { isCategoryValid, isSubcategoryValid, isServiceTypeValid } = require('../service/service.service');
 
     const result = await Booking.aggregate([
-        // Only completed bookings with a rating
         { $match: { status: 'completed', 'rating.value': { $exists: true, $ne: null } } },
-        // Unwind services array to get individual service entries
         { $unwind: '$services' },
-        // Group by service ID and calculate average rating
         {
             $group: {
                 _id: '$services.service',
@@ -284,11 +281,8 @@ const getBestServices = async () => {
                 totalRatings: { $sum: 1 }
             }
         },
-        // Sort by average rating descending
         { $sort: { avgRating: -1 } },
-        // Take a larger limit initially so we can filter inactive/empty ones in JS and still have enough
         { $limit: 30 },
-        // Lookup service details
         {
             $lookup: {
                 from: 'services',
@@ -298,9 +292,7 @@ const getBestServices = async () => {
             }
         },
         { $unwind: '$service' },
-        // Only keep active services
         { $match: { 'service.isActive': { $ne: false } } },
-        // Lookup category
         {
             $lookup: {
                 from: 'categories',
@@ -309,7 +301,6 @@ const getBestServices = async () => {
                 as: 'category'
             }
         },
-        // Lookup subcategory
         {
             $lookup: {
                 from: 'subcategories',
@@ -318,7 +309,14 @@ const getBestServices = async () => {
                 as: 'subcategory'
             }
         },
-        // Project final shape
+        {
+            $lookup: {
+                from: 'servicetypes',
+                localField: 'service.serviceType',
+                foreignField: '_id',
+                as: 'serviceType'
+            }
+        },
         {
             $project: {
                 _id: '$service._id',
@@ -331,21 +329,19 @@ const getBestServices = async () => {
                 avgRating: { $round: ['$avgRating', 1] },
                 totalRatings: 1,
                 category: { $arrayElemAt: [{ $map: { input: '$category', as: 'c', in: { _id: '$$c._id', name: '$$c.name', isActive: '$$c.isActive' } } }, 0] },
-                subcategory: { $arrayElemAt: [{ $map: { input: '$subcategory', as: 's', in: { _id: '$$s._id', name: '$$s.name', isActive: '$$s.isActive' } } }, 0] }
+                subcategory: { $arrayElemAt: [{ $map: { input: '$subcategory', as: 's', in: { _id: '$$s._id', name: '$$s.name', isActive: '$$s.isActive' } } }, 0] },
+                serviceType: { $arrayElemAt: [{ $map: { input: '$serviceType', as: 't', in: { _id: '$$t._id', name: '$$t.name' } } }, 0] }
             }
         }
     ]);
 
-    // Now validate hierarchy on the result in JavaScript
     const filteredResult = [];
     for (const r of result) {
         if (!r.category || r.category.isActive === false) continue;
         if (r.subcategory && r.subcategory.isActive === false) continue;
 
-        // Find if service type is active/valid
-        const serviceDoc = await Service.findById(r._id);
-        if (serviceDoc && serviceDoc.serviceType) {
-            const isTypeOk = await isServiceTypeValid(serviceDoc.serviceType);
+        if (r.serviceType) {
+            const isTypeOk = await isServiceTypeValid(r.serviceType._id);
             if (!isTypeOk) continue;
         }
 
@@ -363,19 +359,17 @@ const getBestServices = async () => {
                 avgRating: r.avgRating,
                 totalRatings: r.totalRatings,
                 category: { _id: r.category._id, name: r.category.name },
-                subcategory: r.subcategory ? { _id: r.subcategory._id, name: r.subcategory.name } : null
+                subcategory: r.subcategory ? { _id: r.subcategory._id, name: r.subcategory.name } : null,
+                serviceType: r.serviceType ? { _id: r.serviceType._id, name: r.serviceType.name } : null
             });
         }
     }
 
-    // Limit to top 4
     const finalResult = filteredResult.slice(0, 4);
 
-    // If there are less than 4 rated services, fetch additional services to fill the gap
     if (finalResult.length < 4) {
         const excludeIds = finalResult.map(s => s._id);
 
-        // Fetch a pool of active services and filter them in JS
         const pool = await Service.find({ _id: { $nin: excludeIds }, isActive: { $ne: false } })
             .populate('category')
             .populate('subcategory')
@@ -404,7 +398,8 @@ const getBestServices = async () => {
                     avgRating: 0,
                     totalRatings: 0,
                     category: { _id: s.category._id, name: s.category.name },
-                    subcategory: s.subcategory ? { _id: s.subcategory._id, name: s.subcategory.name } : null
+                    subcategory: s.subcategory ? { _id: s.subcategory._id, name: s.subcategory.name } : null,
+                    serviceType: s.serviceType ? { _id: s.serviceType._id, name: s.serviceType.name } : null
                 });
             }
         }
