@@ -59,8 +59,9 @@ exports.createCoupon = async (req, res) => {
         }
 
         const resolvedAudienceType = audienceType === 'vendor' ? 'vendor' : 'user';
-        const forAllUsers = resolvedAudienceType === 'user' && (isForAllUsers !== undefined ? !!isForAllUsers : true);
-        const forAllVendors = resolvedAudienceType === 'vendor' && !!isForAllVendors;
+        const parseBool = (v, fallback) => v === undefined || v === null ? fallback : (typeof v === 'string' ? v === 'true' : !!v);
+        const forAllUsers = resolvedAudienceType === 'user' && parseBool(isForAllUsers, true);
+        const forAllVendors = resolvedAudienceType === 'vendor' && parseBool(isForAllVendors, false);
 
         if (resolvedAudienceType === 'user' && !forAllUsers && (!applicableUsers || applicableUsers.length === 0)) {
             return res.status(400).json({ success: false, message: 'Select at least one user for this coupon' });
@@ -89,9 +90,9 @@ exports.createCoupon = async (req, res) => {
             endDate: resolvedEndDate,
             usageLimitPerUser: resolvedUsageLimit,
             isActive: isActive !== undefined ? isActive : true,
+            image: req.file?.cloudinary?.url || null,
             createdBy: req.user.id
         });
-
         await coupon.save();
 
         const { sendPush } = require('../../utils/pushNotification');
@@ -137,6 +138,113 @@ exports.getCoupons = async (req, res) => {
     } catch (error) {
         console.error('Error in getCoupons:', error);
         res.status(500).json({ success: false, message: 'Server error retrieving coupons', error: error.message });
+    }
+};
+
+exports.getCouponById = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const coupon = await Coupon.findById(id)
+            .populate('applicableUsers', 'name email phoneNumber')
+            .populate('applicableVendors', 'name email phoneNumber');
+        if (!coupon) return res.status(404).json({ success: false, message: 'Coupon not found' });
+        res.status(200).json({ success: true, data: coupon });
+    } catch (error) {
+        console.error('Error in getCouponById:', error);
+        res.status(500).json({ success: false, message: 'Server error retrieving coupon', error: error.message });
+    }
+};
+
+exports.updateCoupon = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            discountType,
+            discountValue,
+            isForAllUsers,
+            applicableUsers,
+            audienceType,
+            isForAllVendors,
+            applicableVendors,
+            startDate,
+            endDate,
+            isActive,
+            usageLimitPerUser,
+        } = req.body;
+
+        const coupon = await Coupon.findById(id);
+        if (!coupon) return res.status(404).json({ success: false, message: 'Coupon not found' });
+
+        if (discountType !== undefined) {
+            if (!['amount', 'percent'].includes(discountType))
+                return res.status(400).json({ success: false, message: 'Invalid discount type' });
+            coupon.discountType = discountType;
+        }
+
+        if (discountValue !== undefined) {
+            if (discountValue <= 0)
+                return res.status(400).json({ success: false, message: 'Valid discount value is required' });
+            if ((coupon.discountType === 'percent') && discountValue > 100)
+                return res.status(400).json({ success: false, message: 'Percentage cannot exceed 100' });
+            coupon.discountValue = discountValue;
+        }
+
+        if (startDate !== undefined && endDate !== undefined) {
+            const resolvedStart = new Date(startDate);
+            const resolvedEnd = new Date(endDate);
+            if (isNaN(resolvedStart.getTime()) || isNaN(resolvedEnd.getTime()))
+                return res.status(400).json({ success: false, message: 'Valid start and end dates are required' });
+            if (resolvedEnd < resolvedStart)
+                return res.status(400).json({ success: false, message: 'End date cannot be before start date' });
+            coupon.startDate = resolvedStart;
+            coupon.endDate = resolvedEnd;
+            coupon.validityDays = daysBetween(resolvedStart, resolvedEnd);
+        }
+
+        if (usageLimitPerUser !== undefined) {
+            if (usageLimitPerUser === null || usageLimitPerUser === 'unlimited') {
+                coupon.usageLimitPerUser = null;
+            } else {
+                const parsedLimit = Number(usageLimitPerUser);
+                if (!Number.isFinite(parsedLimit) || parsedLimit < 0 || !Number.isInteger(parsedLimit))
+                    return res.status(400).json({ success: false, message: 'Usage limit must be a whole number or unlimited' });
+                coupon.usageLimitPerUser = parsedLimit === 0 ? null : parsedLimit;
+            }
+        }
+
+        if (isActive !== undefined) coupon.isActive = typeof isActive === 'string' ? isActive === 'true' : !!isActive;
+
+        if (req.file?.cloudinary?.url) {
+            coupon.image = req.file.cloudinary.url;
+        }
+
+        const resolvedAudienceType = audienceType !== undefined ? (audienceType === 'vendor' ? 'vendor' : 'user') : coupon.audienceType;
+        coupon.audienceType = resolvedAudienceType;
+
+        const parseBool = (v, fallback) => v === undefined || v === null ? fallback : (typeof v === 'string' ? v === 'true' : !!v);
+
+        if (resolvedAudienceType === 'user') {
+            const forAll = parseBool(isForAllUsers, coupon.isForAllUsers);
+            coupon.isForAllUsers = forAll;
+            coupon.applicableUsers = forAll ? [] : (applicableUsers || coupon.applicableUsers);
+            coupon.isForAllVendors = false;
+            coupon.applicableVendors = [];
+        } else {
+            const forAll = parseBool(isForAllVendors, coupon.isForAllVendors);
+            coupon.isForAllVendors = forAll;
+            coupon.applicableVendors = forAll ? [] : (applicableVendors || coupon.applicableVendors);
+            coupon.isForAllUsers = false;
+            coupon.applicableUsers = [];
+        }
+
+        await coupon.save();
+        await coupon.populate('applicableUsers', 'name email phoneNumber');
+        await coupon.populate('applicableVendors', 'name email phoneNumber');
+
+        res.status(200).json({ success: true, message: 'Coupon updated successfully', data: coupon });
+    } catch (error) {
+        console.error('Error in updateCoupon:', error);
+        res.status(500).json({ success: false, message: 'Server error updating coupon', error: error.message });
     }
 };
 

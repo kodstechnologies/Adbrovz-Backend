@@ -67,6 +67,10 @@ const couponSchema = new mongoose.Schema(
             type: Boolean,
             default: true,
         },
+        image: {
+            type: String,
+            default: null,
+        },
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Admin',
