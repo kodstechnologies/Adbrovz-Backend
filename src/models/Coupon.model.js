@@ -71,6 +71,24 @@ const couponSchema = new mongoose.Schema(
             type: String,
             default: null,
         },
+        couponDetails: {
+            type: String,
+            trim: true,
+            default: null,
+        },
+
+        couponTermsAndConditions: {
+            type: String,
+            trim: true,
+            default: null,
+        },
+
+        creditPlans: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'CreditPlan',
+            }
+        ],
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Admin',

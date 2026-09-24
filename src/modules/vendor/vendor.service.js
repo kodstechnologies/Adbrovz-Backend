@@ -824,6 +824,8 @@ const getVendorCoupon = async (vendorId, couponRef) => {
         throw new ApiError(400, 'You have already used this coupon');
     }
 
+    await coupon.populate('creditPlans', 'name price validityDays dailyLimit description');
+
     const couponJson = coupon.toJSON ? coupon.toJSON() : coupon;
     delete couponJson.applicableUsers;
     delete couponJson.applicableVendors;

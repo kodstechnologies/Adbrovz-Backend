@@ -18,6 +18,9 @@ exports.createCoupon = async (req, res) => {
             endDate,
             isActive,
             usageLimitPerUser,
+            couponDetails,
+            couponTermsAndConditions,
+            creditPlans,
         } = req.body;
 
         // Validation
@@ -91,6 +94,9 @@ exports.createCoupon = async (req, res) => {
             usageLimitPerUser: resolvedUsageLimit,
             isActive: isActive !== undefined ? isActive : true,
             image: req.file?.cloudinary?.url || null,
+            couponDetails: couponDetails || null,
+            couponTermsAndConditions: couponTermsAndConditions || null,
+            creditPlans: Array.isArray(creditPlans) ? creditPlans : (creditPlans ? [creditPlans] : []),
             createdBy: req.user.id
         });
         await coupon.save();
@@ -133,6 +139,7 @@ exports.getCoupons = async (req, res) => {
         const coupons = await Coupon.find()
             .populate('applicableUsers', 'name email phoneNumber')
             .populate('applicableVendors', 'name email phoneNumber')
+            .populate('creditPlans', 'name price validityDays dailyLimit description')
             .sort({ createdAt: -1 });
         res.status(200).json({ success: true, data: coupons });
     } catch (error) {
@@ -146,7 +153,8 @@ exports.getCouponById = async (req, res) => {
         const { id } = req.params;
         const coupon = await Coupon.findById(id)
             .populate('applicableUsers', 'name email phoneNumber')
-            .populate('applicableVendors', 'name email phoneNumber');
+            .populate('applicableVendors', 'name email phoneNumber')
+            .populate('creditPlans', 'name price validityDays dailyLimit description');
         if (!coupon) return res.status(404).json({ success: false, message: 'Coupon not found' });
         res.status(200).json({ success: true, data: coupon });
     } catch (error) {
@@ -170,6 +178,9 @@ exports.updateCoupon = async (req, res) => {
             endDate,
             isActive,
             usageLimitPerUser,
+            couponDetails,
+            couponTermsAndConditions,
+            creditPlans,
         } = req.body;
 
         const coupon = await Coupon.findById(id);
@@ -237,9 +248,16 @@ exports.updateCoupon = async (req, res) => {
             coupon.applicableUsers = [];
         }
 
+        if (couponDetails !== undefined) coupon.couponDetails = couponDetails || null;
+        if (couponTermsAndConditions !== undefined) coupon.couponTermsAndConditions = couponTermsAndConditions || null;
+        if (creditPlans !== undefined) {
+            coupon.creditPlans = Array.isArray(creditPlans) ? creditPlans : (creditPlans ? [creditPlans] : []);
+        }
+
         await coupon.save();
         await coupon.populate('applicableUsers', 'name email phoneNumber');
         await coupon.populate('applicableVendors', 'name email phoneNumber');
+        await coupon.populate('creditPlans', 'name price validityDays dailyLimit description');
 
         res.status(200).json({ success: true, message: 'Coupon updated successfully', data: coupon });
     } catch (error) {
