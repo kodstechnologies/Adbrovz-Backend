@@ -1270,6 +1270,12 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
     // Ensure the resolved membershipId is persisted to the vendor
     vendor.membership = vendor.membership || {};
     vendor.membership.membershipId = calc.planId;
+    if (couponId) {
+        const resolvedCode = appliedCoupon
+            ? appliedCoupon.couponCode
+            : (await _resolveCouponMetadata(couponId)).couponCode || null;
+        if (resolvedCode) vendor.membership.couponCode = resolvedCode;
+    }
     await vendor.save();
 
     const paymentMetadata = {
@@ -1310,6 +1316,12 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
         vendor.membership.membershipFee = calc.basePlanFee;
         vendor.membership.serviceFee = calc.servicesSubtotal;
         vendor.membership.durationMonths = durationMonths || calc.durationMonths;
+        if (couponId) {
+            const resolvedCode = appliedCoupon
+                ? appliedCoupon.couponCode
+                : (await _resolveCouponMetadata(couponId)).couponCode || null;
+            if (resolvedCode) vendor.membership.couponCode = resolvedCode;
+        }
 
         const now = new Date();
         vendor.membership.startDate = vendor.membership.startDate || now;

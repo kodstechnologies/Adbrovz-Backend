@@ -185,6 +185,12 @@ const vendorSchema = new mongoose.Schema(
       durationMonths: { type: Number, default: 3 },
       startDate: { type: Date },
       expiryDate: { type: Date },
+      couponCode: {
+        type: String,
+        trim: true,
+        uppercase: true,
+        default: null,
+      },
     },
     serviceRenewal: {
       fee: { type: Number, default: 0 },
@@ -321,18 +327,18 @@ const vendorSchema = new mongoose.Schema(
         // Add isActive to membership based on expiryDate
         if (ret.membership) {
           ret.membership.isActive = !!(ret.membership.expiryDate && new Date(ret.membership.expiryDate) > new Date());
-          
+
           // Also set planStatus for nested transform results if needed
           const now = new Date();
           const memExp = ret.membership.expiryDate ? new Date(ret.membership.expiryDate) : null;
           const renExp = ret.serviceRenewal?.expiryDate ? new Date(ret.serviceRenewal.expiryDate) : null;
-          
+
           // It's EXPIRED if either the membership expires or (if present) the service renewal expires
           const isMemExpired = memExp ? now > memExp : false;
           const isRenExpired = renExp ? now > renExp : false; // Only mark as expired if it exists and is in the past
-          
+
           const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep);
-          
+
           if (!memExp) {
             ret.membership.planStatus = hasPaid ? 'PAID' : 'UNPAID';
             ret.membership.validity = hasPaid ? 'Pending Review' : 'UNPAID';
@@ -359,22 +365,22 @@ const vendorSchema = new mongoose.Schema(
         const memExp = ret.membership?.expiryDate ? new Date(ret.membership.expiryDate) : null;
         const renExp = ret.serviceRenewal?.expiryDate ? new Date(ret.serviceRenewal.expiryDate) : null;
         const now = new Date();
-        
+
         if (!memExp) {
-            const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep);
-            ret.planValidity = hasPaid ? 'Pending Review' : 'UNPAID';
+          const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(ret.registrationStep);
+          ret.planValidity = hasPaid ? 'Pending Review' : 'UNPAID';
         } else {
-            const isMemExpired = now > memExp;
-            const isRenExpired = renExp ? now > renExp : false;
-            if (isMemExpired || isRenExpired) {
-                ret.planValidity = 'Expired';
-            } else {
-                const memDiff = memExp - now;
-                const renDiff = renExp ? renExp - now : Infinity;
-                const minDiff = Math.min(memDiff, renDiff);
-                const days = Math.ceil(minDiff / (1000 * 60 * 60 * 24));
-                ret.planValidity = days > 0 ? `${days}d remaining` : 'Expired';
-            }
+          const isMemExpired = now > memExp;
+          const isRenExpired = renExp ? now > renExp : false;
+          if (isMemExpired || isRenExpired) {
+            ret.planValidity = 'Expired';
+          } else {
+            const memDiff = memExp - now;
+            const renDiff = renExp ? renExp - now : Infinity;
+            const minDiff = Math.min(memDiff, renDiff);
+            const days = Math.ceil(minDiff / (1000 * 60 * 60 * 24));
+            ret.planValidity = days > 0 ? `${days}d remaining` : 'Expired';
+          }
         }
 
         // Add status to categorySubscriptions
@@ -412,23 +418,23 @@ vendorSchema.virtual('status').get(function () {
   if (this.isSuspended) return 'SUSPENDED';
   if (this.isBlocked) return 'BLOCKED';
   if (this.isVerified) return 'VERIFIED';
-  
+
   // High Priority: Check if ANY document is rejected (handles all case variations)
   const docTypes = ['photo', 'idProof', 'addressProof', 'workProof', 'bankProof', 'policeVerification'];
   const hasOneRejected = docTypes.some(type => {
-      const d = this.documents?.[type];
-      const s = (d && typeof d === 'object') ? (d.status || '').toLowerCase() : String(d || '').toLowerCase();
-      return s.trim().startsWith('reject');
+    const d = this.documents?.[type];
+    const s = (d && typeof d === 'object') ? (d.status || '').toLowerCase() : String(d || '').toLowerCase();
+    return s.trim().startsWith('reject');
   });
 
   const topLevelRejection = (this.documentStatus || '').toLowerCase().startsWith('reject');
   if (hasOneRejected || topLevelRejection) return 'REJECTED';
-  
+
   // If they have completed signup but not verified/rejected, they are in pending state
   if (['COMPLETED', 'SIGNUP_COMPLETED', 'MEMBERSHIP_PAID', 'PLAN_PAID'].includes(this.registrationStep)) {
     return 'PENDING';
   }
-  
+
   return 'PENDING'; // Default to a clean PENDING status
 });
 
@@ -437,15 +443,15 @@ vendorSchema.virtual('planStatus').get(function () {
   const now = new Date();
   const memExp = this.membership?.expiryDate ? new Date(this.membership.expiryDate) : null;
   const renExp = this.serviceRenewal?.expiryDate ? new Date(this.serviceRenewal.expiryDate) : null;
-  
+
   if (!memExp) {
     const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED'].includes(this.registrationStep);
     return hasPaid ? 'PAID' : 'UNPAID';
   }
-  
+
   const isMemExpired = now > memExp;
   const isRenExpired = renExp ? now > renExp : false;
-  
+
   if (isMemExpired || isRenExpired) return 'EXPIRED';
   return 'PAID';
 });
@@ -456,7 +462,7 @@ vendorSchema.virtual('photo').get(function () {
 });
 
 // Auto-set isRegistered once vendor completes all registration stages
-vendorSchema.pre('save', function(next) {
+vendorSchema.pre('save', function (next) {
   if (!this.isRegistered) {
     const now = new Date();
     const memExp = this.membership?.expiryDate ? new Date(this.membership.expiryDate) : null;
