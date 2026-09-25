@@ -1977,7 +1977,7 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                 message: vendors.length === 0
                   ? `No matching vendors found within ${radiusInKm}km. Expanding search...`
                   : broadcastCount > 0
-                    ? `Searching in -_- ${radiusInKm}km radius... notified ${broadcastCount} vendor(s).`
+                    ? `Searching in ${radiusInKm}km radius... notified ${broadcastCount} vendor(s).`
                     : `Found ${vendors.length} nearby vendor(s) but none could be reached. Retrying...`
             });
 

@@ -510,14 +510,62 @@ const vendorSignup = async (body) => {
 
   await cacheService.set(signupKey, JSON.stringify({ phoneNumber, vendorId: vendor._id }), signupExpiry);
 
+  // Save a static OTP (1234) for future SMS provider integration
+  const STATIC_OTP = '1234';
+  const otpHash = crypto.createHash('sha256').update(STATIC_OTP).digest('hex');
+  const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+  await Otp.deleteMany({ phoneNumber: vendor.phoneNumber, role: 'vendor', purpose: 'forgot_pin', isUsed: false });
+  const otpRecord = await Otp.create({
+    phoneNumber: vendor.phoneNumber,
+    otpHash,
+    accountId: vendor._id,
+    role: 'vendor',
+    purpose: 'forgot_pin',
+    expiresAt: otpExpiry,
+    isUsed: false,
+    isVerified: false,
+  });
+
   return {
     signupId,
+    otpId: otpRecord._id.toString(),
     vendorId: vendor._id,
     phoneNumber: vendor.phoneNumber,
     isVerified: vendor.isVerified || false,
     isMembership: !!(vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) > new Date()),
     isRegistered: vendor.isRegistered || false,
     message: 'Profile registered. Please set your PIN.',
+  };
+};
+
+// ======================== VENDOR SIGNUP OTP VERIFY ========================
+const verifyVendorSignupOtp = async (otpId, otp) => {
+  if (!otpId || !mongoose.Types.ObjectId.isValid(otpId)) {
+    throw new ApiError(400, 'Invalid OTP ID');
+  }
+
+  const record = await Otp.findOne({
+    _id: otpId,
+    role: 'vendor',
+    purpose: 'forgot_pin',
+    isUsed: false,
+    expiresAt: { $gt: new Date() },
+  });
+
+  const isMasterOtp = String(otp) === '1234';
+  const isGeneratedOtp = record && record.otpHash === crypto.createHash('sha256').update(String(otp)).digest('hex');
+
+  if (!record || (!isMasterOtp && !isGeneratedOtp)) {
+    throw new ApiError(400, 'Invalid or expired OTP');
+  }
+
+  record.isVerified = true;
+  record.isUsed = true;
+  await record.save();
+
+  return {
+    vendorId: record.accountId.toString(),
+    message: 'OTP verified successfully',
   };
 };
 
@@ -1495,6 +1543,7 @@ module.exports = {
   completeUserSignup,
   vendorSignup,
   completeVendorSignup,
+  verifyVendorSignupOtp,
   adminSignup,
   adminLogin,
   superAdminResetPassword,

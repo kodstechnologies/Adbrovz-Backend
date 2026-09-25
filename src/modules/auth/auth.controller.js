@@ -133,6 +133,12 @@ const vendorSignup = asyncHandler(async (req, res) => {
   res.status(201).json(new ApiResponse(201, result, result.message));
 });
 
+const vendorVerifySignupOtp = asyncHandler(async (req, res) => {
+  const { otpId, otp } = req.body;
+  const result = await authService.verifyVendorSignupOtp(otpId, otp);
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
 const vendorCompleteSignup = asyncHandler(async (req, res) => {
   const { signupId, pin, confirmPin, acceptedTerms, acceptedPrivacyPolicy, fcmToken, deviceId } = req.body;
   const result = await authService.completeVendorSignup({ signupId, pin, confirmPin, acceptedTerms, acceptedPrivacyPolicy, fcmToken, deviceId });
@@ -320,6 +326,7 @@ module.exports = {
   // Vendor
   vendorSignup,
   vendorCompleteSignup,
+  vendorVerifySignupOtp,
   vendorLogin,
   vendorInitiateLogin,
   vendorCompleteLogin,
