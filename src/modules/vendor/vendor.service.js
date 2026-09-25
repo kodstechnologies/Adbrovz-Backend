@@ -3530,10 +3530,10 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
  */
 const getSubscriptionStatus = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId)
-        .populate('selectedCategories selectedSubcategories selectedServiceTypes selectedServices membership.category')
-        .populate('categorySubscriptions.category')
-        .populate('categorySubscriptions.subcategories')
-        .populate('categorySubscriptions.services');
+        .populate('selectedServices', 'title category subcategory serviceType serviceRenewalCharge isActive')
+        .populate('categorySubscriptions.services', 'title category subcategory serviceType serviceRenewalCharge isActive')
+        .populate('categorySubscriptions.category', 'name')
+        .populate('membership.category', 'name');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const now = new Date();
@@ -3546,142 +3546,99 @@ const getSubscriptionStatus = async (vendorId) => {
 
     let memDaysRemaining = 0;
     if (isMemActive && memExp) {
-        const diff = memExp - now;
-        memDaysRemaining = Math.ceil(diff / (1000 * 60 * 60 * 24));
+        memDaysRemaining = Math.ceil((memExp - now) / (1000 * 60 * 60 * 24));
     }
 
     let renDaysRemaining = 0;
-    if (hasServiceRenewal) {
-        if (isRenActive && renExp) {
-            const diff = renExp - now;
-            renDaysRemaining = Math.ceil(diff / (1000 * 60 * 60 * 24));
-        } else {
-            renDaysRemaining = 0;
-        }
+    if (hasServiceRenewal && isRenActive && renExp) {
+        renDaysRemaining = Math.ceil((renExp - now) / (1000 * 60 * 60 * 24));
     }
 
-    // Accumulate all hierarchy IDs
-    const categoryIds = new Set();
-    const subcategoryIds = new Set();
-    const serviceTypeIds = new Set();
-    const serviceIds = new Set();
+    // ── Build the vendor's own service list only ──────────────────────────────
+    // Collect services explicitly selected during registration
+    const seenIds = new Set();
+    const ownServices = [];
 
-    if (vendor.membership?.category) categoryIds.add(String(vendor.membership.category._id || vendor.membership.category));
-    if (vendor.selectedCategories) vendor.selectedCategories.forEach(c => categoryIds.add(String(c._id || c)));
-    if (vendor.selectedSubcategories) vendor.selectedSubcategories.forEach(s => subcategoryIds.add(String(s._id || s)));
-    if (vendor.selectedServiceTypes) vendor.selectedServiceTypes.forEach(st => serviceTypeIds.add(String(st._id || st)));
-    if (vendor.selectedServices) vendor.selectedServices.forEach(s => serviceIds.add(String(s._id || s)));
+    const pushService = (svc, source) => {
+        const id = String(svc._id || svc.id || svc);
+        if (seenIds.has(id)) return;
+        seenIds.add(id);
+        ownServices.push({ svc, source });
+    };
 
-    // Accumulate items from categorySubscriptions (additional purchases)
-    if (vendor.categorySubscriptions) {
-        vendor.categorySubscriptions.forEach(sub => {
-            if (sub.category) categoryIds.add(String(sub.category._id || sub.category));
-            if (sub.subcategories) sub.subcategories.forEach(s => subcategoryIds.add(String(s._id || s)));
-            if (sub.services) sub.services.forEach(s => serviceIds.add(String(s._id || s)));
+    // 1. selectedServices (primary registration)
+    (vendor.selectedServices || []).forEach(svc => {
+        if (svc && svc._id) pushService(svc, 'selected');
+    });
+
+    // 2. Services from category subscriptions (add-category purchases)
+    (vendor.categorySubscriptions || []).forEach(sub => {
+        (sub.services || []).forEach(svc => {
+            if (svc && svc._id) pushService(svc, 'catSub');
         });
-    }
+    });
 
-    const query = { $or: [] };
-    if (categoryIds.size > 0) query.$or.push({ category: { $in: Array.from(categoryIds) } });
-    if (subcategoryIds.size > 0) query.$or.push({ subcategory: { $in: Array.from(subcategoryIds) } });
-    if (serviceTypeIds.size > 0) query.$or.push({ serviceType: { $in: Array.from(serviceTypeIds) } });
-    if (serviceIds.size > 0) query.$or.push({ _id: { $in: Array.from(serviceIds) } });
-
-    let finalServices = [];
-    if (query.$or.length > 0) {
-        const Service = require('../../models/Service.model');
-        finalServices = await Service.find({ ...query, isActive: { $ne: false } });
-    }
-
-    // Determine the list of services across all levels of hierarchy
-    let serviceList = finalServices.map(svc => {
-        const catIdStr = svc.category ? svc.category.toString() : '';
-        const catSub = vendor.categorySubscriptions?.find(sub => 
-            sub.category && (sub.category._id || sub.category).toString() === catIdStr
-        );
-        
+    // ── Determine active/expired per service ─────────────────────────────────
+    const serviceList = ownServices.map(({ svc, source }) => {
         let active = false;
         let remaining = 0;
-        
-        if (catSub) {
-            const subExp = catSub.expiryDate ? new Date(catSub.expiryDate) : null;
-            const isSubActive = subExp ? subExp > now : false;
 
-            // Service is active if membership is active AND the category subscription is active AND service renewal is active (if it exists)
-            const isServiceActive = isMemActive && isSubActive && catSub.status === 'ACTIVE' && (!hasServiceRenewal || isRenActive);
+        if (source === 'catSub') {
+            // Find the category subscription this service belongs to
+            const catSub = (vendor.categorySubscriptions || []).find(sub =>
+                (sub.services || []).some(s => String(s._id || s) === String(svc._id))
+            );
+            const subExp = catSub?.expiryDate ? new Date(catSub.expiryDate) : null;
+            const isSubActive = subExp ? subExp > now : false;
+            const isServiceActive = isMemActive && isSubActive && catSub?.status === 'ACTIVE';
 
             if (isServiceActive) {
                 active = true;
-                let subDaysRemaining = 0;
-                if (subExp) {
-                    const diff = subExp - now;
-                    subDaysRemaining = Math.ceil(diff / (1000 * 60 * 60 * 24));
-                }
-
-                if (hasServiceRenewal) {
-                    remaining = Math.min(memDaysRemaining, subDaysRemaining, renDaysRemaining);
-                } else {
-                    remaining = Math.min(memDaysRemaining, subDaysRemaining);
-                }
-            } else {
-                active = false;
-                remaining = 0;
+                const subDaysRemaining = subExp ? Math.ceil((subExp - now) / (1000 * 60 * 60 * 24)) : 0;
+                remaining = Math.min(memDaysRemaining, subDaysRemaining);
             }
         } else {
-            // For standard membership services: active if membership is active AND service renewal is active (if it exists)
+            // Standard membership service — active if membership is active
             const isServiceActive = isMemActive && (!hasServiceRenewal || isRenActive);
-
             if (isServiceActive) {
                 active = true;
-                if (hasServiceRenewal) {
-                    remaining = Math.min(memDaysRemaining, renDaysRemaining);
-                } else {
-                    remaining = memDaysRemaining;
-                }
-            } else {
-                active = false;
-                remaining = 0;
+                remaining = hasServiceRenewal ? Math.min(memDaysRemaining, renDaysRemaining) : memDaysRemaining;
             }
         }
-        
+
         return {
-            id: svc._id.toString(),
-            serviceId: svc.title,
-            name: svc.title,
-            title: svc.title,
+            id: String(svc._id),
+            name: svc.title || '',
+            title: svc.title || '',
             isActive: active,
             daysRemaining: remaining,
-            category: svc.category ? svc.category.toString() : null,
-            subcategory: svc.subcategory ? svc.subcategory.toString() : null,
-            serviceType: svc.serviceType ? svc.serviceType.toString() : null
+            category: svc.category ? String(svc.category._id || svc.category) : null,
+            subcategory: svc.subcategory ? String(svc.subcategory._id || svc.subcategory) : null,
+            serviceType: svc.serviceType ? String(svc.serviceType._id || svc.serviceType) : null
         };
     });
 
-    // Remove duplicates by service _id
-    const uniqueMap = new Map();
-    serviceList.forEach(s => uniqueMap.set(s.id, s));
-    serviceList = Array.from(uniqueMap.values());
+    // ── Summary ───────────────────────────────────────────────────────────────
+    const activeServiceCount = serviceList.filter(s => s.isActive).length;
+    const expiredServiceCount = serviceList.filter(s => !s.isActive).length;
 
-    // Summary — only count services the vendor actually selected
-    const vendorServiceIds = new Set([
-        ...(vendor.selectedServices || []).map(s => String(s._id || s)),
-        ...(vendor.categorySubscriptions || []).flatMap(sub => (sub.services || []).map(s => String(s._id || s)))
-    ]);
-
-    const vendorServices = serviceList.filter(s => vendorServiceIds.has(s.id) || vendorServiceIds.size === 0);
-    const activeServiceCount = vendorServices.filter(s => s.isActive).length;
-    const expiredServiceCount = vendorServices.filter(s => !s.isActive).length;
-
-    // Permissions
-    // Remove documentStatus === 'approved' check if they just want to know if plan allows go-online
-    const canGoOnline = isMemActive && (!hasServiceRenewal || isRenActive);
+    // ── Permissions ───────────────────────────────────────────────────────────
+    const canGoOnline = isMemActive;
 
     return {
         membership: {
-            isActive: isMemActive
+            isActive: isMemActive,
+            expiryDate: vendor.membership?.expiryDate || null,
+            daysRemaining: memDaysRemaining
+        },
+        serviceRenewal: {
+            isActive: hasServiceRenewal ? isRenActive : null,
+            expiryDate: vendor.serviceRenewal?.expiryDate || null,
+            daysRemaining: hasServiceRenewal ? renDaysRemaining : null
         },
         services: serviceList,
         summary: {
+            total: serviceList.length,
             activeServiceCount,
             expiredServiceCount
         },
