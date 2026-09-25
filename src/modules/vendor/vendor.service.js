@@ -3657,14 +3657,20 @@ const getSubscriptionStatus = async (vendorId) => {
         };
     });
 
-    // Remove duplicates by serviceId name if any
+    // Remove duplicates by service _id
     const uniqueMap = new Map();
-    serviceList.forEach(s => uniqueMap.set(s.serviceId, s));
+    serviceList.forEach(s => uniqueMap.set(s.id, s));
     serviceList = Array.from(uniqueMap.values());
 
-    // Summary
-    const activeServiceCount = serviceList.filter(s => s.isActive).length;
-    const expiredServiceCount = serviceList.filter(s => !s.isActive).length;
+    // Summary — only count services the vendor actually selected
+    const vendorServiceIds = new Set([
+        ...(vendor.selectedServices || []).map(s => String(s._id || s)),
+        ...(vendor.categorySubscriptions || []).flatMap(sub => (sub.services || []).map(s => String(s._id || s)))
+    ]);
+
+    const vendorServices = serviceList.filter(s => vendorServiceIds.has(s.id) || vendorServiceIds.size === 0);
+    const activeServiceCount = vendorServices.filter(s => s.isActive).length;
+    const expiredServiceCount = vendorServices.filter(s => !s.isActive).length;
 
     // Permissions
     // Remove documentStatus === 'approved' check if they just want to know if plan allows go-online
