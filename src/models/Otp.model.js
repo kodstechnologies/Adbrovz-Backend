@@ -15,7 +15,7 @@ const otpSchema = new mongoose.Schema(
     },
     accountId: {
       type: mongoose.Schema.Types.ObjectId,
-      required: true,
+      required: false,
     },
     role: {
       type: String,
@@ -37,7 +37,7 @@ const otpSchema = new mongoose.Schema(
     },
     purpose: {
       type: String,
-      enum: ['forgot_pin', 'unlock'],
+      enum: ['forgot_pin', 'unlock', 'signup'],
       default: 'forgot_pin',
       index: true,
     },

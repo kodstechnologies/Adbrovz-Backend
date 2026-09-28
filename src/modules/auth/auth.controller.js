@@ -1,5 +1,6 @@
 const asyncHandler = require('../../utils/asyncHandler');
 const ApiResponse = require('../../utils/ApiResponse');
+const ApiError = require('../../utils/ApiError');
 const authService = require('./auth.service');
 const addressService = require('./address.service');
 const MESSAGES = require('../../constants/messages');

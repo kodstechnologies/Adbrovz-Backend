@@ -524,19 +524,16 @@ const vendorSignup = async (body) => {
 // ======================== VENDOR SIGNUP OTP SEND ========================
 const sendVendorSignupOtp = async (phoneNumber) => {
   const normalizedPhone = String(phoneNumber).trim();
-  const vendor = await Vendor.findOne({ phoneNumber: normalizedPhone });
-  if (!vendor) throw new ApiError(404, 'Vendor not found. Please complete signup first.');
 
   const otp = '1234';
   const expiresAt = new Date(Date.now() + config.OTP_EXPIRE_MINUTES * 60 * 1000);
 
-  await Otp.deleteMany({ phoneNumber: normalizedPhone, role: 'vendor', purpose: 'forgot_pin', isUsed: false });
+  await Otp.deleteMany({ phoneNumber: normalizedPhone, role: 'vendor', purpose: 'signup', isUsed: false });
   const otpRecord = await Otp.create({
     phoneNumber: normalizedPhone,
     otpHash: crypto.createHash('sha256').update(String(otp)).digest('hex'),
-    accountId: vendor._id,
     role: 'vendor',
-    purpose: 'forgot_pin',
+    purpose: 'signup',
     expiresAt,
     isUsed: false,
     isVerified: false,
@@ -557,7 +554,7 @@ const verifyVendorSignupOtp = async (phoneNumber, otp) => {
   const record = await Otp.findOne({
     phoneNumber: normalizedPhone,
     role: 'vendor',
-    purpose: 'forgot_pin',
+    purpose: 'signup',
     isUsed: false,
     expiresAt: { $gt: new Date() },
   });
@@ -574,7 +571,7 @@ const verifyVendorSignupOtp = async (phoneNumber, otp) => {
   await record.save();
 
   return {
-    vendorId: record.accountId.toString(),
+    phoneNumber: normalizedPhone,
     message: 'OTP verified successfully',
   };
 };

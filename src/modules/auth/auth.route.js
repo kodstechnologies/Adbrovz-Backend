@@ -68,13 +68,12 @@ router.delete('/users/address/:addressId', authenticate, authorize(ROLES.USER), 
 // ======================== VENDOR ROUTES ========================
 router.post('/vendors/signup', authLimiter, uploadVendorDocs, processVendorDocs, validateVendorSignup, authController.vendorSignup);
 router.post('/vendors/send-otp', otpLimiter, authController.sendVendorSignupOtp);
-router.post('/vendors/verify-vendor', authLimiter, authController.vendorVerifySignupOtp);
+router.post('/vendors/verify-vendor', authLimiter, validateOTP, authController.vendorVerifySignupOtp);
 
 router.post('/vendors/set-pin', authLimiter, validateVendorSetPIN, authController.vendorCompleteSignup);
 router.post('/vendors/login', authLimiter, validateLogin, authController.vendorLogin);
 router.post('/vendors/initiate-login', authLimiter, validateVendorInitiateLogin, authController.vendorInitiateLogin);
 router.post('/vendors/complete-login', authLimiter, validateVendorCompleteLogin, authController.vendorCompleteLogin);
-router.post('/vendors/send-otp', otpLimiter, authController.vendorSendOTP);
 router.post('/vendors/reset-pin', authLimiter, validateResetPIN, authController.vendorResetPIN);
 router.post('/vendors/logout', authenticate, authController.vendorLogout);
 
