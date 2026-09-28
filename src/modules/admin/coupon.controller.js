@@ -388,13 +388,20 @@ exports.applyCoupon = async (req, res) => {
             message: 'Coupon applied successfully',
             data: {
                 valid: true,
+                id: coupon._id,
                 code: coupon.code,
                 discountType: coupon.discountType,
                 discountValue: coupon.discountValue,
                 usageLimitPerUser: getUsageLimitPerUser(coupon),
                 discount,
                 originalAmount: orderAmount,
-                finalAmount
+                finalAmount,
+                image: coupon.image || null,
+                couponDetails: coupon.couponDetails || null,
+                couponTermsAndConditions: coupon.couponTermsAndConditions || null,
+                creditPlans: coupon.creditPlans || [],
+                startDate: coupon.startDate || null,
+                endDate: coupon.endDate || null,
             }
         });
     } catch (error) {
@@ -437,6 +444,10 @@ exports.getMyCoupons = async (req, res) => {
                 startDate: start,
                 endDate: end,
                 expiresAt: end,
+                image: coupon.image || null,
+                couponDetails: coupon.couponDetails || null,
+                couponTermsAndConditions: coupon.couponTermsAndConditions || null,
+                creditPlans: coupon.creditPlans || [],
             };
         });
 
