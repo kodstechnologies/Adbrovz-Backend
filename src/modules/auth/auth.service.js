@@ -527,7 +527,7 @@ const sendVendorSignupOtp = async (phoneNumber) => {
   const vendor = await Vendor.findOne({ phoneNumber: normalizedPhone });
   if (!vendor) throw new ApiError(404, 'Vendor not found. Please complete signup first.');
 
-  const otp = String(crypto.randomInt(10 ** (config.OTP_LENGTH - 1), 10 ** config.OTP_LENGTH));
+  const otp = '1234';
   const expiresAt = new Date(Date.now() + config.OTP_EXPIRE_MINUTES * 60 * 1000);
 
   await Otp.deleteMany({ phoneNumber: normalizedPhone, role: 'vendor', purpose: 'forgot_pin', isUsed: false });
@@ -542,13 +542,7 @@ const sendVendorSignupOtp = async (phoneNumber) => {
     isVerified: false,
   });
 
-  try {
-    await smsService.sendOTP(normalizedPhone, otp);
-  } catch (error) {
-    await Otp.findByIdAndDelete(otpRecord._id);
-    throw new ApiError(500, 'Failed to send OTP SMS');
-  }
-
+  // Skip SMS — OTP is static 1234
   return {
     otpId: otpRecord._id.toString(),
     phoneNumber: normalizedPhone,
