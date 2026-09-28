@@ -4414,6 +4414,64 @@ const getMembershipPlansWithStatus = async (vendorId) => {
         .populate('membership.category', 'name');
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
+    // ── Pre-calculate hierarchical renewal amount (same for all plans) ──────────
+    // Rules:
+    //  - Charge each unique category once (regardless of how many services inside it)
+    //  - Charge each unique subcategory once (regardless of how many services inside it)
+    //  - Charge each unique service type once (regardless of how many services inside it)
+    //  - Charge each unique selected service once
+    const catIds      = new Set();
+    const subIds      = new Set();
+    const typeIds     = new Set();
+    const svcIds      = new Set();
+
+    // Seed from vendor's stored selections
+    (vendor.selectedCategories  || []).forEach(c => catIds.add(String(c._id || c)));
+    (vendor.selectedSubcategories || []).forEach(s => subIds.add(String(s._id || s)));
+    (vendor.selectedServiceTypes  || []).forEach(t => typeIds.add(String(t._id || t)));
+    (vendor.selectedServices      || []).forEach(s => svcIds.add(String(s._id || s)));
+
+    // Derive parent hierarchy from selected services
+    if (svcIds.size > 0) {
+        const fullServices = await Service.find({ _id: { $in: [...svcIds] } });
+        fullServices.forEach(svc => {
+            if (svc.serviceType) typeIds.add(String(svc.serviceType));
+            if (svc.subcategory)  subIds.add(String(svc.subcategory));
+            if (svc.category)     catIds.add(String(svc.category));
+        });
+    }
+    // Derive parent hierarchy from selected service types
+    if (typeIds.size > 0) {
+        const ServiceTypeModel = require('../../models/ServiceType.model');
+        const fullTypes = await ServiceTypeModel.find({ _id: { $in: [...typeIds] } });
+        fullTypes.forEach(t => {
+            if (t.subcategory) subIds.add(String(t.subcategory));
+            if (t.category)    catIds.add(String(t.category));
+        });
+    }
+    // Derive parent hierarchy from selected subcategories
+    if (subIds.size > 0) {
+        const fullSubs = await Subcategory.find({ _id: { $in: [...subIds] } });
+        fullSubs.forEach(s => {
+            if (s.category) catIds.add(String(s.category));
+        });
+    }
+
+    // Fetch docs for renewal charge lookup
+    const [renewalCats, renewalSubs, renewalTypes, renewalSvcs] = await Promise.all([
+        Category.find({ _id: { $in: [...catIds] } }).select('name membershipRenewalCharge'),
+        Subcategory.find({ _id: { $in: [...subIds] } }).select('name membershipRenewalCharge'),
+        require('../../models/ServiceType.model').find({ _id: { $in: [...typeIds] } }).select('name membershipRenewalCharge'),
+        Service.find({ _id: { $in: [...svcIds] } }).select('title membershipRenewalCharge'),
+    ]);
+
+    let hierarchicalRenewalAmount = 0;
+    renewalCats.forEach(c  => { hierarchicalRenewalAmount += (c.membershipRenewalCharge  || 0); });
+    renewalSubs.forEach(s  => { hierarchicalRenewalAmount += (s.membershipRenewalCharge  || 0); });
+    renewalTypes.forEach(t => { hierarchicalRenewalAmount += (t.membershipRenewalCharge  || 0); });
+    renewalSvcs.forEach(s  => { hierarchicalRenewalAmount += (s.membershipRenewalCharge  || 0); });
+    // ─────────────────────────────────────────────────────────────────────────────
+
     const plans = [
         { duration: 3, name: 'Basic' },
         { duration: 6, name: 'Pro' },
@@ -4429,18 +4487,23 @@ const getMembershipPlansWithStatus = async (vendorId) => {
         const isCurrent = Boolean(currentMembershipId && feeDetails.planId && currentMembershipId === feeDetails.planId.toString());
 
         const membershipAmount = Number(feeDetails?.breakdown?.basePlan?.price || 0);
-        const renewalAmount = Math.max(0, Number(feeDetails.subtotal || 0) - membershipAmount);
-        
+        // renewalAmount = sum of membershipRenewalCharge across unique cats/subs/types/services
+        const renewalAmount = hierarchicalRenewalAmount;
+        const combinedSubtotal = membershipAmount + renewalAmount;
+        const gstPercent = Number(feeDetails.gstPercent || 0);
+        const gstAmount = Math.round(combinedSubtotal * (gstPercent / 100));
+        const totalAmount = combinedSubtotal + gstAmount;
+
         const planObj = {
             id: feeDetails.planId,
             name: p.name,
             isCurrent,
-            renewal: feeDetails.totalFee, // Backward compatibility
+            renewal: totalAmount, // Backward compatibility
             renewalAmount,
             membershipAmount,
-            gstAmount: Number(feeDetails.gstAmount || 0),
-            totalAmount: Number(feeDetails.totalFee || 0),
-            gstPercent: Number(feeDetails.gstPercent || 0),
+            gstAmount,
+            totalAmount,
+            gstPercent,
             validityDays: feeDetails.validityDays
         };
 
