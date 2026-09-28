@@ -67,7 +67,7 @@ router.delete('/users/address/:addressId', authenticate, authorize(ROLES.USER), 
 
 // ======================== VENDOR ROUTES ========================
 router.post('/vendors/signup', authLimiter, uploadVendorDocs, processVendorDocs, validateVendorSignup, authController.vendorSignup);
-
+router.post('/vendors/send-otp', otpLimiter, authController.sendVendorSignupOtp);
 router.post('/vendors/verify-vendor', authLimiter, authController.vendorVerifySignupOtp);
 
 router.post('/vendors/set-pin', authLimiter, validateVendorSetPIN, authController.vendorCompleteSignup);

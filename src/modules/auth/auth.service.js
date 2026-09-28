@@ -503,32 +503,15 @@ const vendorSignup = async (body) => {
     membershipCategory: vendor.membership?.category
   });
 
-  // Generate a signup session for PIN setup (Skipping OTP per request)
+  // Generate a signup session for PIN setup
   const signupId = crypto.randomUUID();
   const signupKey = `signup:session:vendor:${signupId}`;
   const signupExpiry = 3600; // 1 hour
 
   await cacheService.set(signupKey, JSON.stringify({ phoneNumber, vendorId: vendor._id }), signupExpiry);
 
-  // Save a static OTP (1234) for future SMS provider integration
-  const STATIC_OTP = '1234';
-  const otpHash = crypto.createHash('sha256').update(STATIC_OTP).digest('hex');
-  const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-  await Otp.deleteMany({ phoneNumber: vendor.phoneNumber, role: 'vendor', purpose: 'forgot_pin', isUsed: false });
-  const otpRecord = await Otp.create({
-    phoneNumber: vendor.phoneNumber,
-    otpHash,
-    accountId: vendor._id,
-    role: 'vendor',
-    purpose: 'forgot_pin',
-    expiresAt: otpExpiry,
-    isUsed: false,
-    isVerified: false,
-  });
-
   return {
     signupId,
-    otpId: otpRecord._id.toString(),
     vendorId: vendor._id,
     phoneNumber: vendor.phoneNumber,
     isVerified: vendor.isVerified || false,
@@ -538,14 +521,47 @@ const vendorSignup = async (body) => {
   };
 };
 
-// ======================== VENDOR SIGNUP OTP VERIFY ========================
-const verifyVendorSignupOtp = async (otpId, otp) => {
-  if (!otpId || !mongoose.Types.ObjectId.isValid(otpId)) {
-    throw new ApiError(400, 'Invalid OTP ID');
+// ======================== VENDOR SIGNUP OTP SEND ========================
+const sendVendorSignupOtp = async (phoneNumber) => {
+  const normalizedPhone = String(phoneNumber).trim();
+  const vendor = await Vendor.findOne({ phoneNumber: normalizedPhone });
+  if (!vendor) throw new ApiError(404, 'Vendor not found. Please complete signup first.');
+
+  const otp = String(crypto.randomInt(10 ** (config.OTP_LENGTH - 1), 10 ** config.OTP_LENGTH));
+  const expiresAt = new Date(Date.now() + config.OTP_EXPIRE_MINUTES * 60 * 1000);
+
+  await Otp.deleteMany({ phoneNumber: normalizedPhone, role: 'vendor', purpose: 'forgot_pin', isUsed: false });
+  const otpRecord = await Otp.create({
+    phoneNumber: normalizedPhone,
+    otpHash: crypto.createHash('sha256').update(String(otp)).digest('hex'),
+    accountId: vendor._id,
+    role: 'vendor',
+    purpose: 'forgot_pin',
+    expiresAt,
+    isUsed: false,
+    isVerified: false,
+  });
+
+  try {
+    await smsService.sendOTP(normalizedPhone, otp);
+  } catch (error) {
+    await Otp.findByIdAndDelete(otpRecord._id);
+    throw new ApiError(500, 'Failed to send OTP SMS');
   }
 
+  return {
+    otpId: otpRecord._id.toString(),
+    phoneNumber: normalizedPhone,
+    message: 'OTP sent successfully',
+  };
+};
+
+// ======================== VENDOR SIGNUP OTP VERIFY ========================
+const verifyVendorSignupOtp = async (phoneNumber, otp) => {
+  const normalizedPhone = String(phoneNumber).trim();
+
   const record = await Otp.findOne({
-    _id: otpId,
+    phoneNumber: normalizedPhone,
     role: 'vendor',
     purpose: 'forgot_pin',
     isUsed: false,
@@ -1543,6 +1559,7 @@ module.exports = {
   completeUserSignup,
   vendorSignup,
   completeVendorSignup,
+  sendVendorSignupOtp,
   verifyVendorSignupOtp,
   adminSignup,
   adminLogin,

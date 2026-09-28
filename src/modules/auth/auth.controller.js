@@ -133,9 +133,17 @@ const vendorSignup = asyncHandler(async (req, res) => {
   res.status(201).json(new ApiResponse(201, result, result.message));
 });
 
+const sendVendorSignupOtp = asyncHandler(async (req, res) => {
+  const { phoneNumber } = req.body;
+  if (!phoneNumber) throw new ApiError(400, 'phoneNumber is required');
+  const result = await authService.sendVendorSignupOtp(phoneNumber);
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
 const vendorVerifySignupOtp = asyncHandler(async (req, res) => {
-  const { otpId, otp } = req.body;
-  const result = await authService.verifyVendorSignupOtp(otpId, otp);
+  const { phoneNumber, otp } = req.body;
+  if (!phoneNumber || !otp) throw new ApiError(400, 'phoneNumber and otp are required');
+  const result = await authService.verifyVendorSignupOtp(phoneNumber, otp);
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
@@ -326,6 +334,7 @@ module.exports = {
   // Vendor
   vendorSignup,
   vendorCompleteSignup,
+  sendVendorSignupOtp,
   vendorVerifySignupOtp,
   vendorLogin,
   vendorInitiateLogin,
