@@ -370,6 +370,62 @@ const deleteUser = async (userId, adminId) => {
   return user;
 };
 
+const updateUser = async (userId, updateData) => {
+  const fieldsToUpdate = {};
+
+  if (updateData.name && updateData.name.trim() !== '') {
+    fieldsToUpdate.name = updateData.name.trim();
+  }
+  if (updateData.photo) {
+    fieldsToUpdate.photo = updateData.photo;
+  } else if (updateData.image) {
+    fieldsToUpdate.photo = updateData.image;
+  }
+  if (updateData.email && updateData.email.trim() !== '') {
+    fieldsToUpdate.email = updateData.email.trim();
+  }
+  if (updateData.phoneNumber && updateData.phoneNumber.trim() !== '') {
+    fieldsToUpdate.phoneNumber = updateData.phoneNumber.trim();
+  }
+
+  const updatedUser = await User.findByIdAndUpdate(
+    userId,
+    { $set: fieldsToUpdate },
+    { new: true, runValidators: true }
+  );
+
+  if (!updatedUser) {
+    throw new Error('User not found');
+  }
+
+  return updatedUser;
+};
+
+const updateVendor = async (vendorId, updateData) => {
+  const fieldsToUpdate = {};
+
+  if (updateData.name && updateData.name.trim() !== '') {
+    fieldsToUpdate.name = updateData.name.trim();
+  }
+  const photoUrl = updateData.photo || updateData.image;
+  if (photoUrl) {
+    fieldsToUpdate['documents.photo.url'] = photoUrl;
+    fieldsToUpdate['documents.photo.status'] = 'verified';
+  }
+
+  const updatedVendor = await Vendor.findByIdAndUpdate(
+    vendorId,
+    { $set: fieldsToUpdate },
+    { new: true, runValidators: true }
+  );
+
+  if (!updatedVendor) {
+    throw new Error('Vendor not found');
+  }
+
+  return updatedVendor;
+};
+
 const createCreditPlan = async (planData) => {
   return await CreditPlan.create(planData);
 };
@@ -1215,6 +1271,7 @@ module.exports = {
   getAllUsers,
   updateUserStatus,
   deleteUser,
+  updateUser,
   createCreditPlan,
   getCreditPlans,
   updateCreditPlan,
@@ -1230,6 +1287,7 @@ module.exports = {
   respondToVendorDeletion,
   getEligibleVendors,
   deleteVendor,
+  updateVendor,
   getGlobalSettings,
   updateGlobalSettings,
   getSetting,

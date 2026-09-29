@@ -21,6 +21,11 @@ exports.createCoupon = async (req, res) => {
             couponDetails,
             couponTermsAndConditions,
             creditPlans,
+            userServiceBooking,
+            vendorAddService,
+            vendorManageService,
+            vendorAddSubscription,
+            vendorRenewalSubscription,
         } = req.body;
 
         // Validation
@@ -96,7 +101,14 @@ exports.createCoupon = async (req, res) => {
             image: req.file?.cloudinary?.url || null,
             couponDetails: couponDetails || null,
             couponTermsAndConditions: couponTermsAndConditions || null,
-            creditPlans: Array.isArray(creditPlans) ? creditPlans : (creditPlans ? [creditPlans] : []),
+            userServiceBooking: resolvedAudienceType === 'user' ? parseBool(userServiceBooking, true) : false,
+            vendorAddService: resolvedAudienceType === 'vendor' ? (
+                parseBool(vendorAddService, false) ||
+                (!parseBool(vendorManageService, false) && !parseBool(vendorAddSubscription, false) && !parseBool(vendorRenewalSubscription, false))
+            ) : false,
+            vendorManageService: resolvedAudienceType === 'vendor' ? parseBool(vendorManageService, false) : false,
+            vendorAddSubscription: resolvedAudienceType === 'vendor' ? parseBool(vendorAddSubscription, false) : false,
+            vendorRenewalSubscription: resolvedAudienceType === 'vendor' ? parseBool(vendorRenewalSubscription, false) : false,
             createdBy: req.user.id
         });
         await coupon.save();
@@ -181,6 +193,11 @@ exports.updateCoupon = async (req, res) => {
             couponDetails,
             couponTermsAndConditions,
             creditPlans,
+            userServiceBooking,
+            vendorAddService,
+            vendorManageService,
+            vendorAddSubscription,
+            vendorRenewalSubscription,
         } = req.body;
 
         const coupon = await Coupon.findById(id);
@@ -252,6 +269,23 @@ exports.updateCoupon = async (req, res) => {
         if (couponTermsAndConditions !== undefined) coupon.couponTermsAndConditions = couponTermsAndConditions || null;
         if (creditPlans !== undefined) {
             coupon.creditPlans = Array.isArray(creditPlans) ? creditPlans : (creditPlans ? [creditPlans] : []);
+        }
+        if (resolvedAudienceType === 'user') {
+            coupon.userServiceBooking = userServiceBooking !== undefined ? parseBool(userServiceBooking, true) : true;
+            coupon.vendorAddService = false;
+            coupon.vendorManageService = false;
+            coupon.vendorAddSubscription = false;
+            coupon.vendorRenewalSubscription = false;
+        } else {
+            coupon.userServiceBooking = false;
+            if (vendorAddService !== undefined) coupon.vendorAddService = parseBool(vendorAddService, coupon.vendorAddService);
+            if (vendorManageService !== undefined) coupon.vendorManageService = parseBool(vendorManageService, coupon.vendorManageService);
+            if (vendorAddSubscription !== undefined) coupon.vendorAddSubscription = parseBool(vendorAddSubscription, coupon.vendorAddSubscription);
+            if (vendorRenewalSubscription !== undefined) coupon.vendorRenewalSubscription = parseBool(vendorRenewalSubscription, coupon.vendorRenewalSubscription);
+
+            if (!coupon.vendorAddService && !coupon.vendorManageService && !coupon.vendorAddSubscription && !coupon.vendorRenewalSubscription) {
+                coupon.vendorAddService = true;
+            }
         }
 
         await coupon.save();

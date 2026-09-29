@@ -50,6 +50,24 @@ const deleteUser = asyncHandler(async (req, res) => {
   );
 });
 
+// Update user (image, name, etc.)
+const updateUser = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const { userId } = req.params;
+  const updateData = { ...req.body };
+
+  if (req.file && req.file.cloudinary) {
+    updateData.photo = req.file.cloudinary.url;
+    updateData.image = req.file.cloudinary.url;
+  }
+
+  const user = await adminService.updateUser(userId, updateData);
+
+  res.status(200).json(
+    new ApiResponse(200, user, 'User updated successfully')
+  );
+});
+
 const adminService = require('./admin.service');
 
 // ... existing code ...
@@ -178,6 +196,24 @@ const deleteVendor = asyncHandler(async (req, res) => {
 
   res.status(200).json(
     new ApiResponse(200, vendor, 'Vendor deleted successfully')
+  );
+});
+
+// Update vendor (image, name)
+const updateVendor = asyncHandler(async (req, res) => {
+  const adminService = require('./admin.service');
+  const { vendorId } = req.params;
+  const updateData = { ...req.body };
+
+  if (req.file && req.file.cloudinary) {
+    updateData.photo = req.file.cloudinary.url;
+    updateData.image = req.file.cloudinary.url;
+  }
+
+  const vendor = await adminService.updateVendor(vendorId, updateData);
+
+  res.status(200).json(
+    new ApiResponse(200, vendor, 'Vendor updated successfully')
   );
 });
 
@@ -315,6 +351,7 @@ module.exports = {
   getUsers,
   updateUserStatus,
   deleteUser,
+  updateUser,
   createCreditPlan,
   getCreditPlans,
   updateCreditPlan,
@@ -339,6 +376,7 @@ module.exports = {
   getGlobalTransactions,
   respondToVendorDeletionRequest,
   deleteVendor,
+  updateVendor,
   getSubAdmins,
   createSubAdmin,
   updateSubAdmin,

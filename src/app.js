@@ -50,7 +50,7 @@ app.use(mongoSanitize());
 // If CORS_ORIGIN is set to '*', we fallback to allowing any origin **without** credentials,
 // because browsers reject `Access-Control-Allow-Origin: *` when `credentials: true`.
 // Admin UI runs on https://admin.adbrovz.tech, so we include that as the default.
-const allowedOrigins = (config.CORS_ORIGIN?.split(',') || ['https://admin.adbrovz.tech']).map(o => o.trim());
+const allowedOrigins = (config.CORS_ORIGIN?.split(',') || ['https://admin.adbrovz.tech', 'http://localhost:3000', 'http://localhost:5173']).map(o => o.trim());
 
 const corsOptions = {
   origin: (origin, callback) => {
@@ -60,7 +60,7 @@ const corsOptions = {
       // Wildcard: do not send credentials
       return callback(null, true);
     }
-    if (allowedOrigins.includes(origin)) {
+    if (allowedOrigins.includes(origin) || origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
       return callback(null, true);
     }
     return callback(new Error('Not allowed by CORS'));

@@ -3,6 +3,7 @@ const router = express.Router();
 const adminController = require('./admin.controller');
 const { authenticate, authorize } = require('../../middlewares/auth.middleware');
 const { ROLES } = require('../../constants/roles');
+const { upload, uploadToCloudinary } = require('../../middlewares/cloudinary.middleware');
 
 // All routes require admin authentication
 router.use((req, res, next) => {
@@ -19,9 +20,26 @@ router.use('/coupons', couponRoutes);
 router.use(authenticate);
 router.use(authorize(ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN));
 
+// Flexible upload middleware that won't throw 'Unexpected field' if client sends image or photo
+const userUploadMiddleware = (req, res, next) => {
+    upload.any()(req, res, (err) => {
+        if (err) {
+            console.error('Multer upload error:', err);
+            return next(err);
+        }
+        if (req.files && req.files.length > 0) {
+            const file = req.files.find(f => f.fieldname === 'image' || f.fieldname === 'photo') || req.files[0];
+            req.file = file;
+        }
+        next();
+    });
+};
+
 router.get('/dashboard', adminController.getDashboard);
 router.get('/users', adminController.getUsers);
 router.patch('/users/:userId/status', adminController.updateUserStatus);
+router.patch('/users/:userId', userUploadMiddleware, uploadToCloudinary('users'), adminController.updateUser);
+router.put('/users/:userId', userUploadMiddleware, uploadToCloudinary('users'), adminController.updateUser);
 router.delete('/users/:userId', adminController.deleteUser);
 
 
@@ -46,6 +64,8 @@ router.patch('/vendors/:vendorId/reject', adminController.rejectVendorAccount);
 router.get  ('/vendors/eligible', adminController.getEligibleVendors);
 router.get('/vendors/:vendorId/payment-history', adminController.getVendorPaymentHistory);
 router.post('/vendors/:vendorId/deletion-request', adminController.respondToVendorDeletionRequest);
+router.patch('/vendors/:vendorId', userUploadMiddleware, uploadToCloudinary('vendors'), adminController.updateVendor);
+router.put('/vendors/:vendorId', userUploadMiddleware, uploadToCloudinary('vendors'), adminController.updateVendor);
 router.delete('/vendors/:vendorId', adminController.deleteVendor);
 
 // Global Settings management

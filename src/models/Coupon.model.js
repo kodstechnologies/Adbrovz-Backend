@@ -34,6 +34,33 @@ const couponSchema = new mongoose.Schema(
             enum: ['user', 'vendor'],
             default: 'user',
         },
+
+        // Coupon applicability
+        userServiceBooking: {
+            type: Boolean,
+            default: false,
+        },
+
+        vendorAddService: {
+            type: Boolean,
+            default: false,
+        },
+
+        vendorManageService: {
+            type: Boolean,
+            default: false,
+        },
+
+        vendorAddSubscription: {
+            type: Boolean,
+            default: false,
+        },
+
+        vendorRenewalSubscription: {
+            type: Boolean,
+            default: false,
+        },
+
         isForAllVendors: {
             type: Boolean,
             default: false,
