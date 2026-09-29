@@ -100,6 +100,11 @@ const initiateUserSignup = async ({ phoneNumber, name, email }) => {
   // Check if user already exists
   const existingUser = await User.findOne({ phoneNumber });
 
+  // Deleted account — guide them to support rather than blocking with "already exists"
+  if (existingUser && existingUser.deletedAt) {
+    throw new ApiError(400, "This account has been deleted. Please contact support to restore it.");
+  }
+
   if (existingUser && existingUser.isVerified) {
     throw new ApiError(400, MESSAGES.USER.ALREADY_EXISTS);
   }
@@ -319,11 +324,16 @@ const completeVendorSignup = async ({ signupId, pin, confirmPin, acceptedTerms, 
  * - Returns a loginId (session identifier)
  */
 const initiateUserLogin = async ({ phoneNumber, acceptedPolicies }) => {
-  // Find user
-  const user = await User.findOne({ phoneNumber, deletedAt: null });
+  // Find user — check deleted accounts first so we can return the right message
+  const user = await User.findOne({ phoneNumber });
 
   if (!user) {
     throw new ApiError(401, "The mobile number not registered please signup to continue");
+  }
+
+  // Return specific message for deleted accounts so the app can show the recovery flow
+  if (user.deletedAt) {
+    throw new ApiError(403, "This account has been deleted. Please contact support to restore it.");
   }
 
   // Verification check removed as per requirement

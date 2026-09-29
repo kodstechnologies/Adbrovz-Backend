@@ -300,14 +300,23 @@ const verifyVendorUnlockPhoneOtp = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
+
+const Support = require('../../models/Support.model');
+
+const addSupport = asyncHandler(async (req, res) => {
+  await Support.deleteMany({});
+  const support = await Support.create({ phone: req.body.phone });
+  res.status(201).json(new ApiResponse(201, support, 'Support number saved'));
+});
+
 const getSupport = asyncHandler(async (req, res) => {
-    res.status(200).json(
-        new ApiResponse(200, { phoneNumber: '8884745611' }, 'Support contact retrieved successfully')
-    );
+  const support = await Support.findOne();
+  res.status(200).json(new ApiResponse(200, support, 'Support contact retrieved successfully'));
 });
 
 module.exports = {
   // Support
+  addSupport,
   getSupport,
   // User
   userSignup,

@@ -126,7 +126,9 @@ router.post('/logout', authController.userLogout);
 // Old signup endpoint
 router.post('/signup', authLimiter, validateUserSignup, authController.userSignup);
 
-router.get("/support", authController.getSupport)
+
+router.post("/support", authController.addSupport);
+router.get("/support", authController.getSupport);
 
 module.exports = router;
 
