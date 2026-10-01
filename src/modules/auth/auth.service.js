@@ -15,10 +15,13 @@ const config = require('../../config/env');
 const adminService = require('../admin/admin.service');
 const CoinTransaction = require('../../models/CoinTransaction.model');
 const { parseArrayInput } = require('../../utils/dataParser');
+const { normalizePhoneNumber, getPhoneVariants } = require('../../utils/phone');
 
 const userSignup = async ({ phoneNumber, name, email, pin, confirmPin, acceptedPolicies, fcmToken, deviceId }) => {
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  const variants = getPhoneVariants(phoneNumber);
   // Check if user already exists
-  const existingUser = await User.findOne({ phoneNumber });
+  const existingUser = await User.findOne({ phoneNumber: { $in: variants } });
 
   // If user exists and is verified, throw error
   if (existingUser && existingUser.isVerified) {
@@ -35,14 +38,14 @@ const userSignup = async ({ phoneNumber, name, email, pin, confirmPin, acceptedP
 
   // Create new user (verified)
   const user = await User.create({
-    phoneNumber,
+    phoneNumber: normalizedPhone,
     name,
     email,
     pin: hashedPIN,
     fcmToken: fcmToken || null,
     deviceId: deviceId || null,
     isVerified: true,
-    userID: `U${Date.now()}`, // Temporary, will be updated after verification
+    userID: `U${normalizedPhone}`,
     acceptedPolicies,
     policiesAcceptedAt: new Date(),
   });
@@ -97,8 +100,10 @@ const userSignup = async ({ phoneNumber, name, email, pin, confirmPin, acceptedP
  * - Stores name and email in cache
  */
 const initiateUserSignup = async ({ phoneNumber, name, email }) => {
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  const variants = getPhoneVariants(phoneNumber);
   // Check if user already exists
-  const existingUser = await User.findOne({ phoneNumber });
+  const existingUser = await User.findOne({ phoneNumber: { $in: variants } });
 
   // Deleted account — guide them to support rather than blocking with "already exists"
   if (existingUser && existingUser.deletedAt) {
@@ -116,7 +121,7 @@ const initiateUserSignup = async ({ phoneNumber, name, email }) => {
 
   // Store user details in cache keyed by signupId
   const signupData = {
-    phoneNumber,
+    phoneNumber: normalizedPhone,
     name,
     email,
   };
@@ -150,12 +155,14 @@ const completeUserSignup = async ({ signupId, pin, confirmPin, acceptedPolicies,
 
   const cachedData = JSON.parse(cachedDataStr);
   const { phoneNumber, name, email } = cachedData;
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  const variants = getPhoneVariants(phoneNumber);
 
   // Hash PIN
   const hashedPIN = await hashPIN(pin);
 
   // Check if user exists (unverified)
-  let user = await User.findOne({ phoneNumber });
+  let user = await User.findOne({ phoneNumber: { $in: variants } });
 
   if (user && user.isVerified) {
     throw new ApiError(400, MESSAGES.USER.ALREADY_EXISTS);
@@ -163,27 +170,28 @@ const completeUserSignup = async ({ signupId, pin, confirmPin, acceptedPolicies,
 
   if (user) {
     // Update existing unverified user
+    user.phoneNumber = normalizedPhone;
     user.name = name;
     user.email = email;
     user.pin = hashedPIN;
     user.acceptedPolicies = acceptedPolicies;
     user.policiesAcceptedAt = new Date();
     user.isVerified = true; // Auto-verified
-    user.userID = `U${phoneNumber}`; // Set UserID
+    user.userID = `U${normalizedPhone}`; // Set UserID
     if (fcmToken) user.fcmToken = fcmToken;
     if (deviceId) user.deviceId = deviceId;
     await user.save();
   } else {
     // Create new user
     user = await User.create({
-      phoneNumber,
+      phoneNumber: normalizedPhone,
       name,
       email,
       pin: hashedPIN,
       fcmToken: fcmToken || null,
       deviceId: deviceId || null,
       isVerified: true, // Auto-verified
-      userID: `U${phoneNumber}`, // Set UserID
+      userID: `U${normalizedPhone}`, // Set UserID
       acceptedPolicies,
       policiesAcceptedAt: new Date(),
     });
@@ -324,8 +332,10 @@ const completeVendorSignup = async ({ signupId, pin, confirmPin, acceptedTerms, 
  * - Returns a loginId (session identifier)
  */
 const initiateUserLogin = async ({ phoneNumber, acceptedPolicies }) => {
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  const variants = getPhoneVariants(phoneNumber);
   // Find user — check deleted accounts first so we can return the right message
-  const user = await User.findOne({ phoneNumber });
+  const user = await User.findOne({ phoneNumber: { $in: variants } });
 
   if (!user) {
     throw new ApiError(401, "The mobile number not registered please signup to continue");
@@ -355,7 +365,7 @@ const initiateUserLogin = async ({ phoneNumber, acceptedPolicies }) => {
   const loginKey = `login:session:${loginId}`;
   const loginExpiry = 600; // 10 minutes session for entering PIN
 
-  await cacheService.set(loginKey, JSON.stringify({ phoneNumber, role: 'user' }), loginExpiry);
+  await cacheService.set(loginKey, JSON.stringify({ phoneNumber: user.phoneNumber || normalizedPhone, role: 'user' }), loginExpiry);
 
   return {
     loginId,
@@ -431,7 +441,9 @@ const vendorSignup = async (body) => {
   });
 
   // Check if vendor already exists
-  const existingVendor = await Vendor.findOne({ phoneNumber });
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  const variants = getPhoneVariants(phoneNumber);
+  const existingVendor = await Vendor.findOne({ phoneNumber: { $in: variants } });
 
   // If vendor exists and is verified, throw error
   if (existingVendor && existingVendor.documentStatus === 'approved') {
@@ -464,6 +476,7 @@ const vendorSignup = async (body) => {
   // Create or Update Vendor
   let vendor;
   if (existingVendor) {
+    existingVendor.phoneNumber = normalizedPhone;
     existingVendor.name = name;
     existingVendor.email = email;
     existingVendor.documents = docObj;
@@ -482,10 +495,10 @@ const vendorSignup = async (body) => {
     vendor = existingVendor;
   } else {
     const createData = {
-      phoneNumber,
+      phoneNumber: normalizedPhone,
       name,
       email,
-      vendorID: `V${phoneNumber}`,
+      vendorID: `V${normalizedPhone}`,
       documents: docObj,
       workState,
       workCity,
@@ -518,7 +531,7 @@ const vendorSignup = async (body) => {
   const signupKey = `signup:session:vendor:${signupId}`;
   const signupExpiry = 3600; // 1 hour
 
-  await cacheService.set(signupKey, JSON.stringify({ phoneNumber, vendorId: vendor._id }), signupExpiry);
+  await cacheService.set(signupKey, JSON.stringify({ phoneNumber: vendor.phoneNumber || normalizedPhone, vendorId: vendor._id }), signupExpiry);
 
   return {
     signupId,
@@ -533,12 +546,13 @@ const vendorSignup = async (body) => {
 
 // ======================== VENDOR SIGNUP OTP SEND ========================
 const sendVendorSignupOtp = async (phoneNumber) => {
-  const normalizedPhone = String(phoneNumber).trim();
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  const variants = getPhoneVariants(phoneNumber);
 
   const otp = '1234';
   const expiresAt = new Date(Date.now() + config.OTP_EXPIRE_MINUTES * 60 * 1000);
 
-  await Otp.deleteMany({ phoneNumber: normalizedPhone, role: 'vendor', purpose: 'signup', isUsed: false });
+  await Otp.deleteMany({ phoneNumber: { $in: variants }, role: 'vendor', purpose: 'signup', isUsed: false });
   const otpRecord = await Otp.create({
     phoneNumber: normalizedPhone,
     otpHash: crypto.createHash('sha256').update(String(otp)).digest('hex'),
@@ -559,10 +573,11 @@ const sendVendorSignupOtp = async (phoneNumber) => {
 
 // ======================== VENDOR SIGNUP OTP VERIFY ========================
 const verifyVendorSignupOtp = async (phoneNumber, otp) => {
-  const normalizedPhone = String(phoneNumber).trim();
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  const variants = getPhoneVariants(phoneNumber);
 
   const record = await Otp.findOne({
-    phoneNumber: normalizedPhone,
+    phoneNumber: { $in: variants },
     role: 'vendor',
     purpose: 'signup',
     isUsed: false,
@@ -802,7 +817,9 @@ const verifySignupOTP = async (phoneNumber, otp, role = 'user', req = null) => {
  * - Creates a login session and returns loginId
  */
 const initiateVendorLogin = async ({ phoneNumber }) => {
-  const vendor = await Vendor.findOne({ phoneNumber, deletedAt: null }).select('+pin');
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  const variants = getPhoneVariants(phoneNumber);
+  const vendor = await Vendor.findOne({ phoneNumber: { $in: variants }, deletedAt: null }).select('+pin');
 
   if (!vendor) {
     throw new ApiError(401, "The mobile number not registered please signup to continue");
@@ -833,7 +850,7 @@ const initiateVendorLogin = async ({ phoneNumber }) => {
   const loginKey = `login:session:vendor:${loginId}`;
   const loginExpiry = 600; // 10 minutes
 
-  await cacheService.set(loginKey, JSON.stringify({ phoneNumber, role: 'vendor' }), loginExpiry);
+  await cacheService.set(loginKey, JSON.stringify({ phoneNumber: vendor.phoneNumber || normalizedPhone, role: 'vendor' }), loginExpiry);
 
   return {
     loginId,
@@ -872,10 +889,11 @@ const completeVendorLogin = async ({ loginId, pin, fcmToken, deviceId }, req = n
 // ======================== LOGIN (for user/vendor) ========================
 const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = null, deviceId = null) => {
   let user, model;
+  const variants = getPhoneVariants(phoneNumber);
 
   // Based on role, search in specific model
   if (role === 'vendor') {
-    user = await Vendor.findOne({ phoneNumber, deletedAt: null }).select('+pin');
+    user = await Vendor.findOne({ phoneNumber: { $in: variants }, deletedAt: null }).select('+pin');
     if (!user) {
       throw new ApiError(401, "The mobile number not registered please signup to continue");
     }
@@ -887,7 +905,7 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
     */
   } else {
     // Default to user
-    user = await User.findOne({ phoneNumber, deletedAt: null }).select('+pin');
+    user = await User.findOne({ phoneNumber: { $in: variants }, deletedAt: null }).select('+pin');
     if (!user) {
       throw new ApiError(401, "The mobile number not registered please signup to continue");
     }
@@ -1039,13 +1057,14 @@ const login = async (phoneNumber, pin, role = 'user', req = null, fcmToken = nul
 
 // ======================== SEND OTP (for reset) ========================
 const sendOTP = async (phoneNumber, role = 'user') => {
+  const variants = getPhoneVariants(phoneNumber);
   // Check if user/vendor exists based on role
   let user;
 
   if (role === 'vendor') {
-    user = await Vendor.findOne({ phoneNumber });
+    user = await Vendor.findOne({ phoneNumber: { $in: variants } });
   } else {
-    user = await User.findOne({ phoneNumber });
+    user = await User.findOne({ phoneNumber: { $in: variants } });
   }
 
   if (!user) {
@@ -1053,7 +1072,8 @@ const sendOTP = async (phoneNumber, role = 'user') => {
   }
 
   const otp = generateOTP(config.OTP_LENGTH);
-  const otpKey = `otp:reset:${phoneNumber}`;
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  const otpKey = `otp:reset:${normalizedPhone}`;
   const otpExpiry = config.OTP_EXPIRE_MINUTES * 60;
 
   await cacheService.set(otpKey, otp, otpExpiry);
@@ -1069,10 +1089,11 @@ const resetPIN = async (phoneNumber, otp, newPin, confirmPin, role = 'user', req
     throw new ApiError(400, MESSAGES.AUTH.PIN_MISMATCH);
   }
 
+  const variants = getPhoneVariants(phoneNumber);
   // Update BOTH User and Vendor profiles if they exist to ensure full account unlock
   const [userProfile, vendorProfile] = await Promise.all([
-    User.findOne({ phoneNumber }),
-    Vendor.findOne({ phoneNumber })
+    User.findOne({ phoneNumber: { $in: variants } }),
+    Vendor.findOne({ phoneNumber: { $in: variants } })
   ]);
 
   const hashedPIN = await hashPIN(newPin);
@@ -1101,8 +1122,9 @@ const resetPIN = async (phoneNumber, otp, newPin, confirmPin, role = 'user', req
   await Promise.all(updatePromises);
 
   // Delete OTP if it exists in cache
-  const otpKey = `otp:reset:${phoneNumber}`;
-  await cacheService.del(otpKey);
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  await cacheService.del(`otp:reset:${normalizedPhone}`);
+  await cacheService.del(`otp:reset:${phoneNumber}`);
 
   return { message: 'PIN reset successfully' };
 };
@@ -1112,8 +1134,9 @@ const resetPIN = async (phoneNumber, otp, newPin, confirmPin, role = 'user', req
  * - Verifies OTP and returns a resetId if valid
  */
 const verifyResetPINOTP = async ({ phoneNumber, otp, role }) => {
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
   // Verify OTP - Bypassed for future use
-  const otpKey = `otp:reset:${phoneNumber}`;
+  const otpKey = `otp:reset:${normalizedPhone}`;
   /*
   const storedOTP = await cacheService.get(otpKey);
 
@@ -1127,10 +1150,11 @@ const verifyResetPINOTP = async ({ phoneNumber, otp, role }) => {
   const resetKey = `reset:session:${resetId}`;
   const resetExpiry = 600; // 10 minutes session for setting PIN
 
-  await cacheService.set(resetKey, JSON.stringify({ phoneNumber, role: role || 'user' }), resetExpiry);
+  await cacheService.set(resetKey, JSON.stringify({ phoneNumber: normalizedPhone, role: role || 'user' }), resetExpiry);
 
   // Mark OTP as verified by deleting it
   await cacheService.del(otpKey);
+  await cacheService.del(`otp:reset:${phoneNumber}`);
 
   return {
     resetId,
@@ -1156,11 +1180,12 @@ const completeResetPIN = async ({ resetId, newPin, confirmPin, acceptedPolicies 
   }
 
   const { phoneNumber } = JSON.parse(sessionDataStr);
+  const variants = getPhoneVariants(phoneNumber);
 
   // Update BOTH User and Vendor profiles if they exist to ensure full account unlock
   const [userProfile, vendorProfile] = await Promise.all([
-    User.findOne({ phoneNumber }),
-    Vendor.findOne({ phoneNumber })
+    User.findOne({ phoneNumber: { $in: variants } }),
+    Vendor.findOne({ phoneNumber: { $in: variants } })
   ]);
 
   const hashedPIN = await hashPIN(newPin);
@@ -1263,7 +1288,8 @@ const updateVendorPin = async (vendorId, oldPin, newPin, confirmPin) => {
 };
 
 const verifyVendorContact = async (email, phoneNumber) => {
-  const phoneTaken = await Vendor.exists({ phoneNumber });
+  const variants = getPhoneVariants(phoneNumber);
+  const phoneTaken = await Vendor.exists({ phoneNumber: { $in: variants } });
   if (phoneTaken) {
     throw new ApiError(400, MESSAGES.VENDOR.PHONE_ALREADY_EXISTS);
   }
@@ -1283,7 +1309,8 @@ const verifyVendorContact = async (email, phoneNumber) => {
 };
 
 const verifyUserContact = async (email, phoneNumber) => {
-  const phoneTaken = await User.exists({ phoneNumber });
+  const variants = getPhoneVariants(phoneNumber);
+  const phoneTaken = await User.exists({ phoneNumber: { $in: variants } });
   if (phoneTaken) {
     throw new ApiError(400, MESSAGES.USER.PHONE_ALREADY_EXISTS);
   }
@@ -1362,11 +1389,12 @@ const sendPostLoginSMS = async (userId, role = 'user') => {
 const hashPhoneOtp = (otp) => crypto.createHash('sha256').update(String(otp)).digest('hex');
 
 const sendPhoneOtp = async (phoneNumber, role) => {
-  const normalizedPhone = String(phoneNumber).trim();
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  const variants = getPhoneVariants(phoneNumber);
   const isVendor = role === 'vendor';
   const account = isVendor
-    ? await Vendor.findOne({ phoneNumber: normalizedPhone })
-    : await User.findOne({ phoneNumber: normalizedPhone });
+    ? await Vendor.findOne({ phoneNumber: { $in: variants } })
+    : await User.findOne({ phoneNumber: { $in: variants } });
 
   if (!account) {
     throw new ApiError(404, isVendor ? MESSAGES.VENDOR.NOT_FOUND : MESSAGES.USER.NOT_FOUND);
@@ -1375,9 +1403,17 @@ const sendPhoneOtp = async (phoneNumber, role) => {
   const otp = String(crypto.randomInt(10 ** (config.OTP_LENGTH - 1), 10 ** config.OTP_LENGTH));
   const expiresAt = new Date(Date.now() + config.OTP_EXPIRE_MINUTES * 60 * 1000);
 
-  await Otp.deleteMany({ phoneNumber: normalizedPhone, role, purpose: 'forgot_pin', isUsed: false });
+  await Otp.deleteMany({
+    $or: [
+      { phoneNumber: { $in: variants } },
+      { accountId: account._id },
+    ],
+    role,
+    purpose: 'forgot_pin',
+    isUsed: false,
+  });
   const otpRecord = await Otp.create({
-    phoneNumber: normalizedPhone,
+    phoneNumber: account.phoneNumber || normalizedPhone,
     otpHash: hashPhoneOtp(otp),
     accountId: account._id,
     role,
@@ -1386,7 +1422,7 @@ const sendPhoneOtp = async (phoneNumber, role) => {
   });
 
   try {
-    await smsService.sendOTP(normalizedPhone, otp);
+    await smsService.sendOTP(account.phoneNumber || normalizedPhone, otp);
   } catch (error) {
     await Otp.findByIdAndDelete(otpRecord._id);
     throw new ApiError(500, 'Failed to send OTP SMS');
@@ -1426,8 +1462,9 @@ const verifyPhoneOtp = async (id, otp, role) => {
  * Default OTP is 1234 and is delivered via SMS.
  */
 const sendVendorUnlockOtp = async (phoneNumber) => {
-  const normalizedPhone = String(phoneNumber).trim();
-  const vendor = await Vendor.findOne({ phoneNumber: normalizedPhone, deletedAt: null });
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  const variants = getPhoneVariants(phoneNumber);
+  const vendor = await Vendor.findOne({ phoneNumber: { $in: variants }, deletedAt: null });
 
   if (!vendor) {
     throw new ApiError(404, MESSAGES.VENDOR.NOT_FOUND);
@@ -1440,9 +1477,17 @@ const sendVendorUnlockOtp = async (phoneNumber) => {
   const otp = '1234';
   const expiresAt = new Date(Date.now() + config.OTP_EXPIRE_MINUTES * 60 * 1000);
 
-  await Otp.deleteMany({ phoneNumber: normalizedPhone, role: 'vendor', purpose: 'unlock', isUsed: false });
+  await Otp.deleteMany({
+    $or: [
+      { phoneNumber: { $in: variants } },
+      { accountId: vendor._id },
+    ],
+    role: 'vendor',
+    purpose: 'unlock',
+    isUsed: false,
+  });
   const otpRecord = await Otp.create({
-    phoneNumber: normalizedPhone,
+    phoneNumber: vendor.phoneNumber || normalizedPhone,
     otpHash: hashPhoneOtp(otp),
     accountId: vendor._id,
     role: 'vendor',
@@ -1452,7 +1497,7 @@ const sendVendorUnlockOtp = async (phoneNumber) => {
 
   try {
     await smsService.sendSMS(
-      normalizedPhone,
+      vendor.phoneNumber || normalizedPhone,
       `Your AdBrovz unlock OTP is ${otp}. Valid for ${config.OTP_EXPIRE_MINUTES} minutes. Do not share this OTP with anyone.`
     );
   } catch (error) {

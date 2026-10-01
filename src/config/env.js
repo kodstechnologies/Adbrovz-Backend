@@ -21,7 +21,7 @@ const config = {
   PIN_LOCKOUT_DURATION: parseInt(process.env.PIN_LOCKOUT_DURATION, 10) || 3600000, // 1 hour
 
   // OTP
-  OTP_LENGTH: parseInt(process.env.OTP_LENGTH, 10) || 6,
+  OTP_LENGTH: parseInt(process.env.OTP_LENGTH, 10) || 4,
   OTP_EXPIRE_MINUTES: parseInt(process.env.OTP_EXPIRE_MINUTES, 10) || 10,
   OTP_BOOKING_EXPIRE_MINUTES: parseInt(process.env.OTP_BOOKING_EXPIRE_MINUTES, 10) || 1440, // 24 hours
 

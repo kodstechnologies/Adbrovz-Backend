@@ -4,6 +4,7 @@ const MESSAGES = require('../../constants/messages');
 const Booking = require('../../models/Booking.model');
 const Notification = require('../../models/Notification.model');
 const Dispute = require('../../models/Dispute.model');
+const { getPhoneVariants } = require('../../utils/phone');
 
 const getUserById = async (userId) => {
   const user = await User.findById(userId).select('-pin -failedAttempts -lockUntil');
@@ -99,8 +100,9 @@ const getUserStatus = async (queryParams) => {
 
   // 2. Search by phoneNumber if provided and user/vendor not found yet
   if (!user && !vendor && phoneNumber) {
-    user = await User.findOne({ phoneNumber });
-    vendor = await Vendor.findOne({ phoneNumber });
+    const variants = getPhoneVariants(phoneNumber);
+    user = await User.findOne({ phoneNumber: { $in: variants } });
+    vendor = await Vendor.findOne({ phoneNumber: { $in: variants } });
   }
 
   // 3. Determine status

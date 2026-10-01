@@ -98,6 +98,10 @@ router.post(
   authController.verifyVendorUnlockPhoneOtp
 );
 
+// router.post(
+//   '/venders/change-pin'
+// )
+
 
 
 // ======================== ADMIN ROUTES ========================
