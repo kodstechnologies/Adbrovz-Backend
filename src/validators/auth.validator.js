@@ -370,6 +370,42 @@ const userUpdatePinSchema = Joi.object({
   }),
 });
 
+const vendorChangePinSchema = Joi.object({
+  vendorId: Joi.alternatives().try(Joi.string().trim(), Joi.number()).optional(),
+  vendorID: Joi.alternatives().try(Joi.string().trim(), Joi.number()).optional(),
+  id: Joi.alternatives().try(Joi.string().trim(), Joi.number()).optional(),
+  newPin: Joi.alternatives()
+    .try(
+      Joi.string().length(4).pattern(/^\d+$/),
+      Joi.number().integer().min(1000).max(9999)
+    )
+    .optional()
+    .messages({
+      'string.length': 'PIN must be exactly 4 digits',
+      'string.pattern.base': 'PIN must contain only numbers',
+    }),
+  pin: Joi.alternatives()
+    .try(
+      Joi.string().length(4).pattern(/^\d+$/),
+      Joi.number().integer().min(1000).max(9999)
+    )
+    .optional()
+    .messages({
+      'string.length': 'PIN must be exactly 4 digits',
+      'string.pattern.base': 'PIN must contain only numbers',
+    }),
+  confirmPin: Joi.alternatives()
+    .try(
+      Joi.string(),
+      Joi.number()
+    )
+    .optional(),
+})
+  .or('newPin', 'pin')
+  .messages({
+    'object.missing': 'PIN is required (provide newPin or pin)',
+  });
+
 const addUserAddressSchema = Joi.object({
   title: Joi.string().trim().min(1).max(50).required().messages({
     'any.required': 'Title is required',
@@ -533,6 +569,7 @@ module.exports = {
   validateSendPhoneOtp: validate(sendPhoneOtpSchema, 'body'),
   validateVerifyPhoneOtp: validate(verifyPhoneOtpSchema, 'body'),
   validateForgotPin: validate(forgotPinSchema, 'body'),
+  validateVendorChangePin: validate(vendorChangePinSchema, 'body'),
   validateAddUserAddress: validate(addUserAddressSchema, 'body'),
   validateUpdateUserAddress: validate(updateUserAddressSchema, 'body'),
 };

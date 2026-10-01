@@ -1287,6 +1287,52 @@ const updateVendorPin = async (vendorId, oldPin, newPin, confirmPin) => {
   return { message: 'PIN updated successfully' };
 };
 
+const changeVendorPin = async (vendorId, newPin, confirmPin = null) => {
+  if (confirmPin && String(newPin) !== String(confirmPin)) {
+    throw new ApiError(400, MESSAGES.AUTH.PIN_MISMATCH);
+  }
+
+  if (!vendorId) {
+    throw new ApiError(400, 'Vendor ID is required');
+  }
+
+  const rawId = String(vendorId).trim();
+  let vendor = null;
+
+  if (mongoose.Types.ObjectId.isValid(rawId)) {
+    vendor = await Vendor.findById(rawId).select('+pin');
+  }
+
+  if (!vendor) {
+    vendor = await Vendor.findOne({ vendorID: rawId }).select('+pin');
+  }
+
+  if (!vendor) {
+    const variants = getPhoneVariants(rawId);
+    vendor = await Vendor.findOne({ phoneNumber: { $in: variants } }).select('+pin');
+  }
+
+  if (!vendor) {
+    throw new ApiError(404, MESSAGES.VENDOR.NOT_FOUND);
+  }
+
+  vendor.pin = await hashPIN(String(newPin));
+  vendor.failedAttempts = 0;
+  vendor.isLocked = false;
+  vendor.lockUntil = null;
+  await vendor.save();
+
+  return {
+    message: 'PIN updated successfully',
+    vendor: {
+      id: vendor._id,
+      vendorID: vendor.vendorID,
+      phoneNumber: vendor.phoneNumber,
+      name: vendor.name,
+    },
+  };
+};
+
 const verifyVendorContact = async (email, phoneNumber) => {
   const variants = getPhoneVariants(phoneNumber);
   const phoneTaken = await Vendor.exists({ phoneNumber: { $in: variants } });
@@ -1627,6 +1673,7 @@ module.exports = {
   updateUserPin,
   verifyVendorPin,
   updateVendorPin,
+  changeVendorPin,
   verifyVendorContact,
   verifyUserContact,
   sendPhoneOtp,

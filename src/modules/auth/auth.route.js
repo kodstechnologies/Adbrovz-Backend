@@ -24,6 +24,7 @@ const {
   validateUserVerifyContact,
   validateVendorVerifyPin,
   validateVendorUpdatePin,
+  validateVendorChangePin,
   validateVendorVerifyContact,
   validateSendPhoneOtp,
   validateVerifyPhoneOtp,
@@ -32,7 +33,7 @@ const {
   validateUpdateUserAddress,
 } = require('../../validators/auth.validator');
 const { authLimiter, otpLimiter } = require('../../middlewares/rateLimiter.middleware');
-const { authenticate, authorize } = require('../../middlewares/auth.middleware');
+const { authenticate, authorize, optionalAuth } = require('../../middlewares/auth.middleware');
 const { uploadVendorDocs, processVendorDocs } = require('../../middlewares/vendorUpload.middleware');
 const { ROLES } = require('../../constants/roles');
 
@@ -98,9 +99,12 @@ router.post(
   authController.verifyVendorUnlockPhoneOtp
 );
 
-// router.post(
-//   '/venders/change-pin'
-// )
+router.post(
+  '/vendors/change-pin',
+  optionalAuth,
+  validateVendorChangePin,
+  authController.vendorChangePin
+);
 
 
 

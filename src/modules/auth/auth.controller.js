@@ -206,6 +206,23 @@ const vendorUpdatePin = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
+const vendorChangePin = asyncHandler(async (req, res) => {
+  const vendorId = req.body.vendorId || req.body.vendorID || req.body.id || req.user?.id;
+  const newPin = req.body.newPin || req.body.pin;
+  const { confirmPin } = req.body;
+
+  if (!vendorId) {
+    throw new ApiError(400, 'Vendor ID is required');
+  }
+
+  if (!newPin) {
+    throw new ApiError(400, 'PIN is required');
+  }
+
+  const result = await authService.changeVendorPin(vendorId, newPin, confirmPin);
+  res.status(200).json(new ApiResponse(200, result, result.message));
+});
+
 const vendorVerifyContact = asyncHandler(async (req, res) => {
   const { email, phoneNumber } = req.body;
   const result = await authService.verifyVendorContact(email, phoneNumber);
@@ -354,6 +371,7 @@ module.exports = {
   vendorLogout,
   vendorVerifyPin,
   vendorUpdatePin,
+  vendorChangePin,
   vendorVerifyContact,
   sendVendorPhoneOtp,
   verifyVendorPhoneOtp,
