@@ -127,6 +127,22 @@ const DEFAULT_SETTINGS = {
         value: 18,
         description: 'GST percentage applied to bookings for user calculation.',
     },
+    'triggers.booking_confirmation': {
+        value: true,
+        description: 'Automated notification trigger for booking confirmation.',
+    },
+    'triggers.cancellation_alert': {
+        value: true,
+        description: 'Automated notification trigger for cancellation alerts.',
+    },
+    'triggers.job_completion': {
+        value: true,
+        description: 'Automated notification trigger for job completion.',
+    },
+    'triggers.membership_expiry': {
+        value: true,
+        description: 'Automated notification trigger for membership expiry warnings.',
+    },
 };
 
 module.exports = {

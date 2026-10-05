@@ -68,7 +68,7 @@ const corsOptions = {
   // Only send credentials when a specific origin is configured (no wildcard)
   credentials: !allowedOrigins.includes('*'),
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Pragma', 'X-Requested-With'],
   exposedHeaders: ['Authorization'],
 };
 

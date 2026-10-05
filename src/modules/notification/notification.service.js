@@ -43,6 +43,28 @@ const sendPushNotification = async (token, payload) => {
  */
 const createNotification = async (params) => {
   try {
+    // Check if automated trigger is disabled
+    const TRIGGER_TYPE_MAP = {
+      'booking_accepted': 'triggers.booking_confirmation',
+      'booking_confirmed': 'triggers.booking_confirmation',
+      'booking_cancelled': 'triggers.cancellation_alert',
+      'booking_cancellation': 'triggers.cancellation_alert',
+      'booking_completed': 'triggers.job_completion',
+      'membership_warning': 'triggers.membership_expiry',
+      'membership_expired': 'triggers.membership_expiry',
+      'membership_expiry': 'triggers.membership_expiry',
+    };
+
+    const triggerKey = TRIGGER_TYPE_MAP[params.type];
+    if (triggerKey) {
+      const GlobalConfig = require('../../models/GlobalConfig.model');
+      const config = await GlobalConfig.findOne({ key: triggerKey }).lean();
+      if (config && config.value === false) {
+        console.log(`[TRIGGER DISABLED] Automated trigger '${triggerKey}' is turned off. Skipping notification for ${params.type}.`);
+        return null;
+      }
+    }
+
     const notification = await Notification.create({
       user: params.user,
       userModel: params.userModel, // 'User', 'Vendor', 'Admin'

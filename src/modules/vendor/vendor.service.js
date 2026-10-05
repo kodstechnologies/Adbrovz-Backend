@@ -1229,14 +1229,43 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
     // Accept planId as an alias for membershipId (the app sends planId from the plan selection screen)
     const resolvedMembershipId = membershipId || planId || null;
 
+    // Support services passed directly in create-order payload
+    const incomingCategoryId = payload.categoryId || payload.selectedCategory || payload.category;
+    const incomingSubcategoryIds = payload.subcategoryIds || payload.selectedSubcategories || payload.subcategories;
+    const incomingServiceTypeIds = payload.serviceTypeIds || payload.selectedType || payload.selectedServiceTypes || payload.serviceTypes;
+    const incomingServiceIds = payload.serviceIds || payload.selectedService || payload.selectedServices || payload.services;
+
+    if (incomingCategoryId) {
+        vendor.selectedCategories = [incomingCategoryId];
+        vendor.membership = vendor.membership || {};
+        vendor.membership.category = incomingCategoryId;
+    }
+    if (incomingSubcategoryIds) {
+        vendor.selectedSubcategories = parseArrayInput(incomingSubcategoryIds);
+    }
+    if (incomingServiceTypeIds) {
+        vendor.selectedServiceTypes = parseArrayInput(incomingServiceTypeIds);
+    }
+    if (incomingServiceIds) {
+        vendor.selectedServices = parseArrayInput(incomingServiceIds);
+    }
+
     // Update durationMonths if provided
     if (durationMonths) {
+        vendor.membership = vendor.membership || {};
         vendor.membership.durationMonths = Number(durationMonths);
-        await vendor.save();
     }
     
-    // Calculate full fee using the centralized helper
-    const calc = await _calculateMembershipAmounts({ vendorId, durationMonths, membershipId: resolvedMembershipId });
+    // Calculate full fee using the centralized helper with all selected services
+    const calc = await _calculateMembershipAmounts({
+        vendorId,
+        durationMonths,
+        membershipId: resolvedMembershipId,
+        categoryId: incomingCategoryId || vendor.membership?.category || vendor.selectedCategories?.[0],
+        subcategoryIds: incomingSubcategoryIds || vendor.selectedSubcategories,
+        serviceTypeIds: incomingServiceTypeIds || vendor.selectedServiceTypes,
+        serviceIds: incomingServiceIds || vendor.selectedServices,
+    });
     let combinedSubtotal = calc.combinedSubtotal;
     let finalGst = calc.finalGst;
     let totalFee = calc.grandTotal;
@@ -1251,10 +1280,30 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
     }
 
     if (parsedAmount !== null) {
-        // Mobile already calculated the payable. Coupon is stored only — never reduce amount.
         totalFee = parsedAmount;
-        combinedSubtotal = parsedAmount;
-        finalGst = 0;
+        const explicitGst = (payload.gstAmount !== undefined && payload.gstAmount !== null && payload.gstAmount !== '')
+            ? Number(payload.gstAmount)
+            : null;
+        const explicitSubtotal = (payload.subtotal !== undefined && payload.subtotal !== null && payload.subtotal !== '')
+            ? Number(payload.subtotal)
+            : null;
+
+        if (explicitGst !== null && Number.isFinite(explicitGst) && explicitGst >= 0) {
+            finalGst = explicitGst;
+            combinedSubtotal = (explicitSubtotal !== null && Number.isFinite(explicitSubtotal) && explicitSubtotal >= 0)
+                ? explicitSubtotal
+                : Math.max(0, parsedAmount - finalGst);
+        } else if (calc.grandTotal === parsedAmount || Math.abs(calc.grandTotal - parsedAmount) <= 1) {
+            finalGst = calc.finalGst;
+            combinedSubtotal = calc.combinedSubtotal;
+        } else if (calc.gstPercent > 0) {
+            // parsedAmount represents the total payable including GST
+            finalGst = Math.round(parsedAmount - (parsedAmount / (1 + (calc.gstPercent / 100))));
+            combinedSubtotal = Math.max(0, parsedAmount - finalGst);
+        } else {
+            finalGst = calc.finalGst || 0;
+            combinedSubtotal = Math.max(0, parsedAmount - finalGst);
+        }
     } else if (couponId) {
         appliedCoupon = await _applyMembershipCoupon({
             couponId,
@@ -1267,15 +1316,36 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
         totalFee = appliedCoupon.grandTotal;
     }
 
-    // Ensure the resolved membershipId is persisted to the vendor
+    // Ensure the resolved membership details and chosen services are persisted to the vendor
     vendor.membership = vendor.membership || {};
     vendor.membership.membershipId = calc.planId;
+    vendor.membership.membershipFee = calc.basePlanFee;
+    vendor.membership.serviceFee = calc.servicesSubtotal;
+    vendor.membership.subtotal = combinedSubtotal;
+    vendor.membership.gstAmount = finalGst;
+    vendor.membership.totalAmount = totalFee;
+    vendor.membership.fee = totalFee;
+    vendor.membership.durationMonths = Number(durationMonths || calc.durationMonths || 3);
+
+    const chosenCat = incomingCategoryId || vendor.membership.category || vendor.selectedCategories?.[0] || null;
+    if (chosenCat) {
+        vendor.membership.category = chosenCat;
+    }
+
+    vendor.membership.services = calc.itemBreakdown;
+    vendor.membership.itemBreakdown = calc.itemBreakdown;
+
     if (couponId) {
         const resolvedCode = appliedCoupon
             ? appliedCoupon.couponCode
             : (await _resolveCouponMetadata(couponId)).couponCode || null;
         if (resolvedCode) vendor.membership.couponCode = resolvedCode;
     }
+
+    if (incomingCategoryId || incomingSubcategoryIds || incomingServiceTypeIds || incomingServiceIds) {
+        vendor.servicesSelectedAt = vendor.servicesSelectedAt || new Date();
+    }
+
     await vendor.save();
 
     const paymentMetadata = {
@@ -1283,6 +1353,11 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
         serviceSelectionsTotal: calc.servicesSubtotal,
         basePlanFee: calc.basePlanFee,
         durationMonths: durationMonths || calc.durationMonths,
+        subtotal: combinedSubtotal,
+        gstAmount: finalGst,
+        gstPercent: calc.gstPercent,
+        totalAmount: totalFee,
+        category: vendor.membership.category,
         ..._couponMetadata(appliedCoupon),
         ...(couponId && !appliedCoupon ? await _resolveCouponMetadata(couponId) : {})
     };
@@ -1316,6 +1391,8 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
         vendor.membership.membershipFee = calc.basePlanFee;
         vendor.membership.serviceFee = calc.servicesSubtotal;
         vendor.membership.durationMonths = durationMonths || calc.durationMonths;
+        vendor.membership.services = calc.itemBreakdown;
+        vendor.membership.itemBreakdown = calc.itemBreakdown;
         if (couponId) {
             const resolvedCode = appliedCoupon
                 ? appliedCoupon.couponCode
@@ -3168,13 +3245,25 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     // Update membership amount fields directly from the payment record (if available)
     if (paymentRecord) {
         vendor.membership.totalAmount = paymentRecord.totalAmount;
-        vendor.membership.gstAmount = paymentRecord.gstAmount;
+        let resolvedGst = (paymentRecord.gstAmount != null && paymentRecord.gstAmount > 0)
+            ? paymentRecord.gstAmount
+            : ((paymentRecord.totalAmount && paymentRecord.amount && paymentRecord.totalAmount > paymentRecord.amount)
+                ? Math.round(paymentRecord.totalAmount - paymentRecord.amount)
+                : (vendor.membership.gstAmount || 0));
+        vendor.membership.gstAmount = resolvedGst;
         vendor.membership.subtotal = paymentRecord.amount;
         vendor.membership.fee = paymentRecord.totalAmount;
         
         if (paymentRecord.metadata) {
             vendor.membership.membershipFee = paymentRecord.metadata.basePlanFee ?? paymentRecord.amount;
             vendor.membership.serviceFee = paymentRecord.metadata.serviceSelectionsTotal ?? 0;
+            if (paymentRecord.metadata.services) {
+                vendor.membership.services = paymentRecord.metadata.services;
+                vendor.membership.itemBreakdown = paymentRecord.metadata.services;
+            }
+            if (!vendor.membership.category && paymentRecord.metadata.category) {
+                vendor.membership.category = paymentRecord.metadata.category;
+            }
         } else {
             vendor.membership.membershipFee = paymentRecord.amount;
             vendor.membership.serviceFee = 0;
@@ -3192,6 +3281,10 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
             vendor.membership.totalAmount = memDetails.totalFee;
             vendor.membership.subtotal = memDetails.subtotal;
             vendor.membership.fee = memDetails.totalFee;
+            if (memDetails.services) {
+                vendor.membership.services = memDetails.services;
+                vendor.membership.itemBreakdown = memDetails.services;
+            }
         } catch (err) {
             console.error('Error populating/updating membership metadata (fallback):', err.message);
         }
@@ -4566,6 +4659,88 @@ const getMembershipPlansWithStatus = async (vendorId) => {
             }
         }
         
+        let currentMembershipFee = Number(vendor.membership.membershipFee) || 0;
+        let currentServiceFee = Number(vendor.membership.serviceFee) || 0;
+        let currentSubtotal = Number(vendor.membership.subtotal) || (currentMembershipFee + currentServiceFee) || 0;
+        let currentTotalAmount = Number(vendor.membership.totalAmount) || Number(vendor.membership.fee) || 0;
+        let currentGstAmount = Number(vendor.membership.gstAmount) || 0;
+
+        const gstSetting = await adminService.getSetting('pricing.membership_gst_percent');
+        const systemGstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
+
+        if (!currentGstAmount || currentGstAmount === 0) {
+            // 1. Try to find completed payment record for membership
+            const lastPayment = await PaymentRecord.findOne({
+                vendor: vendor._id,
+                purpose: { $in: ['MEMBERSHIP_PURCHASE', 'MEMBERSHIP_RENEWAL'] },
+                status: 'COMPLETED'
+            }).sort({ createdAt: -1 });
+
+            if (lastPayment) {
+                if (lastPayment.gstAmount && lastPayment.gstAmount > 0) {
+                    currentGstAmount = lastPayment.gstAmount;
+                } else if (lastPayment.totalAmount && lastPayment.amount && lastPayment.totalAmount > lastPayment.amount) {
+                    currentGstAmount = Math.round(lastPayment.totalAmount - lastPayment.amount);
+                } else if (lastPayment.metadata?.gstAmount && lastPayment.metadata.gstAmount > 0) {
+                    currentGstAmount = Number(lastPayment.metadata.gstAmount);
+                }
+                if (!currentSubtotal && lastPayment.amount) currentSubtotal = lastPayment.amount;
+                if (!currentTotalAmount && lastPayment.totalAmount) currentTotalAmount = lastPayment.totalAmount;
+            }
+
+            // 2. Check difference between totalAmount and subtotal
+            if (!currentGstAmount && currentTotalAmount > 0 && currentSubtotal > 0 && currentTotalAmount > currentSubtotal) {
+                currentGstAmount = Math.round(currentTotalAmount - currentSubtotal);
+            }
+
+            // 3. Fallback: calculate using system GST percent
+            if (!currentGstAmount) {
+                if (currentSubtotal > 0 && systemGstPercent > 0) {
+                    currentGstAmount = Math.round(currentSubtotal * (systemGstPercent / 100));
+                    if (!currentTotalAmount || currentTotalAmount === currentSubtotal) {
+                        currentTotalAmount = currentSubtotal + currentGstAmount;
+                    }
+                } else if (currentTotalAmount > 0 && systemGstPercent > 0) {
+                    currentSubtotal = Math.round(currentTotalAmount / (1 + systemGstPercent / 100));
+                    currentGstAmount = currentTotalAmount - currentSubtotal;
+                } else if (vendor.membership.membershipId) {
+                    try {
+                        const CreditPlan = require('../../models/CreditPlan.model');
+                        const planDoc = (typeof vendor.membership.membershipId === 'object' && vendor.membership.membershipId.price != null)
+                            ? vendor.membership.membershipId
+                            : await CreditPlan.findById(vendor.membership.membershipId).lean();
+                        if (planDoc && planDoc.price) {
+                            currentMembershipFee = Number(planDoc.price);
+                            currentSubtotal = currentMembershipFee + currentServiceFee;
+                            currentGstAmount = Math.round(currentSubtotal * (systemGstPercent / 100));
+                            currentTotalAmount = currentSubtotal + currentGstAmount;
+                        }
+                    } catch (e) {
+                        // ignore lookup error
+                    }
+                }
+            }
+
+            // Persist the resolved gstAmount, subtotal, and totalAmount to vendor so DB is consistent
+            if (currentGstAmount > 0) {
+                vendor.membership.gstAmount = currentGstAmount;
+                if (!vendor.membership.subtotal && currentSubtotal) vendor.membership.subtotal = currentSubtotal;
+                if (!vendor.membership.totalAmount && currentTotalAmount) vendor.membership.totalAmount = currentTotalAmount;
+                if (!vendor.membership.membershipFee && currentMembershipFee) vendor.membership.membershipFee = currentMembershipFee;
+                try {
+                    await vendor.save();
+                } catch (saveErr) {
+                    console.error('Failed to auto-update vendor membership GST:', saveErr.message);
+                }
+            }
+        }
+
+        const currentGstPercent = (currentGstAmount > 0 && currentSubtotal > 0)
+            ? Math.round((currentGstAmount / currentSubtotal) * 100)
+            : (currentGstAmount > 0 && currentTotalAmount > currentGstAmount
+                ? Math.round((currentGstAmount / (currentTotalAmount - currentGstAmount)) * 100)
+                : (currentGstAmount > 0 ? systemGstPercent : 0));
+
         currentPlan = {
             id: vendor.membership.membershipId 
                 ? (typeof vendor.membership.membershipId === 'object' 
@@ -4574,26 +4749,24 @@ const getMembershipPlansWithStatus = async (vendorId) => {
                 : null,
             name: planName,
             isCurrent: true,
-            renewal: vendor.membership.totalAmount || 0, // total amount paid
-            renewalAmount: vendor.membership.serviceFee || 0, // service fee component
-            membershipAmount: vendor.membership.membershipFee || 0, // base plan fee
-            gstAmount: vendor.membership.gstAmount || 0,
-            totalAmount: vendor.membership.totalAmount || 0,
-            gstPercent: vendor.membership.gstAmount && vendor.membership.subtotal 
-                ? Math.round((vendor.membership.gstAmount / vendor.membership.subtotal) * 100)
-                : 0,
+            renewal: currentTotalAmount || vendor.membership.totalAmount || 0, // total amount paid
+            renewalAmount: currentServiceFee || vendor.membership.serviceFee || 0, // service fee component
+            membershipAmount: currentMembershipFee || vendor.membership.membershipFee || 0, // base plan fee
+            gstAmount: currentGstAmount,
+            totalAmount: currentTotalAmount || vendor.membership.totalAmount || 0,
+            gstPercent: currentGstPercent,
             validityDays: actualValidityDays, // Use calculated validity days
             startDate: vendor.membership.startDate || null,
             expiryDate: vendor.membership.expiryDate || null,
             durationMonths: vendor.membership.durationMonths || 3,
             // Include all stored membership fields
             storedData: {
-                membershipFee: vendor.membership.membershipFee,
-                serviceFee: vendor.membership.serviceFee,
-                gstAmount: vendor.membership.gstAmount,
-                totalAmount: vendor.membership.totalAmount,
-                subtotal: vendor.membership.subtotal,
-                fee: vendor.membership.fee,
+                membershipFee: currentMembershipFee || vendor.membership.membershipFee,
+                serviceFee: currentServiceFee || vendor.membership.serviceFee,
+                gstAmount: currentGstAmount,
+                totalAmount: currentTotalAmount || vendor.membership.totalAmount,
+                subtotal: currentSubtotal || vendor.membership.subtotal,
+                fee: vendor.membership.fee || currentTotalAmount,
                 category: vendor.membership.category
             }
         };

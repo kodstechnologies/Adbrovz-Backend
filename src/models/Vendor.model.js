@@ -191,6 +191,12 @@ const vendorSchema = new mongoose.Schema(
         uppercase: true,
         default: null,
       },
+      itemBreakdown: {
+        type: mongoose.Schema.Types.Mixed,
+      },
+      services: {
+        type: mongoose.Schema.Types.Mixed,
+      },
     },
     serviceRenewal: {
       fee: { type: Number, default: 0 },

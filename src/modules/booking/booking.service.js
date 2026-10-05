@@ -1671,13 +1671,19 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
     console.log(`[TRACKING-FLOW] [STEP 2.7] Ignored/excluded vendor IDs (rejected/later only):`, ignoredVendors);
 
     // ── Find vendors whose bookings overlap with this booking's time range ──
-    // Only exclude vendors whose existing booking's time slot conflicts with the new booking
+    // Only exclude vendors whose existing active booking's time slot conflicts with the new booking
     const busyVendorIds = [];
     const newBookingRange = await getBookingTimeRange(booking);
-    if (newBookingRange) {
+    if (newBookingRange && booking.scheduledDate) {
+        const istDateStr = new Date(booking.scheduledDate).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+        const dayStart = new Date(`${istDateStr}T00:00:00+05:30`);
+        const dayEnd = new Date(`${istDateStr}T23:59:59.999+05:30`);
+
         const activeBookings = await Booking.find({
+            _id: { $ne: booking._id },
             vendor: { $exists: true, $ne: null },
-            scheduledDate: booking.scheduledDate
+            scheduledDate: { $gte: dayStart, $lte: dayEnd },
+            status: { $nin: ['cancelled', 'auto_cancelled', 'completed', 'pending_acceptance'] }
         }).populate('services.service');
         for (const activeBooking of activeBookings) {
             const activeRange = await getBookingTimeRange(activeBooking);
@@ -2423,6 +2429,7 @@ const vendorCancelBooking = async (vendorId, bookingId, reason) => {
     // ── Send Push Notification to User ──
     sendPush(booking.user, 'User', 'booking_cancelled', 'Booking Cancelled', `The vendor has cancelled your booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
     emitToVendor(vendorId, 'booking_status_updated', populatedBooking);
+    emitToVendor(vendorId, 'booking_cancellation', populatedBooking);
 
     return populatedBooking || booking;
 };

@@ -323,6 +323,11 @@ const updateUserStatus = async (userId, status, adminId) => {
 
   const oldStatus = user.status || 'ACTIVE';
   user.status = status;
+  if (status === 'DELETED') {
+    user.deletedAt = user.deletedAt || new Date();
+  } else if (status === 'ACTIVE' || status === 'SUSPENDED' || status === 'PENDING') {
+    user.deletedAt = null;
+  }
   await user.save();
 
   let type = 'general';
@@ -630,9 +635,13 @@ const updateGlobalSettings = async (settings, adminId) => {
     // Treat as numeric if default is a number OR if the key is a known numeric field with null default
     const isNumericField = (DEFAULT_SETTINGS[key] && typeof DEFAULT_SETTINGS[key].value === 'number') ||
                            key === 'pricing.booking_gst_percent';
+    const isBooleanField = (DEFAULT_SETTINGS[key] && typeof DEFAULT_SETTINGS[key].value === 'boolean') ||
+                           typeof value === 'boolean';
     if (isNumericField) {
       processedValue = Number(value);
       if (isNaN(processedValue)) processedValue = DEFAULT_SETTINGS[key]?.value ?? 0;
+    } else if (isBooleanField) {
+      processedValue = value === true || value === 'true';
     }
 
     const setting = await GlobalConfig.findOneAndUpdate(
