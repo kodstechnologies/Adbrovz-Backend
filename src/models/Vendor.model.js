@@ -175,6 +175,8 @@ const vendorSchema = new mongoose.Schema(
     },
     membership: {
       membershipId: { type: mongoose.Schema.Types.ObjectId, ref: 'CreditPlan' },
+      planName: { type: String },
+      validityDays: { type: Number },
       category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
       membershipFee: { type: Number },
       serviceFee: { type: Number },

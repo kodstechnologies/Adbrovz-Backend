@@ -21,7 +21,7 @@ const { sendPush } = require('../../utils/pushNotification');
 
 const ensureCategorySubscriptions = async (vendor) => {
     if (vendor.registrationStep !== 'COMPLETED' && !vendor.isVerified) return;
-    
+
     vendor.categorySubscriptions = vendor.categorySubscriptions || [];
     let modified = false;
 
@@ -29,7 +29,7 @@ const ensureCategorySubscriptions = async (vendor) => {
         const Category = require('../../models/Category.model');
         const now = new Date();
         const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 0;
-        
+
         let expiryDate = vendor.serviceRenewal?.expiryDate || new Date();
         if (expiryDate <= now) {
             expiryDate = new Date();
@@ -39,7 +39,7 @@ const ensureCategorySubscriptions = async (vendor) => {
         for (const catId of vendor.selectedCategories) {
             const catIdStr = catId.toString();
             const existingSub = vendor.categorySubscriptions.find(s => s.category && s.category.toString() === catIdStr);
-            
+
             if (!existingSub) {
                 const category = await Category.findById(catId).select('membershipCharge membershipFee');
                 const fee = category ? (category.membershipCharge || category.membershipFee || 0) : 0;
@@ -70,7 +70,7 @@ const ensureCategorySubscriptions = async (vendor) => {
             }
         }
     }
-    
+
     if (modified) {
         vendor.markModified('categorySubscriptions');
         await vendor.save();
@@ -207,7 +207,7 @@ const _deriveVendorHierarchy = async (vendor) => {
     vendor.selectedCategories = [...categoryIds];
     vendor.selectedSubcategories = [...subcategoryIds];
     vendor.selectedServiceTypes = [...serviceTypeIds];
-    
+
     console.log(`[Hierarchy] Derived for vendor ${vendor._id}: cats=${categoryIds.size}, subs=${subcategoryIds.size}, types=${serviceTypeIds.size}`);
 };
 
@@ -225,13 +225,13 @@ const _getMembershipCharge = (item, type = 'service') => {
     // Fallback to membershipCharge/membershipFee only if serviceCharge is 0
     // but prioritize serviceCharge if it exists.
     const memCharge = toNumber(item.membershipCharge || item.membershipFee);
-    
+
     // If we have a serviceCharge (even if 0), but also have a membershipCharge, 
     // the user's request suggests they want to see the serviceCharge.
     // However, if serviceCharge is 0 and membershipCharge is non-zero, 
     // it was previously falling back to membershipCharge. 
     // We'll keep the fallback but make it lower priority than any non-zero serviceCharge.
-    
+
     if (svcCharge === 0 && memCharge > 0) {
         return memCharge;
     }
@@ -516,7 +516,7 @@ const _calculateMembershipAmounts = async ({ vendorId, durationMonths, membershi
         finalGst,
         grandTotal,
         durationMonths: Math.max(1, Math.round(plan.validityDays / 30)),
-        validityDays: plan.validityDays, planId: plan._id,
+        validityDays: plan.validityDays, planId: plan._id, planName: plan?.name || null,
         itemBreakdown: [
             {
                 id: 'platform_base',
@@ -860,9 +860,9 @@ const getAllVendors = async () => {
         .populate({
             path: 'selectedSubcategories',
             select: 'name serviceCharge price membershipFee membershipCharge renewalCharge serviceRenewalCharge membershipRenewalCharge category',
-            populate: { 
-                path: 'category', 
-                select: 'name serviceCharge membershipCharge membershipFee' 
+            populate: {
+                path: 'category',
+                select: 'name serviceCharge membershipCharge membershipFee'
             }
         })
         .populate({
@@ -970,7 +970,7 @@ const getAllVendors = async () => {
 
         const hasPendingDeletionApproval = Boolean(vendor.deletionRequest?.isRequested) && vendor.deletionRequest?.status === 'PENDING';
         const hasPendingServiceApproval = (vendor.serviceApprovalStatus || 'pending') === 'pending';
-        
+
         // ── Robust extra service request counting ──
         // Count a request as pending ONLY if at least one individual service is pending.
         // If all services have been resolved (approved/disapproved), the request is NOT pending.
@@ -1016,10 +1016,12 @@ const getAllVendors = async () => {
     const vendorIds = vendors.map(v => v._id);
     const bookingCounts = await Booking.aggregate([
         { $match: { vendor: { $in: vendorIds } } },
-        { $group: { 
-            _id: { vendor: "$vendor", status: "$status" }, 
-            count: { $sum: 1 } 
-        } }
+        {
+            $group: {
+                _id: { vendor: "$vendor", status: "$status" },
+                count: { $sum: 1 }
+            }
+        }
     ]);
 
     const bookingStatusMap = {};
@@ -1080,7 +1082,7 @@ const getVendorMembershipDetails = async (vendorId, overrides = {}) => {
         .populate({ path: 'categorySubscriptions.category', select: 'name' })
         .populate({ path: 'categorySubscriptions.subcategories', select: 'name' })
         .populate({ path: 'categorySubscriptions.services', select: 'title' });
-    
+
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const couponId = _resolveCouponIdentifier(overrides);
@@ -1255,7 +1257,7 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
         vendor.membership = vendor.membership || {};
         vendor.membership.durationMonths = Number(durationMonths);
     }
-    
+
     // Calculate full fee using the centralized helper with all selected services
     const calc = await _calculateMembershipAmounts({
         vendorId,
@@ -1319,6 +1321,8 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
     // Ensure the resolved membership details and chosen services are persisted to the vendor
     vendor.membership = vendor.membership || {};
     vendor.membership.membershipId = calc.planId;
+    if (calc.planName) vendor.membership.planName = calc.planName;
+    if (calc.validityDays) vendor.membership.validityDays = calc.validityDays;
     vendor.membership.membershipFee = calc.basePlanFee;
     vendor.membership.serviceFee = calc.servicesSubtotal;
     vendor.membership.subtotal = combinedSubtotal;
@@ -1384,6 +1388,8 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
 
         vendor.membership = vendor.membership || {};
         vendor.membership.membershipId = calc.planId;
+        if (calc.planName) vendor.membership.planName = calc.planName;
+        if (calc.validityDays) vendor.membership.validityDays = calc.validityDays;
         vendor.membership.totalAmount = 0;
         vendor.membership.gstAmount = 0;
         vendor.membership.subtotal = 0;
@@ -1572,7 +1578,7 @@ const selectServices = async (vendorId, body) => {
     const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID', 'COMPLETED', 'SIGNUP_COMPLETED'].includes(vendor.registrationStep);
     if (hasPaid || vendor.isVerified) {
         console.log(`[selectServices] Vendor ${vendorId} is already active/paid. Routing to extraServiceRequests to prevent membership overwrite.`);
-        
+
         await requestExtraServiceApproval(vendorId, {
             categoryId,
             subcategoryIds: parseArrayInput(subcategoryIds),
@@ -1922,7 +1928,7 @@ const purchaseMembership = async (vendorId) => {
             ? vendor.serviceRenewal.expiryDate
             : now;
         const renExpiry = new Date(baseRenDate);
-        
+
         const renewalDays = (await adminService.getSetting('pricing.service_renewal_days')) || 30;
         renExpiry.setDate(renExpiry.getDate() + Number(renewalDays));
         vendor.serviceRenewal.expiryDate = renExpiry;
@@ -1940,12 +1946,12 @@ const purchaseMembership = async (vendorId) => {
     if (!vendor.membership.totalAmount || !vendor.membership.category) {
         try {
             const memDetails = await getVendorMembershipDetails(vendorId);
-            vendor.membership.membershipFee = memDetails.basePlanFee; 
+            vendor.membership.membershipFee = memDetails.basePlanFee;
             vendor.membership.serviceFee = memDetails.totalServiceFee;
             vendor.membership.gstAmount = memDetails.gstAmount;
             vendor.membership.totalAmount = memDetails.totalFee;
             vendor.membership.subtotal = memDetails.subtotal;
-            vendor.membership.fee = memDetails.basePlanFee; 
+            vendor.membership.fee = memDetails.basePlanFee;
             vendor.membership.durationMonths = memDetails.durationMonths;
 
             if (!vendor.membership.category && memDetails.services.length > 0) {
@@ -1984,7 +1990,7 @@ const getMembershipPlans = async (serviceMembershipFee = 0, options = {}) => {
     const tiers = await CreditPlan.find({
         name: { $in: ['Basic', 'Pro', 'Elite'] }
     }).sort({ price: 1 }).lean();
-    
+
     const vendorId = options?.vendorId;
 
     let resolvedServiceMembershipFee = serviceMembershipFee;
@@ -2158,9 +2164,9 @@ const _calculateProration = (vendor, categoryId, amount, renewalDays = 30) => {
 
     // 1. Check if there's an existing active category subscription for this category
     if (categoryId && vendor.categorySubscriptions) {
-        const catSub = vendor.categorySubscriptions.find(s => 
-            s.category && s.category.toString() === categoryId.toString() && 
-            s.expiryDate > now && 
+        const catSub = vendor.categorySubscriptions.find(s =>
+            s.category && s.category.toString() === categoryId.toString() &&
+            s.expiryDate > now &&
             s.status === 'ACTIVE'
         );
         if (catSub) {
@@ -2180,7 +2186,7 @@ const _calculateProration = (vendor, categoryId, amount, renewalDays = 30) => {
     // 3. Check main service renewal
     const renExp = vendor.serviceRenewal?.expiryDate ? new Date(vendor.serviceRenewal.expiryDate) : null;
     const renStart = vendor.serviceRenewal?.startDate ? new Date(vendor.serviceRenewal.startDate) : null;
-    
+
     if (renExp && renExp > now) {
         activeExpiries.push({ expiryDate: renExp, startDate: renStart });
     }
@@ -2199,10 +2205,10 @@ const _calculateProration = (vendor, categoryId, amount, renewalDays = 30) => {
 
     // 4. If no active period found, no proration possible (assume full renewalDays)
     if (!expiryDate) {
-        return { 
-            amount: amount <= 0 ? 0 : amount, 
-            remainingDays: renewalDays, 
-            factor: 1, 
+        return {
+            amount: amount <= 0 ? 0 : amount,
+            remainingDays: renewalDays,
+            factor: 1,
             isProrated: false,
             cycleDuration: renewalDays
         };
@@ -2210,20 +2216,20 @@ const _calculateProration = (vendor, categoryId, amount, renewalDays = 30) => {
 
     const diffTime = expiryDate - now;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+
     // Calculate total cycle duration from the previously purchased service's dates
     let cycleDuration = renewalDays;
     if (startDate && expiryDate > startDate) {
         const cycleTime = expiryDate - startDate;
         cycleDuration = Math.ceil(cycleTime / (1000 * 60 * 60 * 24));
     }
-    
+
     // Fallback in case cycleDuration is calculated as 0
     if (cycleDuration <= 0) cycleDuration = renewalDays;
 
     // Calculate factor based on the actual cycle duration of the previously purchased service!
     const factor = Math.max(0, Math.min(1, diffDays / cycleDuration));
-    
+
     return {
         amount: amount <= 0 ? 0 : Math.round(amount * factor),
         remainingDays: diffDays,
@@ -2284,9 +2290,9 @@ const getAvailablePurchaseCategories = async (vendorId) => {
     }
 
     // Merge with explicit selected IDs for suppression
-    const finalPurchasedCategoryIds    = new Set([...selectedCategoryIds,    ...purchasedCategoryIdsFromServices]);
+    const finalPurchasedCategoryIds = new Set([...selectedCategoryIds, ...purchasedCategoryIdsFromServices]);
     const finalPurchasedSubcategoryIds = new Set([...selectedSubcategoryIds, ...purchasedSubcategoryIdsFromServices]);
-    const finalPurchasedTypeIds        = new Set([...(vendor.selectedServiceTypes || []).map(id => id.toString()), ...purchasedTypeIdsFromServices]);
+    const finalPurchasedTypeIds = new Set([...(vendor.selectedServiceTypes || []).map(id => id.toString()), ...purchasedTypeIdsFromServices]);
 
     const extraServiceStatusById = new Map();
     for (const req of vendor.extraServiceRequests || []) {
@@ -2581,7 +2587,7 @@ const verifyDocument = async (vendorId, payload = {}) => {
         if (!d || !d.url) return true; // Ignore missing docs
         return d.status === 'verified' || d.status === 'approved';
     });
-    
+
     const basicReqsPresent = requiredDocs.every(doc => {
         const d = vendor.documents[doc];
         return d && d.url && (d.status === 'verified' || d.status === 'approved');
@@ -2728,7 +2734,7 @@ const verifyAllDocuments = async (vendorId, adminId, payload = {}) => {
 
     // Set registrationStep and startDate IF already paid or moved past selection
     const hasPaid = ['MEMBERSHIP_PAID', 'PLAN_PAID'].includes(vendor.registrationStep);
-if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
+    if (hasPaid && vendor.registrationStep !== 'COMPLETED') {
         const startDate = new Date();
         const durationMonths = vendor.membership.durationMonths || 3;
         const plan = await getPlanByDuration(durationMonths);
@@ -2807,7 +2813,7 @@ const toggleVendorSuspension = async (vendorId, { isSuspended }) => {
     // Notify Vendor
     const title = isSuspended ? 'Account Suspended' : 'Account Reactivated';
     const message = isSuspended ? 'Your account has been suspended.' : 'Your account has been reactivated.';
-    
+
     await sendPush(vendor._id, 'Vendor', 'account_status', title, message, { isSuspended });
     const verificationPayload = _getVerificationPayload(vendor);
     verificationPayload.message = message;
@@ -2940,7 +2946,7 @@ const toggleOnlineStatus = async (vendorId, isOnline) => {
     if (targetStatus) {
         const isMembershipExpired = vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) < new Date();
         const isServiceExpired = vendor.serviceRenewal?.expiryDate && new Date(vendor.serviceRenewal.expiryDate) < new Date();
-        
+
         if (isMembershipExpired || isServiceExpired) {
             throw new ApiError(403, 'Your membership or service has expired. Please renew to go online.');
         }
@@ -2976,7 +2982,7 @@ const getVendorProfile = async (vendorId) => {
 
     const isMembershipExpired = vendor.membership?.expiryDate && new Date(vendor.membership.expiryDate) < new Date();
     const isServiceExpired = vendor.serviceRenewal?.expiryDate && new Date(vendor.serviceRenewal.expiryDate) < new Date();
-    
+
     let effectiveIsOnline = vendor.isOnline || false;
     if ((isMembershipExpired || isServiceExpired) && effectiveIsOnline) {
         effectiveIsOnline = false;
@@ -2988,7 +2994,7 @@ const getVendorProfile = async (vendorId) => {
     const mongoose = require('mongoose');
     const Booking = require('../../models/Booking.model');
     const vendorIdObj = new mongoose.Types.ObjectId(vendorId);
-    
+
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
@@ -3123,7 +3129,7 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
     if (resolvedMembershipId) {
         const planDoc = await CreditPlan.findById(resolvedMembershipId).lean();
         if (planDoc) {
-            plan = { validityDays: Number(planDoc.validityDays), durationMonths: Math.round(planDoc.validityDays / 30) };
+            plan = { name: planDoc.name, validityDays: Number(planDoc.validityDays), durationMonths: Math.round(planDoc.validityDays / 30) };
         }
     }
     if (!plan) {
@@ -3131,6 +3137,8 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         plan = await getPlanByDuration(durationMonths);
     }
     const validityDays = plan.validityDays;
+    if (plan?.name) vendor.membership.planName = plan.name;
+    if (validityDays) vendor.membership.validityDays = validityDays;
 
     let expiryDate = null;
     if (vendor.isVerified) {
@@ -3253,7 +3261,7 @@ const verifyMembershipPayment = async (vendorId, { razorpay_order_id, razorpay_p
         vendor.membership.gstAmount = resolvedGst;
         vendor.membership.subtotal = paymentRecord.amount;
         vendor.membership.fee = paymentRecord.totalAmount;
-        
+
         if (paymentRecord.metadata) {
             vendor.membership.membershipFee = paymentRecord.metadata.basePlanFee ?? paymentRecord.amount;
             vendor.membership.serviceFee = paymentRecord.metadata.serviceSelectionsTotal ?? 0;
@@ -3389,7 +3397,7 @@ const getDashboardMetrics = async (vendorId) => {
 
     // 1. Get vendor credits (coins) and verification status
     const vendor = await Vendor.findById(vendorIdObj).select('coins isVerified documentStatus');
-    
+
     // If vendor is not verified, they should not see any booking data
     if (!vendor?.isVerified || vendor?.documentStatus !== 'approved') {
         return {
@@ -3522,7 +3530,7 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
     console.log('[REUPLOAD DOCS] Starting reupload for vendor:', vendorId);
     console.log('[REUPLOAD DOCS] Uploaded docs keys:', Object.keys(uploadedDocs));
     console.log('[REUPLOAD DOCS] Uploaded docs values:', Object.entries(uploadedDocs).map(([k, v]) => [k, typeof v === 'string' && v.length > 50 ? v.substring(0, 50) + '...' : v]));
-    
+
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
@@ -3534,7 +3542,7 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
     Object.keys(uploadedDocs).forEach(key => {
         normalizedUploadedDocs[key.toLowerCase()] = uploadedDocs[key];
     });
-    
+
     console.log('[REUPLOAD DOCS] Normalized keys:', Object.keys(normalizedUploadedDocs));
 
     // Also update other profile fields if provided
@@ -3581,7 +3589,7 @@ const reuploadDocuments = async (vendorId, uploadedDocs) => {
 
     console.log('[REUPLOAD DOCS] Updated flag:', updated);
     console.log('[REUPLOAD DOCS] Uploaded docs count:', Object.keys(uploadedDocs).length);
-    
+
     if (updated || Object.keys(uploadedDocs).length > 0) {
         vendor.markModified('documents');
 
@@ -3938,7 +3946,7 @@ const getMembershipRenewalFeeDetails = async (vendorId, { planId, membershipId, 
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const adminService = require('../admin/admin.service');
-    
+
     let plan;
     const resolvedPlanId = planId || membershipId;
     if (resolvedPlanId) {
@@ -3989,7 +3997,7 @@ const getMembershipRenewalFeeDetails = async (vendorId, { planId, membershipId, 
 
     const categories = await Category.find({ _id: { $in: Array.from(categoryIds) } });
     const subcategories = await Subcategory.find({ _id: { $in: Array.from(subcategoryIds) } });
-    
+
     const ServiceType = require('../../models/ServiceType.model');
     const serviceTypes = await ServiceType.find({ _id: { $in: Array.from(serviceTypeIds) } });
     const services = await Service.find({ _id: { $in: Array.from(serviceIds) } });
@@ -4011,7 +4019,7 @@ const getMembershipRenewalFeeDetails = async (vendorId, { planId, membershipId, 
     const breakdown = {
         basePlan: { name: plan.name || 'Basic', price: basePlanPrice }
     };
-    
+
     const catList = categories.map(c => ({ id: c._id, name: c.name, charge: c.membershipRenewalCharge || 0 })).filter(c => c.charge > 0);
     if (catList.length > 0) breakdown.categories = catList;
 
@@ -4053,7 +4061,19 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
     // Mobile already calculated the payable. Use that amount as-is. Do not apply coupon again.
     let totalFee = parsedAmount !== null ? parsedAmount : Number(feeDetails.totalFee || 0);
 
+    const membershipAmount = Number(feeDetails?.breakdown?.basePlan?.price || 0);
+    const renewalAmount = Math.max(0, Number(feeDetails.subtotal || 0) - membershipAmount);
+
     const paymentMetadata = {
+        basePlanFee: membershipAmount,
+        serviceSelectionsTotal: renewalAmount,
+        planName: feeDetails?.breakdown?.basePlan?.name || null,
+        durationMonths: feeDetails.durationMonths,
+        validityDays: feeDetails.validityDays,
+        subtotal: feeDetails.subtotal,
+        gstAmount: feeDetails.gstAmount,
+        gstPercent: feeDetails.gstPercent,
+        totalAmount: totalFee,
         ...(feeDetails.breakdown || {}),
         ...(couponId ? await _resolveCouponMetadata(couponId) : {})
     };
@@ -4080,10 +4100,14 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
         vendor.membership.startDate = vendor.membership.startDate || now;
         vendor.membership.durationMonths = feeDetails.durationMonths;
         vendor.membership.membershipId = feeDetails.planId || vendor.membership.membershipId;
+        if (feeDetails?.breakdown?.basePlan?.name) vendor.membership.planName = feeDetails.breakdown.basePlan.name;
+        if (validityDays) vendor.membership.validityDays = validityDays;
         vendor.membership.totalAmount = 0;
         vendor.membership.gstAmount = 0;
         vendor.membership.subtotal = 0;
         vendor.membership.fee = 0;
+        vendor.membership.membershipFee = membershipAmount;
+        vendor.membership.serviceFee = renewalAmount;
         vendor.membershipVerifyPayment = true;
         vendor.isRegistered = true;
         await vendor.save();
@@ -4171,8 +4195,6 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
         throw new ApiError(400, `Payment Error: ${errorMsg}`);
     }
 
-    const membershipAmount = Number(feeDetails?.breakdown?.basePlan?.price || 0);
-    const renewalAmount = Math.max(0, Number(feeDetails.subtotal || 0) - membershipAmount);
     const vendor = await Vendor.findById(vendorId).select('name');
 
     return {
@@ -4221,7 +4243,7 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
     if (!vendor) throw new ApiError(404, 'Vendor not found');
 
     const now = new Date();
-    
+
     let plan;
     const resolvedPlanId = planId || membershipId;
     if (resolvedPlanId) {
@@ -4236,7 +4258,7 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
     } else {
         plan = await getPlanByDuration(Number(durationMonths || 3));
     }
-    
+
     const validityDays = plan.validityDays;
 
     // Extend membership expiry
@@ -4249,7 +4271,7 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
 
     vendor.membership.expiryDate = newExpiryDate;
     vendor.membership.durationMonths = plan.validityDays / 30; // Rough estimate
-    
+
     // Update payment record history and propagate amounts to vendor membership
     const paymentRecord = await PaymentRecord.findOne({ orderId: razorpay_order_id });
     if (!paymentRecord) {
@@ -4262,17 +4284,21 @@ const verifyMembershipRenewalPayment = async (vendorId, { razorpay_order_id, raz
     await paymentRecord.save();
 
     // Update vendor membership amounts based on payment record
+    vendor.membership.membershipId = plan.id || resolvedPlanId || vendor.membership.membershipId;
+    if (plan.name) vendor.membership.planName = plan.name;
+    if (validityDays) vendor.membership.validityDays = validityDays;
     vendor.membership.totalAmount = paymentRecord.totalAmount;
     vendor.membership.gstAmount = paymentRecord.gstAmount;
     vendor.membership.subtotal = paymentRecord.amount;
     vendor.membership.fee = paymentRecord.totalAmount;
-    
+
     if (paymentRecord.metadata) {
         vendor.membership.membershipFee = paymentRecord.metadata.basePlanFee ?? paymentRecord.amount;
         vendor.membership.serviceFee = paymentRecord.metadata.serviceSelectionsTotal ?? 0;
+        if (paymentRecord.metadata.planName) vendor.membership.planName = paymentRecord.metadata.planName;
     } else {
-        vendor.membership.membershipFee = paymentRecord.amount;
-        vendor.membership.serviceFee = 0;
+        vendor.membership.membershipFee = plan.price || paymentRecord.amount;
+        vendor.membership.serviceFee = Math.max(0, paymentRecord.amount - (plan.price || 0));
     }
 
     // Ensure registration flags are set on renewal too
@@ -4471,7 +4497,7 @@ const verifyServiceRenewalPayment = async (vendorId, { razorpay_order_id, razorp
     try {
         const feeDetails = await getServiceRenewalFeeDetails(vendorId);
         vendor.serviceRenewal.fee = feeDetails.totalFee;
-    } catch (e) { 
+    } catch (e) {
         console.error('Error in service renewal extension:', e);
     }
 
@@ -4479,7 +4505,7 @@ const verifyServiceRenewalPayment = async (vendorId, { razorpay_order_id, razorp
     try {
         await PaymentRecord.findOneAndUpdate(
             { orderId: razorpay_order_id },
-            { 
+            {
                 status: 'COMPLETED',
                 paymentId: razorpay_payment_id,
                 previousExpiryDate: baseDate,
@@ -4492,8 +4518,8 @@ const verifyServiceRenewalPayment = async (vendorId, { razorpay_order_id, razorp
 
     await vendor.save();
 
-    return { 
-        message: 'Service renewal payment verified successfully. Validity extended.', 
+    return {
+        message: 'Service renewal payment verified successfully. Validity extended.',
         expiryDate: vendor.serviceRenewal.expiryDate
     };
 };
@@ -4513,24 +4539,24 @@ const getMembershipPlansWithStatus = async (vendorId) => {
     //  - Charge each unique subcategory once (regardless of how many services inside it)
     //  - Charge each unique service type once (regardless of how many services inside it)
     //  - Charge each unique selected service once
-    const catIds      = new Set();
-    const subIds      = new Set();
-    const typeIds     = new Set();
-    const svcIds      = new Set();
+    const catIds = new Set();
+    const subIds = new Set();
+    const typeIds = new Set();
+    const svcIds = new Set();
 
     // Seed from vendor's stored selections
-    (vendor.selectedCategories  || []).forEach(c => catIds.add(String(c._id || c)));
+    (vendor.selectedCategories || []).forEach(c => catIds.add(String(c._id || c)));
     (vendor.selectedSubcategories || []).forEach(s => subIds.add(String(s._id || s)));
-    (vendor.selectedServiceTypes  || []).forEach(t => typeIds.add(String(t._id || t)));
-    (vendor.selectedServices      || []).forEach(s => svcIds.add(String(s._id || s)));
+    (vendor.selectedServiceTypes || []).forEach(t => typeIds.add(String(t._id || t)));
+    (vendor.selectedServices || []).forEach(s => svcIds.add(String(s._id || s)));
 
     // Derive parent hierarchy from selected services
     if (svcIds.size > 0) {
         const fullServices = await Service.find({ _id: { $in: [...svcIds] } });
         fullServices.forEach(svc => {
             if (svc.serviceType) typeIds.add(String(svc.serviceType));
-            if (svc.subcategory)  subIds.add(String(svc.subcategory));
-            if (svc.category)     catIds.add(String(svc.category));
+            if (svc.subcategory) subIds.add(String(svc.subcategory));
+            if (svc.category) catIds.add(String(svc.category));
         });
     }
     // Derive parent hierarchy from selected service types
@@ -4539,7 +4565,7 @@ const getMembershipPlansWithStatus = async (vendorId) => {
         const fullTypes = await ServiceTypeModel.find({ _id: { $in: [...typeIds] } });
         fullTypes.forEach(t => {
             if (t.subcategory) subIds.add(String(t.subcategory));
-            if (t.category)    catIds.add(String(t.category));
+            if (t.category) catIds.add(String(t.category));
         });
     }
     // Derive parent hierarchy from selected subcategories
@@ -4559,106 +4585,64 @@ const getMembershipPlansWithStatus = async (vendorId) => {
     ]);
 
     let hierarchicalRenewalAmount = 0;
-    renewalCats.forEach(c  => { hierarchicalRenewalAmount += (c.membershipRenewalCharge  || 0); });
-    renewalSubs.forEach(s  => { hierarchicalRenewalAmount += (s.membershipRenewalCharge  || 0); });
-    renewalTypes.forEach(t => { hierarchicalRenewalAmount += (t.membershipRenewalCharge  || 0); });
-    renewalSvcs.forEach(s  => { hierarchicalRenewalAmount += (s.membershipRenewalCharge  || 0); });
+    renewalCats.forEach(c => { hierarchicalRenewalAmount += (c.membershipRenewalCharge || 0); });
+    renewalSubs.forEach(s => { hierarchicalRenewalAmount += (s.membershipRenewalCharge || 0); });
+    renewalTypes.forEach(t => { hierarchicalRenewalAmount += (t.membershipRenewalCharge || 0); });
+    renewalSvcs.forEach(s => { hierarchicalRenewalAmount += (s.membershipRenewalCharge || 0); });
     // ─────────────────────────────────────────────────────────────────────────────
 
-    const plans = [
-        { duration: 3, name: 'Basic' },
-        { duration: 6, name: 'Pro' },
-        { duration: 12, name: 'Elite' }
-    ];
-
-    const allPlans = [];
-    const currentMembershipId = vendor.membership?.membershipId?.toString();
-
-    for (const p of plans) {
-        const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { durationMonths: p.duration });
-        
-        const isCurrent = Boolean(currentMembershipId && feeDetails.planId && currentMembershipId === feeDetails.planId.toString());
-
-        const membershipAmount = Number(feeDetails?.breakdown?.basePlan?.price || 0);
-        // renewalAmount = sum of membershipRenewalCharge across unique cats/subs/types/services
-        const renewalAmount = hierarchicalRenewalAmount;
-        const combinedSubtotal = membershipAmount + renewalAmount;
-        const gstPercent = Number(feeDetails.gstPercent || 0);
-        const gstAmount = Math.round(combinedSubtotal * (gstPercent / 100));
-        const totalAmount = combinedSubtotal + gstAmount;
-
-        const planObj = {
-            id: feeDetails.planId,
-            name: p.name,
-            isCurrent,
-            renewal: totalAmount, // Backward compatibility
-            renewalAmount,
-            membershipAmount,
-            gstAmount,
-            totalAmount,
-            gstPercent,
-            validityDays: feeDetails.validityDays
-        };
-
-        allPlans.push(planObj);
-    }
-
-    // Get the actual current plan from stored membership data
+    // ── Build currentPlan directly from vendor's stored membership snapshot ──────
     let currentPlan = null;
-    if (vendor.membership) {
-        // Get plan name from populated membershipId or fallback
-        let planName = 'Unknown';
-        let validityDays = 90;
-        
-        if (vendor.membership.membershipId) {
-            // membershipId is populated, so we can access its properties directly
-            if (typeof vendor.membership.membershipId === 'object' && vendor.membership.membershipId.name) {
+    const currentMembershipId = (
+        vendor.membership?.membershipId?._id ||
+        vendor.membership?.membershipId
+    )?.toString() || null;
+
+    if (vendor.membership && currentMembershipId) {
+        let planName = vendor.membership.planName || 'Unknown';
+        let validityDays = vendor.membership.validityDays || 90;
+
+        if (typeof vendor.membership.membershipId === 'object' && vendor.membership.membershipId !== null) {
+            if (!vendor.membership.planName && vendor.membership.membershipId.name) {
                 planName = vendor.membership.membershipId.name;
-                validityDays = vendor.membership.membershipId.validityDays || 90;
-            } else {
-                // Fallback: determine plan name from duration
-                const duration = vendor.membership.durationMonths || 3;
-                planName = duration === 3 ? 'Basic' : duration === 6 ? 'Pro' : 'Elite';
             }
-        } else if (vendor.membership.durationMonths) {
-            // Determine plan name from duration months
+            if (!vendor.membership.validityDays && vendor.membership.membershipId.validityDays) {
+                validityDays = vendor.membership.membershipId.validityDays;
+            }
+        } else if (!vendor.membership.planName && vendor.membership.durationMonths) {
             const duration = vendor.membership.durationMonths;
             planName = duration === 3 ? 'Basic' : duration === 6 ? 'Pro' : 'Elite';
         }
-        
+
         // Calculate actual validity days from startDate and expiryDate if both exist
-        let actualValidityDays = validityDays; // Default to plan validity
-        
+        let actualValidityDays = validityDays;
+
         if (vendor.membership.startDate && vendor.membership.expiryDate) {
             const start = new Date(vendor.membership.startDate);
             const expiry = new Date(vendor.membership.expiryDate);
-            
-            // More accurate day difference calculation
-            // Reset time components to midnight to avoid time-of-day issues
+
             const startDate = new Date(start);
             const expiryDate = new Date(expiry);
             startDate.setHours(0, 0, 0, 0);
             expiryDate.setHours(0, 0, 0, 0);
-            
+
             const diffTime = expiryDate.getTime() - startDate.getTime();
             const calculatedDays = Math.max(1, Math.round(diffTime / (1000 * 60 * 60 * 24)));
-            
-            // Check if it's approximately a standard plan duration
-            const monthsDiff = (expiryDate.getFullYear() - startDate.getFullYear()) * 12 + 
-                              (expiryDate.getMonth() - startDate.getMonth());
-            
-            // Standardize to common plan durations
+
+            const monthsDiff = (expiryDate.getFullYear() - startDate.getFullYear()) * 12 +
+                (expiryDate.getMonth() - startDate.getMonth());
+
             if (monthsDiff === 3 && calculatedDays >= 89 && calculatedDays <= 92) {
-                actualValidityDays = 90; // 3 months ≈ 90 days
+                actualValidityDays = 90;
             } else if (monthsDiff === 6 && calculatedDays >= 179 && calculatedDays <= 183) {
-                actualValidityDays = 180; // 6 months ≈ 180 days
+                actualValidityDays = 180;
             } else if (monthsDiff === 12 && calculatedDays >= 355 && calculatedDays <= 365) {
-                actualValidityDays = 360; // 12 months ≈ 360 days
+                actualValidityDays = 360;
             } else {
-                actualValidityDays = calculatedDays; // Use exact calculation
+                actualValidityDays = calculatedDays;
             }
         }
-        
+
         let currentMembershipFee = Number(vendor.membership.membershipFee) || 0;
         let currentServiceFee = Number(vendor.membership.serviceFee) || 0;
         let currentSubtotal = Number(vendor.membership.subtotal) || (currentMembershipFee + currentServiceFee) || 0;
@@ -4669,7 +4653,6 @@ const getMembershipPlansWithStatus = async (vendorId) => {
         const systemGstPercent = (gstSetting !== undefined && gstSetting !== null) ? Number(gstSetting) : 18;
 
         if (!currentGstAmount || currentGstAmount === 0) {
-            // 1. Try to find completed payment record for membership
             const lastPayment = await PaymentRecord.findOne({
                 vendor: vendor._id,
                 purpose: { $in: ['MEMBERSHIP_PURCHASE', 'MEMBERSHIP_RENEWAL'] },
@@ -4688,12 +4671,10 @@ const getMembershipPlansWithStatus = async (vendorId) => {
                 if (!currentTotalAmount && lastPayment.totalAmount) currentTotalAmount = lastPayment.totalAmount;
             }
 
-            // 2. Check difference between totalAmount and subtotal
             if (!currentGstAmount && currentTotalAmount > 0 && currentSubtotal > 0 && currentTotalAmount > currentSubtotal) {
                 currentGstAmount = Math.round(currentTotalAmount - currentSubtotal);
             }
 
-            // 3. Fallback: calculate using system GST percent
             if (!currentGstAmount) {
                 if (currentSubtotal > 0 && systemGstPercent > 0) {
                     currentGstAmount = Math.round(currentSubtotal * (systemGstPercent / 100));
@@ -4703,7 +4684,7 @@ const getMembershipPlansWithStatus = async (vendorId) => {
                 } else if (currentTotalAmount > 0 && systemGstPercent > 0) {
                     currentSubtotal = Math.round(currentTotalAmount / (1 + systemGstPercent / 100));
                     currentGstAmount = currentTotalAmount - currentSubtotal;
-                } else if (vendor.membership.membershipId) {
+                } else if (vendor.membership.membershipId && (!currentMembershipFee || currentMembershipFee === 0)) {
                     try {
                         const CreditPlan = require('../../models/CreditPlan.model');
                         const planDoc = (typeof vendor.membership.membershipId === 'object' && vendor.membership.membershipId.price != null)
@@ -4721,7 +4702,6 @@ const getMembershipPlansWithStatus = async (vendorId) => {
                 }
             }
 
-            // Persist the resolved gstAmount, subtotal, and totalAmount to vendor so DB is consistent
             if (currentGstAmount > 0) {
                 vendor.membership.gstAmount = currentGstAmount;
                 if (!vendor.membership.subtotal && currentSubtotal) vendor.membership.subtotal = currentSubtotal;
@@ -4742,11 +4722,7 @@ const getMembershipPlansWithStatus = async (vendorId) => {
                 : (currentGstAmount > 0 ? systemGstPercent : 0));
 
         currentPlan = {
-            id: vendor.membership.membershipId 
-                ? (typeof vendor.membership.membershipId === 'object' 
-                    ? vendor.membership.membershipId._id.toString() 
-                    : vendor.membership.membershipId.toString())
-                : null,
+            id: currentMembershipId,
             name: planName,
             isCurrent: true,
             renewal: currentTotalAmount || vendor.membership.totalAmount || 0, // total amount paid
@@ -4755,11 +4731,10 @@ const getMembershipPlansWithStatus = async (vendorId) => {
             gstAmount: currentGstAmount,
             totalAmount: currentTotalAmount || vendor.membership.totalAmount || 0,
             gstPercent: currentGstPercent,
-            validityDays: actualValidityDays, // Use calculated validity days
+            validityDays: actualValidityDays,
             startDate: vendor.membership.startDate || null,
             expiryDate: vendor.membership.expiryDate || null,
             durationMonths: vendor.membership.durationMonths || 3,
-            // Include all stored membership fields
             storedData: {
                 membershipFee: currentMembershipFee || vendor.membership.membershipFee,
                 serviceFee: currentServiceFee || vendor.membership.serviceFee,
@@ -4770,6 +4745,56 @@ const getMembershipPlansWithStatus = async (vendorId) => {
                 category: vendor.membership.category
             }
         };
+    }
+
+    const plans = [
+        { duration: 3, name: 'Basic' },
+        { duration: 6, name: 'Pro' },
+        { duration: 12, name: 'Elite' }
+    ];
+
+    const allPlans = [];
+
+    for (const p of plans) {
+        const feeDetails = await getMembershipRenewalFeeDetails(vendorId, { durationMonths: p.duration });
+        const planIdStr = (feeDetails.planId?._id || feeDetails.planId)?.toString();
+        const isCurrent = Boolean(currentMembershipId && planIdStr && currentMembershipId === planIdStr);
+
+        let membershipAmount = Number(feeDetails?.breakdown?.basePlan?.price || 0);
+        let renewalAmount = hierarchicalRenewalAmount;
+        let gstPercent = Number(feeDetails.gstPercent || 0);
+        let gstAmount = 0;
+        let totalAmount = 0;
+        let validityDays = feeDetails.validityDays;
+
+        if (isCurrent && currentPlan) {
+            // For the active plan, reflect the vendor's locked active plan snapshot
+            membershipAmount = currentPlan.membershipAmount;
+            renewalAmount = currentPlan.renewalAmount;
+            gstPercent = currentPlan.gstPercent !== undefined ? currentPlan.gstPercent : gstPercent;
+            gstAmount = currentPlan.gstAmount;
+            totalAmount = currentPlan.totalAmount;
+            validityDays = currentPlan.validityDays || validityDays;
+        } else {
+            const combinedSubtotal = membershipAmount + renewalAmount;
+            gstAmount = Math.round(combinedSubtotal * (gstPercent / 100));
+            totalAmount = combinedSubtotal + gstAmount;
+        }
+
+        const planObj = {
+            id: feeDetails.planId,
+            name: p.name,
+            isCurrent,
+            renewal: totalAmount, // Backward compatibility
+            renewalAmount,
+            membershipAmount,
+            gstAmount,
+            totalAmount,
+            gstPercent,
+            validityDays
+        };
+
+        allPlans.push(planObj);
     }
 
     return {
@@ -4788,7 +4813,7 @@ const getMembershipRenewalFeeNoGst = async (vendorId, { durationMonths = 3 } = {
     return {
         ...details,
         totalFee: details.subtotal, // Total is just the subtotal (no GST)
-        gstAmount: 0, 
+        gstAmount: 0,
         message: 'Renewal fee calculated without GST'
     };
 };
@@ -4932,7 +4957,7 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
 
     // Build set of already purchased categories, subcategories, services
     const purchasedServiceIds = new Set((vendor.selectedServices || []).map(id => id.toString()));
-    const selectedCategoryIds    = new Set((vendor.selectedCategories    || []).map(id => id.toString()));
+    const selectedCategoryIds = new Set((vendor.selectedCategories || []).map(id => id.toString()));
     const selectedSubcategoryIds = new Set((vendor.selectedSubcategories || []).map(id => id.toString()));
 
     for (const catSub of (vendor.categorySubscriptions || [])) {
@@ -4949,33 +4974,33 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
 
     // Derive which categories / subcategories are already paid from services
     const allServices = await Service.find({}).lean();
-    const purchasedCategoryIds   = new Set();
+    const purchasedCategoryIds = new Set();
     const purchasedSubcategoryIds = new Set();
     for (const s of allServices) {
         if (purchasedServiceIds.has(s._id.toString())) {
-            if (s.category)    purchasedCategoryIds.add(s.category.toString());
+            if (s.category) purchasedCategoryIds.add(s.category.toString());
             if (s.subcategory) purchasedSubcategoryIds.add(s.subcategory.toString());
         }
     }
 
-    const finalPurchasedCategoryIds    = new Set([...selectedCategoryIds,    ...purchasedCategoryIds]);
+    const finalPurchasedCategoryIds = new Set([...selectedCategoryIds, ...purchasedCategoryIds]);
     const finalPurchasedSubcategoryIds = new Set([...selectedSubcategoryIds, ...purchasedSubcategoryIds]);
 
     const isCatOwned = finalPurchasedCategoryIds.has(categoryId.toString());
-    
+
     // Category Charge (0 if already owned)
     const categoryBaseCharge = _getMembershipCharge(category, 'category');
     const categoryProration = isCatOwned ? { amount: 0, remainingDays: 0 } : _calculateProration(vendor, categoryId, categoryBaseCharge, renewalDays);
-    
+
     let totalFee = categoryProration.amount;
     let unproratedTotalFee = isCatOwned ? 0 : categoryBaseCharge;
     let additionalSelectionsTotal = 0;
-    
+
     const breakdown = {
-        category: { 
-            id: category._id, 
-            name: category.name, 
-            charge: categoryProration.amount, 
+        category: {
+            id: category._id,
+            name: category.name,
+            charge: categoryProration.amount,
             baseCharge: categoryBaseCharge,
             isProrated: categoryProration.isProrated,
             remainingDays: categoryProration.remainingDays
@@ -5001,15 +5026,15 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
         const isSubOwned = finalPurchasedSubcategoryIds.has(sub._id.toString());
         const baseCharge = isSubOwned ? 0 : _getMembershipCharge(sub, 'subcategory');
         const proration = isSubOwned ? { amount: 0, remainingDays: 0 } : _calculateProration(vendor, categoryId, baseCharge, renewalDays);
-        
+
         totalFee += proration.amount;
         unproratedTotalFee += isSubOwned ? 0 : baseCharge;
         additionalSelectionsTotal += proration.amount;
-        
+
         if (proration.amount > 0) {
-            breakdown.subcategories.push({ 
-                id: sub._id, 
-                name: sub.name, 
+            breakdown.subcategories.push({
+                id: sub._id,
+                name: sub.name,
                 charge: proration.amount,
                 isProrated: proration.isProrated
             });
@@ -5029,15 +5054,15 @@ const getAddCategoryFeeDetails = async (vendorId, { categoryId, subcategoryIds =
         const isSvcOwned = purchasedServiceIds.has(svc._id.toString());
         const baseCharge = isSvcOwned ? 0 : _getMembershipCharge(svc, 'service');
         const proration = isSvcOwned ? { amount: 0, remainingDays: 0 } : _calculateProration(vendor, categoryId, baseCharge, renewalDays);
-        
+
         totalFee += proration.amount;
         unproratedTotalFee += isSvcOwned ? 0 : baseCharge;
         additionalSelectionsTotal += proration.amount;
-        
+
         if (proration.amount > 0) {
-            breakdown.services.push({ 
-                id: svc._id, 
-                name: svc.title, 
+            breakdown.services.push({
+                id: svc._id,
+                name: svc.title,
                 charge: proration.amount,
                 isProrated: proration.isProrated
             });
@@ -5387,49 +5412,49 @@ const getExtraServiceApprovalRequests = async (vendorId) => {
             };
 
             return {
-            requestId: req._id,
-            category: req.category ? {
-                id: req.category._id || req.category,
-                name: req.category.name || null,
-                icon: req.category.icon || null
-            } : null,
-            subcategories: (req.subcategories || []).map((sub) => ({
-                id: sub?._id || sub,
-                name: sub?.name || null,
-                icon: sub?.icon || null
-            })),
-            requestedAt: req.requestedAt || null,
-            approvalStatus: req.approvalStatus,
-            adminRemark: req.adminRemark || '',
-            services: (req.services || []).map((svc) => mapService(svc, { fields: { status: resolveStatus(svc) } })),
-            approvedServices: (req.services || []).filter((svc) => {
-                const svcId = String(svc?._id || svc);
-                if (req.serviceStatuses && req.serviceStatuses.length > 0) {
-                    const ss = req.serviceStatuses.find(s => String(s.serviceId) === svcId);
-                    return ss ? ss.status === 'approved' : req.approvalStatus === 'approved';
-                }
-                return req.approvalStatus === 'approved';
-            }).map((svc) => mapService(svc)),
-            pendingServices: (req.services || []).filter((svc) => {
-                const svcId = String(svc?._id || svc);
-                if (req.serviceStatuses && req.serviceStatuses.length > 0) {
-                    const ss = req.serviceStatuses.find(s => String(s.serviceId) === svcId);
-                    return ss ? ss.status === 'pending' : req.approvalStatus === 'pending';
-                }
-                return req.approvalStatus === 'pending';
-            }).map((svc) => mapService(svc)),
-            disapprovedServices: req.serviceStatuses && req.serviceStatuses.length > 0
-                ? (req.serviceStatuses || [])
-                    .filter(s => s.status === 'disapproved')
-                    .map(s => {
-                        const svc = (req.services || []).find(service => String(service?._id || service) === String(s.serviceId));
-                        return svc
-                            ? mapService(svc)
-                            : { id: s.serviceId, title: 'Disapproved Service', photo: null };
-                    })
-                : (req.approvalStatus === 'disapproved'
-                    ? (req.services || []).map((svc) => mapService(svc))
-                    : []),
+                requestId: req._id,
+                category: req.category ? {
+                    id: req.category._id || req.category,
+                    name: req.category.name || null,
+                    icon: req.category.icon || null
+                } : null,
+                subcategories: (req.subcategories || []).map((sub) => ({
+                    id: sub?._id || sub,
+                    name: sub?.name || null,
+                    icon: sub?.icon || null
+                })),
+                requestedAt: req.requestedAt || null,
+                approvalStatus: req.approvalStatus,
+                adminRemark: req.adminRemark || '',
+                services: (req.services || []).map((svc) => mapService(svc, { fields: { status: resolveStatus(svc) } })),
+                approvedServices: (req.services || []).filter((svc) => {
+                    const svcId = String(svc?._id || svc);
+                    if (req.serviceStatuses && req.serviceStatuses.length > 0) {
+                        const ss = req.serviceStatuses.find(s => String(s.serviceId) === svcId);
+                        return ss ? ss.status === 'approved' : req.approvalStatus === 'approved';
+                    }
+                    return req.approvalStatus === 'approved';
+                }).map((svc) => mapService(svc)),
+                pendingServices: (req.services || []).filter((svc) => {
+                    const svcId = String(svc?._id || svc);
+                    if (req.serviceStatuses && req.serviceStatuses.length > 0) {
+                        const ss = req.serviceStatuses.find(s => String(s.serviceId) === svcId);
+                        return ss ? ss.status === 'pending' : req.approvalStatus === 'pending';
+                    }
+                    return req.approvalStatus === 'pending';
+                }).map((svc) => mapService(svc)),
+                disapprovedServices: req.serviceStatuses && req.serviceStatuses.length > 0
+                    ? (req.serviceStatuses || [])
+                        .filter(s => s.status === 'disapproved')
+                        .map(s => {
+                            const svc = (req.services || []).find(service => String(service?._id || service) === String(s.serviceId));
+                            return svc
+                                ? mapService(svc)
+                                : { id: s.serviceId, title: 'Disapproved Service', photo: null };
+                        })
+                    : (req.approvalStatus === 'disapproved'
+                        ? (req.services || []).map((svc) => mapService(svc))
+                        : []),
             };
         })
     };
@@ -5658,7 +5683,7 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
     let finalServices = selectedServices;
 
     const paymentRecord = await PaymentRecord.findOne({ orderId: razorpay_order_id });
-    
+
     if (!paymentRecord && !isAdminBypass) {
         throw new ApiError(404, 'Payment record not found');
     }
@@ -5724,7 +5749,7 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
                 }
             }
         });
-        
+
         // Also add subcategories from finalSubcategories if they belong to derived categories
         if (finalSubcategories && Array.isArray(finalSubcategories)) {
             const subcategoriesData = await Subcategory.find({ _id: { $in: finalSubcategories } }).lean();
@@ -5738,7 +5763,7 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
                 }
             });
         }
-        
+
         // Also add total fees to the first category if not already set
         if (categoriesToUpdate.size > 0 && paymentRecord) {
             const firstCatId = Array.from(categoriesToUpdate.keys())[0];
@@ -5800,7 +5825,7 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
             vendor.categorySubscriptions[existingSubIndex].subtotal = (vendor.categorySubscriptions[existingSubIndex].subtotal || 0) + data.subtotal;
             vendor.categorySubscriptions[existingSubIndex].gstAmount = (vendor.categorySubscriptions[existingSubIndex].gstAmount || 0) + data.gstAmount;
             vendor.categorySubscriptions[existingSubIndex].paymentRecordId = paymentRecord ? paymentRecord._id : vendor.categorySubscriptions[existingSubIndex].paymentRecordId;
-            
+
             vendor.categorySubscriptions[existingSubIndex].subcategories = Array.from(new Set([...(vendor.categorySubscriptions[existingSubIndex].subcategories || []), ...(data.subcategories || [])]));
             vendor.categorySubscriptions[existingSubIndex].services = Array.from(new Set([...(vendor.categorySubscriptions[existingSubIndex].services || []), ...(data.services || [])]));
         } else {
@@ -5873,9 +5898,9 @@ const verifyAddCategoryPayment = async (vendorId, { razorpay_order_id, razorpay_
         'purchase_success',
         'Services Activated',
         'Your newly purchased services are now active and you will start receiving bookings for them.',
-        { 
+        {
             categoryId: finalCategoryId ? String(finalCategoryId) : undefined,
-            serviceCount: finalServices ? finalServices.length : 0 
+            serviceCount: finalServices ? finalServices.length : 0
         }
     );
 
@@ -5964,7 +5989,7 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     // Derive renewalDays from the vendor's actual serviceRenewal cycle dates.
     // This ensures proration aligns to the real service expiry, not just the admin setting.
     const now = new Date();
-    const svcRenStart  = vendor.serviceRenewal?.startDate  ? new Date(vendor.serviceRenewal.startDate)  : null;
+    const svcRenStart = vendor.serviceRenewal?.startDate ? new Date(vendor.serviceRenewal.startDate) : null;
     const svcRenExpiry = vendor.serviceRenewal?.expiryDate ? new Date(vendor.serviceRenewal.expiryDate) : null;
     const svcRenActive = svcRenExpiry && svcRenExpiry > now;
 
@@ -5976,9 +6001,9 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
 
     // ── 1. Build the same purchased-service set as getAvailablePurchaseCategories ──
     const purchasedServiceIds = new Set((vendor.selectedServices || []).map(id => id.toString()));
-    const selectedCategoryIds    = new Set((vendor.selectedCategories    || []).map(id => id.toString()));
+    const selectedCategoryIds = new Set((vendor.selectedCategories || []).map(id => id.toString()));
     const selectedSubcategoryIds = new Set((vendor.selectedSubcategories || []).map(id => id.toString()));
-    const selectedTypeIds        = new Set((vendor.selectedServiceTypes || []).map(id => id.toString()));
+    const selectedTypeIds = new Set((vendor.selectedServiceTypes || []).map(id => id.toString()));
 
     for (const catSub of (vendor.categorySubscriptions || [])) {
         if (catSub.category) {
@@ -5998,20 +6023,20 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     const relevantServices = lookupIds.length
         ? await Service.find({ _id: { $in: lookupIds } }).lean()
         : [];
-    const purchasedCategoryIds   = new Set();
+    const purchasedCategoryIds = new Set();
     const purchasedSubcategoryIds = new Set();
-    const purchasedTypeIds        = new Set();
+    const purchasedTypeIds = new Set();
     for (const s of relevantServices) {
         if (purchasedServiceIds.has(s._id.toString())) {
-            if (s.category)    purchasedCategoryIds.add(s.category.toString());
+            if (s.category) purchasedCategoryIds.add(s.category.toString());
             if (s.subcategory) purchasedSubcategoryIds.add(s.subcategory.toString());
             if (s.serviceType) purchasedTypeIds.add(s.serviceType.toString());
         }
     }
 
-    const finalPurchasedCategoryIds    = new Set([...selectedCategoryIds,    ...purchasedCategoryIds]);
+    const finalPurchasedCategoryIds = new Set([...selectedCategoryIds, ...purchasedCategoryIds]);
     const finalPurchasedSubcategoryIds = new Set([...selectedSubcategoryIds, ...purchasedSubcategoryIds]);
-    const finalPurchasedTypeIds        = new Set([...selectedTypeIds,        ...purchasedTypeIds]);
+    const finalPurchasedTypeIds = new Set([...selectedTypeIds, ...purchasedTypeIds]);
 
     // ── 2. Load the requested services with their parent documents ──
     const targetServices = relevantServices.filter((s) => parsedIds.includes(s._id.toString()));
@@ -6026,15 +6051,15 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
         parentTypeIds.length ? ServiceType.find({ _id: { $in: parentTypeIds } }).lean() : [],
     ]);
 
-    const catMap  = new Map(allCategories.map(c => [c._id.toString(), c]));
-    const subMap  = new Map(allSubcategories.map(s => [s._id.toString(), s]));
+    const catMap = new Map(allCategories.map(c => [c._id.toString(), c]));
+    const subMap = new Map(allSubcategories.map(s => [s._id.toString(), s]));
     const typeMap = new Map(allTypes.map(t => [t._id.toString(), t]));
 
     // ── 3. Build line items; deduplicate parent charges across services ──
     // Track which parent IDs have already been charged IN THIS REQUEST
-    const chargedCategoryIds    = new Set();
+    const chargedCategoryIds = new Set();
     const chargedSubcategoryIds = new Set();
-    const chargedTypeIds        = new Set();
+    const chargedTypeIds = new Set();
 
     const items = [];
     let subtotal = 0;
@@ -6047,12 +6072,12 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
     let summaryExpiryDate = svcRenActive ? svcRenExpiry : null;
 
     for (const service of targetServices) {
-        const catId  = service.category?.toString();
-        const subId  = service.subcategory?.toString();
+        const catId = service.category?.toString();
+        const subId = service.subcategory?.toString();
         const typeId = service.serviceType?.toString();
 
-        const cat  = catId  ? catMap.get(catId)   : null;
-        const sub  = subId  ? subMap.get(subId)   : null;
+        const cat = catId ? catMap.get(catId) : null;
+        const sub = subId ? subMap.get(subId) : null;
         const type = typeId ? typeMap.get(typeId) : null;
 
         // --- Category charge ---
@@ -6085,7 +6110,7 @@ const calculatePurchasePaymentDetail = async (vendorId, serviceIds = []) => {
                 isProrated: catIsProrated,
                 purchasedDays: catPurchasedDays
             };
-            
+
             subtotal += catChargeToPay;
             originalSubtotal += catOriginalCharge;
             chargedCategoryIds.add(catId);
