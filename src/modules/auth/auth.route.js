@@ -122,6 +122,7 @@ router.patch(
   validateAdminChangePassword,
   authController.adminChangePassword
 );
+router.get('/admins/me', authenticate, authController.getAdminMe);
 router.post('/admins/logout', authController.adminLogout);
 
 // ======================== COMMON ROUTES (All roles) ========================

@@ -65,6 +65,15 @@ const authorize = (...roles) => {
 
     // Dynamic permission check for sub-admins
     if (req.user.role === 'sub_admin') {
+      const Admin = require('../models/Admin.model');
+      const userId = req.user.userId || req.user.id || req.user._id;
+      if (userId) {
+        const dbAdmin = await Admin.findById(userId).select('permissions');
+        if (dbAdmin && Array.isArray(dbAdmin.permissions)) {
+          req.user.permissions = dbAdmin.permissions;
+        }
+      }
+
       const url = req.originalUrl || req.url || '';
       let key = null;
       if (url.includes('/users')) key = 'users';
@@ -76,9 +85,10 @@ const authorize = (...roles) => {
       else if (url.includes('/disputes') || url.includes('/dispute')) key = 'disputes';
       else if (url.includes('/feedback')) key = 'feedback';
       else if (url.includes('/notifications') || url.includes('/notification')) key = 'notifications';
-      else if (url.includes('/settings')) key = 'settings';
+      else if (url.includes('/coupons') || url.includes('/coupon') || url.includes('/credit-plans')) key = 'coupons';
+      else if (url.includes('/settings') || url.includes('/membership-pricing')) key = 'settings';
 
-      if (key && key !== 'dashboard') {
+      if (key) {
         const perms = req.user.permissions || [];
         const isGet = req.method === 'GET';
         const hasView = perms.includes(key) || perms.includes(`${key}_view`);

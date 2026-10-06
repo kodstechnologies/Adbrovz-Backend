@@ -890,10 +890,30 @@ const getAllBookings = async (query = {}) => {
 
     obj.extraServicesAmount = extraServicesTotal;
     
-    const gstPercent = obj.pricing?.gstPercent || 0;
-    const taxableAmount = baseServicesTotal + extraServicesTotal + proposedServicesTotal + travelCharge + additionalCharges;
-    const gstAmount = Math.round((taxableAmount * (gstPercent / 100)) * 100) / 100;
+    const gstPercent = (obj.pricing?.gstPercent && obj.pricing.gstPercent > 0)
+      ? obj.pricing.gstPercent
+      : ((obj.pricing?.userGstPercent && obj.pricing.userGstPercent > 0)
+        ? obj.pricing.userGstPercent
+        : 18);
+    const couponDiscount = obj.pricing?.couponDiscount || 0;
+    const taxableAmount = Math.max(0, baseServicesTotal + extraServicesTotal + proposedServicesTotal + travelCharge + additionalCharges - couponDiscount);
+    let gstAmount = (obj.pricing?.gstAmount && obj.pricing.gstAmount > 0)
+      ? obj.pricing.gstAmount
+      : ((obj.pricing?.userGstAmount && obj.pricing.userGstAmount > 0)
+        ? obj.pricing.userGstAmount
+        : 0);
+    if (!gstAmount && gstPercent > 0 && taxableAmount > 0) {
+      gstAmount = Math.round((taxableAmount * (gstPercent / 100)) * 100) / 100;
+    }
     obj.computedTotal = Math.round((taxableAmount + gstAmount) * 100) / 100;
+
+    if (obj.pricing) {
+      obj.pricing.gstPercent = gstPercent;
+      obj.pricing.userGstPercent = gstPercent;
+      obj.pricing.gstAmount = gstAmount;
+      obj.pricing.userGstAmount = gstAmount;
+      obj.pricing.totalPrice = obj.computedTotal;
+    }
 
     if (['cancelled', 'auto_cancelled'].includes(obj.status)) {
       const cancelledBy = obj.cancellation?.cancelledBy || 'unknown';
@@ -995,9 +1015,29 @@ const getBookingDetails = async (bookingId) => {
   const proposedServicesTotal = (booking.proposedServices || []).reduce((sum, s) => sum + (s.finalPrice || 0), 0);
   const travelCharge = booking.pricing?.travelCharge || 0;
   const additionalCharges = booking.pricing?.additionalCharges || 0;
-  const gstPercent = booking.pricing?.gstPercent || 0;
-  const taxableAmount = baseServicesTotal + extraServicesTotal + proposedServicesTotal + travelCharge + additionalCharges;
-  const gstAmount = Math.round((taxableAmount * (gstPercent / 100)) * 100) / 100;
+  const couponDiscount = booking.pricing?.couponDiscount || 0;
+  
+  const rawGstPercent = (booking.pricing?.gstPercent && booking.pricing.gstPercent > 0)
+    ? booking.pricing.gstPercent
+    : ((booking.pricing?.userGstPercent && booking.pricing.userGstPercent > 0)
+      ? booking.pricing.userGstPercent
+      : await getSetting('pricing.user_gst_percent'));
+  const gstPercent = (rawGstPercent !== undefined && rawGstPercent !== null && Number(rawGstPercent) > 0) ? Number(rawGstPercent) : 18;
+
+  const rawBase = baseServicesTotal + extraServicesTotal + proposedServicesTotal;
+  const basePrice = Math.max(0, rawBase - couponDiscount);
+  const taxableAmount = basePrice + travelCharge + additionalCharges;
+
+  let gstAmount = (booking.pricing?.gstAmount && booking.pricing.gstAmount > 0)
+    ? booking.pricing.gstAmount
+    : ((booking.pricing?.userGstAmount && booking.pricing.userGstAmount > 0)
+      ? booking.pricing.userGstAmount
+      : 0);
+
+  if (!gstAmount && gstPercent > 0 && taxableAmount > 0) {
+    gstAmount = Math.round((taxableAmount * (gstPercent / 100)) * 100) / 100;
+  }
+
   const computedTotal = Math.round((taxableAmount + gstAmount) * 100) / 100;
 
   const pricingBreakdown = {
@@ -1006,10 +1046,12 @@ const getBookingDetails = async (bookingId) => {
     proposedServicesTotal,
     travelCharge,
     additionalCharges,
+    couponDiscount,
+    taxableAmount,
     gstAmount,
     gstPercent,
     computedTotal,
-    storedTotal: booking.pricing?.totalPrice || 0
+    storedTotal: booking.pricing?.totalPrice || computedTotal
   };
 
   const actions = [];
@@ -1023,6 +1065,25 @@ const getBookingDetails = async (bookingId) => {
   const latestDispute = (disputes && disputes.length > 0) ? disputes[disputes.length - 1] : null;
 
   const bookingJson = booking.toJSON();
+  if (bookingJson.pricing) {
+    bookingJson.pricing.gstPercent = gstPercent;
+    bookingJson.pricing.userGstPercent = gstPercent;
+    bookingJson.pricing.gstAmount = gstAmount;
+    bookingJson.pricing.userGstAmount = gstAmount;
+    bookingJson.pricing.totalPrice = computedTotal;
+  } else {
+    bookingJson.pricing = {
+      basePrice,
+      travelCharge,
+      additionalCharges,
+      couponDiscount,
+      gstPercent,
+      userGstPercent: gstPercent,
+      gstAmount,
+      userGstAmount: gstAmount,
+      totalPrice: computedTotal
+    };
+  }
   const cancelledBy = bookingJson.cancellation?.cancelledBy;
   const isCancelled = ['cancelled', 'auto_cancelled'].includes(bookingJson.status);
 

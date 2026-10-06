@@ -750,6 +750,24 @@ const adminChangePassword = async (adminId, { currentPassword, newPassword, conf
   return { message: 'Password updated successfully' };
 };
 
+const getAdminMe = async (adminId) => {
+  const admin = await Admin.findById(adminId).select('-password');
+  if (!admin) {
+    throw new ApiError(404, 'Admin profile not found');
+  }
+  return {
+    admin: {
+      id: admin._id,
+      username: admin.username,
+      name: admin.name,
+      email: admin.email,
+      role: admin.role,
+      permissions: admin.permissions || [],
+      createdAt: admin.createdAt,
+    }
+  };
+};
+
 // ======================== VERIFY OTP (for user signup) ========================
 const verifySignupOTP = async (phoneNumber, otp, role = 'user', req = null) => {
   let model, otpKey;
@@ -1657,6 +1675,7 @@ module.exports = {
   adminLogin,
   superAdminResetPassword,
   adminChangePassword,
+  getAdminMe,
   verifySignupOTP,
   login,
   sendOTP,

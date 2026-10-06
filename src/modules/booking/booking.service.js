@@ -918,21 +918,36 @@ const _formatBooking = (bookingDoc, role) => {
     }
 
     // Override standard GST pricing with user GST pricing for user and vendor views
-    if (bookingObj.pricing && (role === 'user' || role === 'vendor' || role === 'Vendor')) {
-        const userGstPercent = bookingObj.pricing.userGstPercent > 0
+    if (!bookingObj.pricing) {
+        bookingObj.pricing = { basePrice: 0, travelCharge: 0, additionalCharges: 0 };
+    }
+    if (role === 'user' || role === 'vendor' || role === 'Vendor') {
+        const userGstPercent = (bookingObj.pricing.userGstPercent && bookingObj.pricing.userGstPercent > 0)
             ? bookingObj.pricing.userGstPercent
-            : (bookingObj.pricing.gstPercent > 0 ? bookingObj.pricing.gstPercent : 0);
-        const userGstAmount = bookingObj.pricing.userGstAmount > 0
-            ? bookingObj.pricing.userGstAmount
-            : (bookingObj.pricing.gstAmount > 0 ? bookingObj.pricing.gstAmount : 0);
+            : ((bookingObj.pricing.gstPercent && bookingObj.pricing.gstPercent > 0)
+                ? bookingObj.pricing.gstPercent
+                : 18);
         
         const base = bookingObj.pricing.basePrice || 0;
         const travel = bookingObj.pricing.travelCharge || 0;
         const add = bookingObj.pricing.additionalCharges || 0;
-        const taxable = base + travel + add;
+        const couponDisc = bookingObj.pricing.couponDiscount || 0;
+        const taxable = Math.max(0, base + travel + add - couponDisc);
+
+        let userGstAmount = (bookingObj.pricing.userGstAmount && bookingObj.pricing.userGstAmount > 0)
+            ? bookingObj.pricing.userGstAmount
+            : ((bookingObj.pricing.gstAmount && bookingObj.pricing.gstAmount > 0)
+                ? bookingObj.pricing.gstAmount
+                : 0);
         
+        if (!userGstAmount && userGstPercent > 0 && taxable > 0) {
+            userGstAmount = Math.round((taxable * (userGstPercent / 100)) * 100) / 100;
+        }
+
         bookingObj.pricing.gstPercent = userGstPercent;
+        bookingObj.pricing.userGstPercent = userGstPercent;
         bookingObj.pricing.gstAmount = userGstAmount;
+        bookingObj.pricing.userGstAmount = userGstAmount;
         bookingObj.pricing.totalPrice = Math.round((taxable + userGstAmount) * 100) / 100;
     }
 
@@ -2871,7 +2886,9 @@ const recalculateBookingPrice = async (booking) => {
     }
 
     const rawGstPercent = await adminService.getSetting('pricing.user_gst_percent');
-    const gstPercent = (rawGstPercent !== undefined && rawGstPercent !== null) ? Number(rawGstPercent) : 0;
+    const gstPercent = (rawGstPercent !== undefined && rawGstPercent !== null && Number(rawGstPercent) > 0) 
+        ? Number(rawGstPercent) 
+        : (booking.pricing?.userGstPercent || booking.pricing?.gstPercent || 18);
     
     const travelCharge = booking.pricing?.travelCharge || 0;
     const additionalCharges = booking.pricing?.additionalCharges || 0;
