@@ -6,7 +6,7 @@ const MESSAGES = require('../../constants/messages');
 
 const formatAddress = (doc) => ({
   id: doc._id.toString(),
-  title: doc.title,
+  title: doc.title || '',
   address: doc.address,
   areaName: doc.areaName || '',
   phoneNo: doc.phoneNo,
@@ -14,6 +14,7 @@ const formatAddress = (doc) => ({
   long: doc.long ?? null,
   pincode: doc.pincode || '',
   isDefault: doc.isDefault,
+  isLive: doc.isLive ?? false,
   createdAt: doc.createdAt,
   updatedAt: doc.updatedAt,
 });
@@ -75,14 +76,15 @@ const addUserAddress = async (userId, payload) => {
 
   const address = await Address.create({
     user: userId,
-    title: payload.title,
+    title: payload.title || '',
     address: payload.address,
     phoneNo: payload.phoneNo,
+    pincode,
     isDefault: shouldBeDefault,
+    isLive: payload.isLive !== undefined ? payload.isLive : false,
     ...(payload.areaName !== undefined ? { areaName: payload.areaName } : {}),
     ...(lat !== undefined ? { lat } : {}),
     ...(long !== undefined ? { long } : {}),
-    ...(pincode !== undefined ? { pincode } : {}),
   });
 
   if (shouldBeDefault && existingCount > 0) {
@@ -140,6 +142,7 @@ const updateUserAddress = async (userId, addressId, payload) => {
   if (payload.address !== undefined) address.address = payload.address;
   if (payload.phoneNo !== undefined) address.phoneNo = payload.phoneNo;
   if (payload.areaName !== undefined) address.areaName = payload.areaName;
+  if (payload.isLive !== undefined) address.isLive = payload.isLive;
 
   const { lat, long } = resolveLatLong(payload);
   if (lat !== undefined) address.lat = lat;
@@ -186,9 +189,71 @@ const deleteUserAddress = async (userId, addressId) => {
   return { message: 'Address deleted successfully' };
 };
 
+const saveOrUpdateLiveAddress = async (userId, payload) => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new ApiError(404, MESSAGES.USER.NOT_FOUND);
+  }
+
+  const { lat, long } = resolveLatLong(payload);
+  const pincode = resolvePincode(payload);
+
+  let liveAddress = await Address.findOne({ user: userId, isLive: true });
+
+  if (liveAddress) {
+    if (payload.title !== undefined) liveAddress.title = payload.title;
+    if (payload.address !== undefined) liveAddress.address = payload.address;
+    if (payload.phoneNo !== undefined) liveAddress.phoneNo = payload.phoneNo;
+    if (payload.areaName !== undefined) liveAddress.areaName = payload.areaName;
+    if (lat !== undefined) liveAddress.lat = lat;
+    if (long !== undefined) liveAddress.long = long;
+    if (pincode !== undefined) liveAddress.pincode = pincode;
+    liveAddress.isLive = true;
+    await liveAddress.save();
+  } else {
+    liveAddress = await Address.create({
+      user: userId,
+      title: payload.title || '',
+      address: payload.address,
+      phoneNo: payload.phoneNo,
+      pincode,
+      isDefault: false,
+      isLive: true,
+      ...(payload.areaName !== undefined ? { areaName: payload.areaName } : {}),
+      ...(lat !== undefined ? { lat } : {}),
+      ...(long !== undefined ? { long } : {}),
+    });
+
+    user.addresses = user.addresses || [];
+    if (!user.addresses.includes(liveAddress._id)) {
+      user.addresses.push(liveAddress._id);
+      await user.save();
+    }
+  }
+
+  await Address.updateMany(
+    { user: userId, _id: { $ne: liveAddress._id } },
+    { $set: { isLive: false } }
+  );
+
+  const updated = await Address.findById(liveAddress._id);
+  return formatAddress(updated);
+};
+
+const setUserDefaultAddress = async (userId, addressId) => {
+  const address = await getUserAddressOrThrow(userId, addressId);
+
+  await setDefaultAddress(userId, address._id);
+
+  const updated = await Address.findById(address._id);
+  return formatAddress(updated);
+};
+
 module.exports = {
   addUserAddress,
   getUserAddresses,
   updateUserAddress,
   deleteUserAddress,
+  saveOrUpdateLiveAddress,
+  setUserDefaultAddress,
 };

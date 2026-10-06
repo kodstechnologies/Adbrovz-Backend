@@ -10,8 +10,8 @@ const addressSchema = new mongoose.Schema(
     },
     title: {
       type: String,
-      required: true,
       trim: true,
+      default: '',
     },
     address: {
       type: String,
@@ -27,6 +27,10 @@ const addressSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isLive: {
+      type: Boolean,
+      default: false,
+    },
     lat: {
       type: Number,
       default: null,
@@ -37,12 +41,11 @@ const addressSchema = new mongoose.Schema(
     },
     pincode: {
       type: String,
-      trim: true,
-      default: '',
-    },
-      areaName: {
-      type: String,
       required: true,
+      trim: true,
+    },
+    areaName: {
+      type: String,
       default: '',
       trim: true,
     },
@@ -65,3 +68,4 @@ addressSchema.index({ user: 1, isDefault: 1 });
 const Address = mongoose.model('Address', addressSchema);
 
 module.exports = Address;
+

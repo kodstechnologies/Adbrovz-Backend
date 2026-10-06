@@ -31,6 +31,8 @@ const {
   validateForgotPin,
   validateAddUserAddress,
   validateUpdateUserAddress,
+  validateSaveLiveAddress,
+  validateSetDefaultAddress,
 } = require('../../validators/auth.validator');
 const { authLimiter, otpLimiter } = require('../../middlewares/rateLimiter.middleware');
 const { authenticate, authorize, optionalAuth } = require('../../middlewares/auth.middleware');
@@ -65,7 +67,8 @@ router.post('/users/address', authenticate, authorize(ROLES.USER), validateAddUs
 router.get('/users/address', authenticate, authorize(ROLES.USER), authController.getUserAddresses);
 router.patch('/users/address/:addressId', authenticate, authorize(ROLES.USER), validateUpdateUserAddress, authController.updateUserAddress);
 router.delete('/users/address/:addressId', authenticate, authorize(ROLES.USER), authController.deleteUserAddress);
-
+router.patch('/users/live-address', authenticate, authorize(ROLES.USER), validateSaveLiveAddress, authController.saveLiveAddress);
+router.get('/users/set-default-address/:addressId', authenticate, authorize(ROLES.USER), validateSetDefaultAddress, authController.setDefaultAddress);
 // ======================== VENDOR ROUTES ========================
 router.post('/vendors/signup', authLimiter, uploadVendorDocs, processVendorDocs, validateVendorSignup, authController.vendorSignup);
 router.post('/vendors/send-otp', otpLimiter, authController.sendVendorSignupOtp);

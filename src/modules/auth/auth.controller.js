@@ -124,6 +124,17 @@ const deleteUserAddress = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, result, result.message));
 });
 
+const saveLiveAddress = asyncHandler(async (req, res) => {
+  const result = await addressService.saveOrUpdateLiveAddress(req.user.id, req.body);
+  res.status(200).json(new ApiResponse(200, result, 'Live address saved successfully'));
+});
+
+const setDefaultAddress = asyncHandler(async (req, res) => {
+  const { addressId } = req.params;
+  const result = await addressService.setUserDefaultAddress(req.user.id, addressId);
+  res.status(200).json(new ApiResponse(200, result, 'Default address set successfully'));
+});
+
 
 
 
@@ -355,6 +366,8 @@ module.exports = {
   getUserAddresses,
   updateUserAddress,
   deleteUserAddress,
+  saveLiveAddress,
+  setDefaultAddress,
   sendUserPhoneOtp,
   verifyUserPhoneOtp,
   userForgotPin,

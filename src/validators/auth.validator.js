@@ -407,15 +407,11 @@ const vendorChangePinSchema = Joi.object({
   });
 
 const addUserAddressSchema = Joi.object({
-  title: Joi.string().trim().min(1).max(50).required().messages({
-    'any.required': 'Title is required',
-  }),
+  title: Joi.string().trim().max(50).optional().allow('', null),
   address: Joi.string().trim().min(3).max(500).required().messages({
     'any.required': 'Address is required',
   }),
-  areaName: Joi.string().trim().min(1).max(200).required().messages({
-    'any.required': 'Area name is required',
-  }),
+  areaName: Joi.string().trim().max(200).optional().allow('', null),
   phoneNo: Joi.string()
     .pattern(phonePattern)
     .required()
@@ -431,11 +427,15 @@ const addUserAddressSchema = Joi.object({
   pinCode: Joi.string().trim().min(4).max(10).optional(),
   postalCode: Joi.string().trim().min(4).max(10).optional(),
   isDefault: Joi.boolean().optional(),
+  isLive: Joi.boolean().optional(),
+}).or('pincode', 'pinCode', 'postalCode').messages({
+  'object.missing': 'Pincode is required',
 });
 
 const updateUserAddressSchema = Joi.object({
-  title: Joi.string().trim().min(1).max(50).optional(),
+  title: Joi.string().trim().max(50).optional().allow('', null),
   address: Joi.string().trim().min(3).max(500).optional(),
+  areaName: Joi.string().trim().max(200).optional().allow('', null),
   phoneNo: Joi.string()
     .pattern(phonePattern)
     .optional()
@@ -450,6 +450,7 @@ const updateUserAddressSchema = Joi.object({
   pinCode: Joi.string().trim().min(4).max(10).optional(),
   postalCode: Joi.string().trim().min(4).max(10).optional(),
   isDefault: Joi.boolean().optional(),
+  isLive: Joi.boolean().optional(),
 }).min(1);
 
 const sendPhoneOtpSchema = Joi.object({
@@ -541,6 +542,18 @@ const userVerifyContactSchema = Joi.object({
 });
 
 
+const setDefaultAddressSchema = Joi.object({
+  addressId: Joi.string()
+    .hex()
+    .length(24)
+    .required()
+    .messages({
+      'string.hex': 'Invalid address ID',
+      'string.length': 'Invalid address ID',
+      'any.required': 'Address ID is required',
+    }),
+});
+
 // Export validation middlewares
 module.exports = {
   validateUserSignup: validate(signupSchema, 'body'),
@@ -572,6 +585,8 @@ module.exports = {
   validateVendorChangePin: validate(vendorChangePinSchema, 'body'),
   validateAddUserAddress: validate(addUserAddressSchema, 'body'),
   validateUpdateUserAddress: validate(updateUserAddressSchema, 'body'),
+  validateSaveLiveAddress: validate(addUserAddressSchema, 'body'),
+  validateSetDefaultAddress: validate(setDefaultAddressSchema, 'params'),
 };
 
 
