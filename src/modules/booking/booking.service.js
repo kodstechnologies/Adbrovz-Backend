@@ -907,7 +907,7 @@ const normalizeVendorPhoto = (vendor) => {
 /**
  * Helper to consistently format a booking object (convert to IST, handle OTP visibility, etc.)
  */
-const _formatBooking = (bookingDoc, role) => {
+const _formatBooking = (bookingDoc, role, maxRescheduleParam) => {
     let bookingObj;
     if (bookingDoc && typeof bookingDoc.toObject === 'function') {
         bookingObj = bookingDoc.toObject({ virtuals: true });
@@ -1160,7 +1160,7 @@ const _formatBooking = (bookingDoc, role) => {
     }
 
     // Add reschedule info
-    const maxReschedule = 2;
+    const maxReschedule = (maxRescheduleParam !== undefined && maxRescheduleParam !== null && !isNaN(Number(maxRescheduleParam))) ? Number(maxRescheduleParam) : 3;
     const rescheduleAllowed = bookingObj.status === 'pending' && (bookingObj.rescheduleCount || 0) < maxReschedule;
     let rescheduleReason = "";
     if (bookingObj.status === 'completed') rescheduleReason = "Booking already completed";
@@ -1277,7 +1277,9 @@ const getBookingDetails = async (bookingId, userId, role) => {
         throw new ApiError(404, 'Booking not found');
     }
 
-    const formattedBooking = _formatBooking(booking, role);
+    const rawRescheduleLimit = await adminService.getSetting('bookings.reschedule_limit');
+    const rescheduleLimit = (rawRescheduleLimit !== undefined && rawRescheduleLimit !== null && !isNaN(Number(rawRescheduleLimit))) ? Number(rawRescheduleLimit) : 3;
+    const formattedBooking = _formatBooking(booking, role, rescheduleLimit);
     
     // Check if a dispute exists for this booking
     const dispute = await Dispute.findOne({ booking: booking._id }).lean();
@@ -2530,7 +2532,8 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
     const booking = await findBookingByUser(bookingId, userId);
     if (!booking) throw new ApiError(404, 'Booking not found');
 
-    const rescheduleLimit = (await adminService.getSetting('bookings.reschedule_limit')) || 2;
+    const rawRescheduleLimit = await adminService.getSetting('bookings.reschedule_limit');
+    const rescheduleLimit = (rawRescheduleLimit !== undefined && rawRescheduleLimit !== null && !isNaN(Number(rawRescheduleLimit))) ? Number(rawRescheduleLimit) : 3;
     if (booking.rescheduleCount >= rescheduleLimit) {
         throw new ApiError(400, `Max reschedule limit of ${rescheduleLimit} reached`);
     }
@@ -2650,7 +2653,9 @@ const getBookingsByUser = async (userId) => {
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
     
-    const formattedBookings = bookings.map(b => _formatBooking(b, 'user'));
+    const rawRescheduleLimit = await adminService.getSetting('bookings.reschedule_limit');
+    const rescheduleLimit = (rawRescheduleLimit !== undefined && rawRescheduleLimit !== null && !isNaN(Number(rawRescheduleLimit))) ? Number(rawRescheduleLimit) : 3;
+    const formattedBookings = bookings.map(b => _formatBooking(b, 'user', rescheduleLimit));
 
     // Batch check for feedback to avoid N+1 queries
     const bookingIds = bookings.map(b => b._id);
@@ -2687,7 +2692,9 @@ const getBookingsByVendor = async (vendorId) => {
         .populate('user', 'name phoneNumber photo')
         .populate('vendor', 'name phoneNumber photo documents.photo.url')
         .sort({ createdAt: -1 });
-    return bookings.map(b => _formatBooking(b, 'vendor'));
+    const rawRescheduleLimit = await adminService.getSetting('bookings.reschedule_limit');
+    const rescheduleLimit = (rawRescheduleLimit !== undefined && rawRescheduleLimit !== null && !isNaN(Number(rawRescheduleLimit))) ? Number(rawRescheduleLimit) : 3;
+    return bookings.map(b => _formatBooking(b, 'vendor', rescheduleLimit));
 };
 
 /**
@@ -2706,7 +2713,9 @@ const getCompletedBookingsByUser = async (userId) => {
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
     
-    const formattedBookings = bookings.map(b => _formatBooking(b, 'user'));
+    const rawRescheduleLimit = await adminService.getSetting('bookings.reschedule_limit');
+    const rescheduleLimit = (rawRescheduleLimit !== undefined && rawRescheduleLimit !== null && !isNaN(Number(rawRescheduleLimit))) ? Number(rawRescheduleLimit) : 3;
+    const formattedBookings = bookings.map(b => _formatBooking(b, 'user', rescheduleLimit));
 
     // Batch check for feedback
     const bookingIds = bookings.map(b => b._id);
@@ -2739,8 +2748,10 @@ const getCancelledBookings = async (userId, role) => {
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
 
+    const rawRescheduleLimit = await adminService.getSetting('bookings.reschedule_limit');
+    const rescheduleLimit = (rawRescheduleLimit !== undefined && rawRescheduleLimit !== null && !isNaN(Number(rawRescheduleLimit))) ? Number(rawRescheduleLimit) : 3;
     return bookings.map(b => {
-        const obj = _formatBooking(b, role);
+        const obj = _formatBooking(b, role, rescheduleLimit);
         const cancelledByLabel = {
             'user': role === 'vendor' ? 'Cancelled by User' : 'Cancelled by You',
             'vendor': role === 'user' ? 'Cancelled by Vendor' : 'Cancelled by You',
