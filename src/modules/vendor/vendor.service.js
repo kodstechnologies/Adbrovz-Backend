@@ -1478,6 +1478,10 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
         return {
             vendorId: vendor._id,
             vendorName: vendor.name,
+            vendorPhone: vendor.phoneNumber || null,
+            vendorEmail: vendor.email || null,
+            phoneNumber: vendor.phoneNumber || null,
+            email: vendor.email || null,
             totalFee: 0,
             duration: `${calc.validityDays} days`,
             status: 'completed',
@@ -1530,6 +1534,10 @@ const createMembershipOrder = async (vendorId, payload = {}) => {
     return {
         vendorId: vendor._id,
         vendorName: vendor.name,
+        vendorPhone: vendor.phoneNumber || null,
+        vendorEmail: vendor.email || null,
+        phoneNumber: vendor.phoneNumber || null,
+        email: vendor.email || null,
         totalFee,
         duration: `${calc.validityDays} days`,
         status: razorpayOrder.status,  // 'created'
@@ -4132,6 +4140,10 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
         return {
             vendorId: vendorId.toString(),
             vendorName: vendor.name || null,
+            vendorPhone: vendor.phoneNumber || null,
+            vendorEmail: vendor.email || null,
+            phoneNumber: vendor.phoneNumber || null,
+            email: vendor.email || null,
             planId: feeDetails.planId,
             membershipAmount,
             vendorBaseMembershipFee: membershipAmount,
@@ -4193,11 +4205,13 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
         throw new ApiError(400, `Payment Error: ${errorMsg}`);
     }
 
-    const vendor = await Vendor.findById(vendorId).select('name');
+    const vendor = await Vendor.findById(vendorId).select('name phoneNumber email');
 
     return {
         vendorId: vendorId.toString(),
         vendorName: vendor?.name || null,
+        vendorPhone: vendor?.phoneNumber || null,
+        vendorEmail: vendor?.email || null,
         planId: feeDetails.planId,
         membershipAmount,
         vendorBaseMembershipFee: membershipAmount,
