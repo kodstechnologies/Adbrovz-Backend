@@ -185,7 +185,7 @@ console.log('DEBUG: result', result);
             createdAt: vendor?.servicesSelectedAt || vendor?.createdAt || null,
         };
         if (primaryApprovalStatus === 'approved') {
-            item.approvedAt = vendor?.servicesApprovedAt || null;
+            item.updatedAt = vendor?.servicesApprovedAt || null;
         }
         pushService(item);
     });
@@ -198,7 +198,7 @@ console.log('DEBUG: result', result);
             approvalStatus: svc.isActive === false ? 'disabled' : 'disapproved',
             isExtraService: false,
             createdAt: vendor?.servicesSelectedAt || vendor?.createdAt || null,
-            rejectedAt: vendor?.servicesApprovedAt || null
+            updatedAt: vendor?.servicesApprovedAt || null
         });
     });
 
@@ -242,10 +242,8 @@ console.log('DEBUG: result', result);
                     createdAt: request.requestedAt || request.createdAt || null
                 };
 
-                if (serviceStatus === 'approved') {
-                    item.approvedAt = serviceReviewedAt;
-                } else if (serviceStatus === 'disapproved') {
-                    item.rejectedAt = serviceReviewedAt;
+                if (serviceStatus === 'approved' || serviceStatus === 'disapproved') {
+                    item.updatedAt = serviceReviewedAt;
                 }
 
                 pushService(item);
