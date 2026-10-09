@@ -177,12 +177,17 @@ console.log('DEBUG: result', result);
     );
 
     primarySource.forEach((service) => {
-        pushService({
+        const item = {
             id: service.id,
             title: service.title,
             approvalStatus: service.isActive === false ? 'disabled' : primaryApprovalStatus,
-            isExtraService: false
-        });
+            isExtraService: false,
+            createdAt: vendor?.servicesSelectedAt || vendor?.createdAt || null,
+        };
+        if (primaryApprovalStatus === 'approved') {
+            item.approvedAt = vendor?.servicesApprovedAt || null;
+        }
+        pushService(item);
     });
 
     (vendor?.disapprovedServices || []).forEach((svc) => {
@@ -191,7 +196,9 @@ console.log('DEBUG: result', result);
             id: svc._id ? svc._id.toString() : String(svc.id || svc),
             title: svc.title || 'Service',
             approvalStatus: svc.isActive === false ? 'disabled' : 'disapproved',
-            isExtraService: false
+            isExtraService: false,
+            createdAt: vendor?.servicesSelectedAt || vendor?.createdAt || null,
+            rejectedAt: vendor?.servicesApprovedAt || null
         });
     });
 
@@ -210,25 +217,38 @@ console.log('DEBUG: result', result);
                 const svcId = svc._id ? svc._id.toString() : String(svc.id || svc);
 
                 let serviceStatus = request.approvalStatus || 'pending';
+                let serviceReviewedAt = request.reviewedAt || null;
                 if (request.serviceStatuses && request.serviceStatuses.length > 0) {
                     const serviceStatusEntry = request.serviceStatuses.find(
                         s => String(s.serviceId) === svcId
                     );
                     if (serviceStatusEntry) {
                         serviceStatus = serviceStatusEntry.status;
+                        if (serviceStatusEntry.reviewedAt) {
+                            serviceReviewedAt = serviceStatusEntry.reviewedAt;
+                        }
                     }
                 }
 
                 serviceStatus = normalizeApprovalStatus(serviceStatus);
                 if (svc.isActive === false) serviceStatus = 'disabled';
 
-                pushService({
+                const item = {
                     id: svcId,
                     title: `${svc.title || 'Service'} (Extra Service)`,
                     approvalStatus: serviceStatus,
                     isExtraService: true,
-                    requestId: request._id ? request._id.toString() : undefined
-                });
+                    requestId: request._id ? request._id.toString() : undefined,
+                    createdAt: request.requestedAt || request.createdAt || null
+                };
+
+                if (serviceStatus === 'approved') {
+                    item.approvedAt = serviceReviewedAt;
+                } else if (serviceStatus === 'disapproved') {
+                    item.rejectedAt = serviceReviewedAt;
+                }
+
+                pushService(item);
             });
         });
     }
