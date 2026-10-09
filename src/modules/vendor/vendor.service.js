@@ -4128,8 +4128,6 @@ const createMembershipRenewalOrder = async (vendorId, { planId, membershipId, du
             status: 'COMPLETED'
         });
 
-        const membershipAmount = Number(feeDetails?.breakdown?.basePlan?.price || 0);
-        const renewalAmount = Math.max(0, Number(feeDetails.subtotal || 0) - membershipAmount);
         const duration = `${feeDetails.validityDays} days`;
         return {
             vendorId: vendorId.toString(),
