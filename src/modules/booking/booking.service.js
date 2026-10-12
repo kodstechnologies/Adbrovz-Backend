@@ -139,7 +139,7 @@ const createBookingRequest = async (
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
-        // isOnline: true, // Removed strict online requirement to allow pre-check for all active vendors
+        isOnline: true,
         registrationStep: 'COMPLETED',
         deletedAt: null,
         $and: [
@@ -267,6 +267,11 @@ const acceptBooking = async (vendorId, bookingId) => {
     if (!vendor) {
         await Booking.findByIdAndUpdate(booking._id, { status: 'pending_acceptance' });
         throw new ApiError(404, 'Vendor not found');
+    }
+
+    if (!vendor.isOnline) {
+        await Booking.findByIdAndUpdate(booking._id, { status: 'pending_acceptance' });
+        throw new ApiError(400, 'You must be online to accept bookings.');
     }
 
     // ── Schedule overlap check ──
@@ -1735,6 +1740,7 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
     }
 
     const geoQuery = {
+        isOnline: true,
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
@@ -4345,6 +4351,8 @@ const broadcastVendorLocation = async (vendorId, lat, lng) => {
 const resendActiveRequestsToVendor = async (vendorId) => {
     try {
         const vIdStr = vendorId.toString();
+        const vendor = await Vendor.findById(vIdStr).select('isOnline');
+        if (!vendor || !vendor.isOnline) return;
         // Find all bookings that are in 'pending_acceptance' status,
         // where this vendor is in the 'notifiedVendors' array,
         // and NOT in 'rejectedVendors' or 'laterVendors' arrays

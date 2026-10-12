@@ -91,8 +91,8 @@ const registerVendorSocket = async (vendorId, socketId) => {
             return;
         }
 
-        await Vendor.findByIdAndUpdate(vId, { isOnline: true });
-        console.log(`📡 Vendor ${vId} marked online in DB`);
+        // Preserve vendor's manual isOnline duty status in DB
+        console.log(`📡 Vendor ${vId} socket registered (DB isOnline preserved as manual toggle)`);
     } catch (err) {
         console.error(`❌ Failed to update vendor ${vId} online status:`, err.message);
     }
@@ -979,14 +979,7 @@ const initSocket = (server) => {
                             const currentSockets = activeVendors.get(vendorId) || [];
                             if (currentSockets.length === 0) {
                                 activeVendors.delete(vendorId);
-                                console.log(`   Vendor ${vendorId} fully offline after grace period.`);
-                                try {
-                                    const Vendor = require('./models/Vendor.model');
-                                    await Vendor.findByIdAndUpdate(vendorId, { isOnline: false });
-                                    console.log(`🔴 Vendor ${vendorId} marked offline in DB`);
-                                } catch (err) {
-                                    console.error(`⚠️ Failed to update vendor ${vendorId} offline status:`, err.message);
-                                }
+                                console.log(`   Vendor ${vendorId} socket disconnected after grace period (activeVendors socket cleared, DB isOnline preserved for FCM push)`);
                             } else {
                                 console.log(`   Vendor ${vendorId} reconnected during grace period. Keeping online.`);
                             }
