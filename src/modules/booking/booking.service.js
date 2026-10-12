@@ -110,10 +110,10 @@ const createBookingRequest = async (
     // we cancel any existing bookings that are still pending acceptance.
     await Booking.updateMany(
         { user: userId, status: 'pending_acceptance' },
-        { 
-            $set: { 
-                status: 'cancelled', 
-                'cancellation.cancelledBy': 'system', 
+        {
+            $set: {
+                status: 'cancelled',
+                'cancellation.cancelledBy': 'system',
                 'cancellation.reason': 'Auto-cancelled because user created a new booking request.',
                 'cancellation.cancelledAt': new Date()
             },
@@ -219,7 +219,7 @@ const createBookingRequest = async (
         availableVendorsCount: notifiedVendors.length,
         notifiedVendors,
         searchTimeoutMins,
-        message: notifiedVendors.length > 0 
+        message: notifiedVendors.length > 0
             ? `Booking broadcasted to ${notifiedVendors.length} nearby vendors.`
             : 'Booking created, but no vendors were found nearby at this moment.'
     };
@@ -300,51 +300,51 @@ const acceptBooking = async (vendorId, bookingId) => {
         }
     }
 
-        // ── Calculate travel charge based on distance ──
-        let distance = 0;
-        if (vendor?.liveLocation?.coordinates && source.location?.latitude) {
-            let [vLng, vLat] = vendor.liveLocation.coordinates;
-            // In India, longitude is always > 60 and latitude is < 40.
-            // If the database has them swapped, we auto-detect and correct them.
-            if (vLng < vLat) {
-                [vLng, vLat] = [vLat, vLng];
-            }
-            // Ignore [0,0] as it's usually a default/invalid location (off Africa coast)
-            // Also ensure coordinates are within reasonable bounds for India
-            if (vLat !== 0 && vLng !== 0 && vLat > 5 && vLat < 40 && vLng > 65 && vLng < 100) {
-                const { latitude: bLat, longitude: bLng } = source.location;
-                distance = calculateDistance(vLat, vLng, bLat, bLng);
-                console.log(`[DISTANCE] Calculated distance: ${distance} km between vendor (${vLat}, ${vLng}) and booking (${bLat}, ${bLng})`);
-            } else {
-                console.warn(`[DISTANCE] Vendor ${vendorId} has invalid or default coordinates: [${vLng}, ${vLat}]. Travel charge will use 0km.`);
-            }
+    // ── Calculate travel charge based on distance ──
+    let distance = 0;
+    if (vendor?.liveLocation?.coordinates && source.location?.latitude) {
+        let [vLng, vLat] = vendor.liveLocation.coordinates;
+        // In India, longitude is always > 60 and latitude is < 40.
+        // If the database has them swapped, we auto-detect and correct them.
+        if (vLng < vLat) {
+            [vLng, vLat] = [vLat, vLng];
         }
+        // Ignore [0,0] as it's usually a default/invalid location (off Africa coast)
+        // Also ensure coordinates are within reasonable bounds for India
+        if (vLat !== 0 && vLng !== 0 && vLat > 5 && vLat < 40 && vLng > 65 && vLng < 100) {
+            const { latitude: bLat, longitude: bLng } = source.location;
+            distance = calculateDistance(vLat, vLng, bLat, bLng);
+            console.log(`[DISTANCE] Calculated distance: ${distance} km between vendor (${vLat}, ${vLng}) and booking (${bLat}, ${bLng})`);
+        } else {
+            console.warn(`[DISTANCE] Vendor ${vendorId} has invalid or default coordinates: [${vLng}, ${vLat}]. Travel charge will use 0km.`);
+        }
+    }
 
-        const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 10;
-        
-        // Use Math.ceil to ensure any fractional distance counts towards the next kilometer
-        // and ensure a minimum travel distance of 1 km if the vendor is located elsewhere (distance > 0)
-        let travelDistance = distance > 0 ? Math.max(1, Math.ceil(distance)) : 0;
-        let travelCharge = (travelDistance * perKmCharge);
-        
-        // Cap travel charge at a reasonable amount (e.g., ₹500)
-        if (travelCharge > 500) travelCharge = 500;
-        travelCharge = Math.round(travelCharge);
+    const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 10;
 
-        // Finalize existing Booking
-        booking.vendor = vendorId;
-        booking.otp = { startOTP: generateOTP(4), completionOTP: null };
-        if (gracePeriodEnd) booking.gracePeriodEnd = gracePeriodEnd;
-        booking.statusHistory.push({ status: 'pending', timestamp: new Date(), actor: 'vendor' });
-        
-        // Update travel charge and total price with GST
-        booking.pricing = booking.pricing || {};
-        booking.pricing.travelCharge = travelCharge;
-        await recalculateBookingPrice(booking);
-        
-        booking.markModified('statusHistory');
-        booking.markModified('pricing');
-        await booking.save();
+    // Use Math.ceil to ensure any fractional distance counts towards the next kilometer
+    // and ensure a minimum travel distance of 1 km if the vendor is located elsewhere (distance > 0)
+    let travelDistance = distance > 0 ? Math.max(1, Math.ceil(distance)) : 0;
+    let travelCharge = (travelDistance * perKmCharge);
+
+    // Cap travel charge at a reasonable amount (e.g., ₹500)
+    if (travelCharge > 500) travelCharge = 500;
+    travelCharge = Math.round(travelCharge);
+
+    // Finalize existing Booking
+    booking.vendor = vendorId;
+    booking.otp = { startOTP: generateOTP(4), completionOTP: null };
+    if (gracePeriodEnd) booking.gracePeriodEnd = gracePeriodEnd;
+    booking.statusHistory.push({ status: 'pending', timestamp: new Date(), actor: 'vendor' });
+
+    // Update travel charge and total price with GST
+    booking.pricing = booking.pricing || {};
+    booking.pricing.travelCharge = travelCharge;
+    await recalculateBookingPrice(booking);
+
+    booking.markModified('statusHistory');
+    booking.markModified('pricing');
+    await booking.save();
 
     // ── Emit acceptance update IMMEDIATELY after locking ──
     try {
@@ -454,7 +454,7 @@ const markOnTheWay = async (vendorId, bookingId) => {
 
     // ── Timing Guard: Enable only within 2 hours of scheduled time ──
     const scheduledAtIST = _getScheduledDateTimeIST(booking.scheduledDate, booking.scheduledTime);
-    
+
     if (!scheduledAtIST) {
         throw new ApiError(500, 'Invalid scheduling data');
     }
@@ -521,7 +521,7 @@ const markArrived = async (vendorId, bookingId) => {
             [vLng, vLat] = [vLat, vLng];
         }
         const { latitude: bLat, longitude: bLng } = booking.location;
-        
+
         // Safety check for [0,0]
         if (vLat === 0 || vLng === 0) {
             throw new ApiError(400, 'Your GPS location is invalid. Please ensure GPS is on and try again.');
@@ -529,7 +529,7 @@ const markArrived = async (vendorId, bookingId) => {
 
         const distance = calculateDistance(vLat, vLng, bLat, bLng);
         console.log(`[DISTANCE] markArrived: distance=${distance} km`);
-        
+
         if (distance > 1.5) { // Increased to 1.5km for better tolerance in city areas
             throw new ApiError(400, `Arrival denied. You are ${(distance * 1000).toFixed(0)}m away. Please reach the customer's location first.`);
         }
@@ -836,7 +836,7 @@ const getBookingTimeRange = async (booking) => {
     if (!start) return null;
 
     let totalDurationMins = 0;
-    
+
     // Sum up durations of all services
     if (booking.services && booking.services.length > 0) {
         for (const s of booking.services) {
@@ -932,7 +932,7 @@ const _formatBooking = (bookingDoc, role, maxRescheduleParam) => {
             : ((bookingObj.pricing.gstPercent && bookingObj.pricing.gstPercent > 0)
                 ? bookingObj.pricing.gstPercent
                 : 18);
-        
+
         const base = bookingObj.pricing.basePrice || 0;
         const travel = bookingObj.pricing.travelCharge || 0;
         const add = bookingObj.pricing.additionalCharges || 0;
@@ -944,7 +944,7 @@ const _formatBooking = (bookingDoc, role, maxRescheduleParam) => {
             : ((bookingObj.pricing.gstAmount && bookingObj.pricing.gstAmount > 0)
                 ? bookingObj.pricing.gstAmount
                 : 0);
-        
+
         if (!userGstAmount && userGstPercent > 0 && taxable > 0) {
             userGstAmount = Math.round((taxable * (userGstPercent / 100)) * 100) / 100;
         }
@@ -988,10 +988,10 @@ const _formatBooking = (bookingDoc, role, maxRescheduleParam) => {
 
     const createdAtIST = formatToLocalISOString(bookingObj.createdAt);
     const updatedAtIST = formatToLocalISOString(bookingObj.updatedAt);
-    
+
     bookingObj.createdAtIST = createdAtIST;
     bookingObj.updatedAtIST = updatedAtIST;
-    
+
     // Replace the main attributes with IST strings as well for consistency across all response consumers
     if (createdAtIST) bookingObj.createdAt = createdAtIST;
     if (updatedAtIST) bookingObj.updatedAt = updatedAtIST;
@@ -1156,7 +1156,7 @@ const _formatBooking = (bookingDoc, role, maxRescheduleParam) => {
             .map(h => {
                 const istTime = formatToLocalISOString(h.timestamp);
                 return {
-                    status: h.status, reason: h.reason, actor: h.actor, 
+                    status: h.status, reason: h.reason, actor: h.actor,
                     timestamp: istTime || h.timestamp,
                     timestampIST: istTime,
                     displayStatus: statusMap[h.status] || h.status
@@ -1180,7 +1180,7 @@ const _formatBooking = (bookingDoc, role, maxRescheduleParam) => {
         allowed: rescheduleAllowed,
         reason: rescheduleReason
     };
-    
+
     // Initial actions (to be refined in getBookingDetails if dispute info is needed)
     bookingObj.actions = {
         canReschedule: rescheduleAllowed,
@@ -1285,10 +1285,10 @@ const getBookingDetails = async (bookingId, userId, role) => {
     const rawRescheduleLimit = await adminService.getSetting('bookings.reschedule_limit');
     const rescheduleLimit = (rawRescheduleLimit !== undefined && rawRescheduleLimit !== null && !isNaN(Number(rawRescheduleLimit))) ? Number(rawRescheduleLimit) : 3;
     const formattedBooking = _formatBooking(booking, role, rescheduleLimit);
-    
+
     // Check if a dispute exists for this booking
     const dispute = await Dispute.findOne({ booking: booking._id }).lean();
-    
+
     if (dispute) {
         // Embed the full dispute information (similar to get dispute API)
         formattedBooking.dispute = {
@@ -1298,7 +1298,7 @@ const getBookingDetails = async (bookingId, userId, role) => {
             // Re-map some fields for clarity if needed, though ...dispute covers most
             submittedMessage: dispute.status === 'REOPENED' ? (dispute.resolutionNotes?.userNote || dispute.userComment || "") : (dispute.userComment || ""), // The "submitted message" for the user to see
         };
-        
+
         // Refine actions based on dispute existence and status
         // When dispute is REOPENED: only canReuploadDispute is true, others are false
         // For all other statuses: only canViewDispute is true
@@ -1353,7 +1353,7 @@ const _getHierarchicalPricing = async (serviceId) => {
         .populate('serviceType')
         .populate('subcategory')
         .populate('category');
-    
+
     if (!service) return { adminPrice: 0, coupon: null, discount: 0 };
 
     if (service.isAdminPriced === false) {
@@ -1363,21 +1363,21 @@ const _getHierarchicalPricing = async (serviceId) => {
     const categoryPrice = service.category?.bookingPrice || 0;
     const subcategoryPrice = service.subcategory?.bookingPrice || 0;
     const serviceTypePrice = service.serviceType?.bookingPrice || 0;
-    const servicePrice = (service.bookingPrice !== undefined && service.bookingPrice !== null) 
-        ? service.bookingPrice 
+    const servicePrice = (service.bookingPrice !== undefined && service.bookingPrice !== null)
+        ? service.bookingPrice
         : (service.serviceCharge || 0);
 
     const adminPrice = categoryPrice + subcategoryPrice + serviceTypePrice + servicePrice;
 
-    const coupon = service.coupon || 
-                  service.serviceType?.coupon || 
-                  service.subcategory?.coupon || 
-                  service.category?.coupon || null;
+    const coupon = service.coupon ||
+        service.serviceType?.coupon ||
+        service.subcategory?.coupon ||
+        service.category?.coupon || null;
 
-    const discount = service.discount || 
-                    service.serviceType?.discount || 
-                    service.subcategory?.discount || 
-                    service.category?.discount || 0;
+    const discount = service.discount ||
+        service.serviceType?.discount ||
+        service.subcategory?.discount ||
+        service.category?.discount || 0;
 
     return { adminPrice, coupon, discount };
 };
@@ -1388,7 +1388,7 @@ const _getHierarchicalPricing = async (serviceId) => {
 const createBooking = async (userId, bookingData) => {
     console.log("[TRACKING-FLOW] [STEP 1] createBooking CALLED. userId:", userId);
     console.log("[TRACKING-FLOW] [STEP 1.1] Input Booking Data:", JSON.stringify(bookingData, null, 2));
-    
+
     // ── Idempotency Check: Prevent duplicate bookings in a short window ──
     const recentBooking = await Booking.findOne({
         user: userId,
@@ -1409,10 +1409,10 @@ const createBooking = async (userId, bookingData) => {
     console.log("[TRACKING-FLOW] [STEP 1.3] Auto-cancelling previous pending bookings for user:", userId);
     const cancelResult = await Booking.updateMany(
         { user: userId, status: 'pending_acceptance' },
-        { 
-            $set: { 
-                status: 'cancelled', 
-                'cancellation.cancelledBy': 'system', 
+        {
+            $set: {
+                status: 'cancelled',
+                'cancellation.cancelledBy': 'system',
                 'cancellation.reason': 'Auto-cancelled because user created a new booking request.',
                 'cancellation.cancelledAt': new Date()
             },
@@ -1463,7 +1463,7 @@ const createBooking = async (userId, bookingData) => {
         console.error("[TRACKING-FLOW] [ERROR] User not found in DB");
         throw new ApiError(404, 'User not found. Please log in again.');
     }
-    
+
     if (user.bannedUntil && user.bannedUntil > new Date()) {
         console.error(`[TRACKING-FLOW] [ERROR] User is banned until ${user.bannedUntil}`);
         throw new ApiError(403, `You are temporarily banned from making bookings until ${user.bannedUntil.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} due to multiple cancellations.`);
@@ -1480,7 +1480,7 @@ const createBooking = async (userId, bookingData) => {
             throw new ApiError(400, 'FIRST_BOOKING_OTP_REQUIRED');
         }
     }
-    
+
 
     const processedServices = [];
     let leadCategory = null;
@@ -1491,7 +1491,7 @@ const createBooking = async (userId, bookingData) => {
         // Fetch hierarchical pricing (Service -> ServiceType -> Subcategory -> Category)
         const serviceData = await Service.findById(item.serviceId).populate('category');
         const { adminPrice, coupon, discount } = await _getHierarchicalPricing(item.serviceId);
-        
+
         if (i === 0 && serviceData) {
             leadCategory = serviceData.category?._id;
             console.log(`[TRACKING-FLOW] [STEP 1.9] Resolved Lead Category ID: ${leadCategory}`);
@@ -1515,7 +1515,7 @@ const createBooking = async (userId, bookingData) => {
     }
 
     const perKmCharge = (await adminService.getSetting('pricing.travel_charge_per_km')) || 10;
-    
+
     const distanceKm = 0; // No vendor assigned yet, so distance is 0
     let calculatedTravelCharge = (distanceKm * perKmCharge);
     if (calculatedTravelCharge > 500) calculatedTravelCharge = 500;
@@ -1589,7 +1589,7 @@ const createBooking = async (userId, bookingData) => {
         scheduledDate: new Date(bookingDate),
         scheduledTime: bookingTime,
         location: { address, areaName, latitude, longitude, pincode },
-        pricing: { 
+        pricing: {
             basePrice: calculatedBasePrice,
             travelCharge: calculatedTravelCharge,
             couponCode: validatedCouponCode || undefined,
@@ -1603,7 +1603,7 @@ const createBooking = async (userId, bookingData) => {
     });
 
     console.log(`[TRACKING-FLOW] [STEP 1.12] Booking DB record created successfully. _id: ${booking._id}`);
-    
+
     // Apply GST calculation
     console.log(`[TRACKING-FLOW] [STEP 1.13] Recalculating GST and final pricing...`);
     await recalculateBookingPrice(booking);
@@ -1638,12 +1638,12 @@ const createBooking = async (userId, bookingData) => {
 };
 
 const searchVendors = async (booking, broadcast = false, scheduleNextWave = true) => {
-    
+
     // Safety check: only search if booking is actively looking for acceptance
     if (booking.status !== 'pending_acceptance') {
         return [];
     }
-    
+
     let currentSearchId = booking.searchId;
     if (!currentSearchId) {
         currentSearchId = require('crypto').randomUUID();
@@ -1675,7 +1675,7 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
     const { waves, totalSearchTimeMins } = await getSearchWaveConfig();
     const currentWave = waves[Math.min(retryCount, waves.length - 1)];
     const radiusInKm = currentWave.km;
-    
+
     let categoryIds = [];
     if (booking.category) {
         categoryIds = [booking.category.toString()];
@@ -1786,7 +1786,7 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
 
     let vendors = await Vendor.find(geoQuery).select('_id name fcmToken categorySubscriptions membership');
     console.log(`[TRACKING-FLOW] [STEP 2.11] MongoDB geoQuery returned raw matched vendors count: ${vendors.length}`);
-    
+
     /* 
     // Filter out vendors whose matched category is expired
     // (Commented out because DB query already filters by selectedServices, membership.expiryDate, and serviceRenewal.expiryDate.)
@@ -1926,12 +1926,12 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
 
                 const online = isVendorOnline(vendorIdStr);
                 const matchedSockets = activeVendors.get(vendorIdStr) || [];
-                
+
                 console.log(`[TRACKING-FLOW] [STEP 2.16] Broadcast vendor evaluation: ID=${vendorIdStr}, Name=${vendorNameStr}, Socket Online=${online}, Socket SocketsCount=${matchedSockets.length}, FCM Token Present=${!!v.fcmToken}`);
-                
+
                 try {
                     require('fs').appendFileSync(require('path').join(__dirname, '../../../scratch/notify_debug.txt'), `[DEBUG] ${new Date().toISOString()} | Booking: ${booking._id} | Vendor: ${vendorIdStr} | Socket Online: ${online} | Sockets: ${matchedSockets.join(',')} | FCM Token Present: ${!!v.fcmToken}\n`);
-                } catch(e) {}
+                } catch (e) { }
 
                 let notifiedThisRound = false;
 
@@ -1941,40 +1941,41 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                     emitToVendor(vendorIdStr, 'new_booking_request', payload);
                     notifiedThisRound = true;
                 }
-                
+
                 // FCM fallback — also notify when socket is offline so nearby vendors still get the request
                 if (v.fcmToken) {
                     console.log(`[TRACKING-FLOW] [STEP 2.17b] Sending FCM push notification to Vendor ${vendorNameStr}...`);
-                    
+
                     const fcmData = {
-                      type: 'new_booking_request',
-                      bookingId: payload.id || booking._id?.toString() || '',
-                      bookingID: payload.bookingID || '',
-                      address: payload.location?.address || '',
-                      booking_data: JSON.stringify(payload)
+                        type: 'new_booking_request',
+                        bookingId: payload.id || booking._id?.toString() || '',
+                        bookingID: payload.bookingID || '',
+                        address: payload.location?.address || '',
+                        booking_data: JSON.stringify(payload)
                     };
-                    await notificationService.createNotification({
-                        user: v._id,
-                        userModel: 'Vendor',
-                        type: 'new_booking',
-                        title: 'New Booking Request',
-                        body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
-                        data: fcmData,
-                        sendPush: true,
-                        fcmToken: v.fcmToken,
-                        android: {
-                            priority: 'high',
-                            notification: {
-                                channelId: 'booking_channel_v8',
-                                sound: 'adbrovz_service_booking',
-                            },
-                        },
-                    }).then(() => {
-                        console.log(`[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to Vendor ${vendorNameStr}`);
-                        notifiedThisRound = true;
-                    }).catch(err => {
-                        console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
-                    });
+                    // -_- ------
+                    // await notificationService.createNotification({
+                    //     user: v._id,
+                    //     userModel: 'Vendor',
+                    //     type: 'new_booking',
+                    //     title: 'New Booking Request',
+                    //     body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
+                    //     data: fcmData,
+                    //     sendPush: true,
+                    //     fcmToken: v.fcmToken,
+                    //     android: {
+                    //         priority: 'high',
+                    //         notification: {
+                    //             channelId: 'booking_channel_v8',
+                    //             sound: 'adbrovz_service_booking',
+                    //         },
+                    //     },
+                    // }).then(() => {
+                    //     console.log(`[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to Vendor ${vendorNameStr}`);
+                    //     notifiedThisRound = true;
+                    // }).catch(err => {
+                    //     console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
+                    // });
                 } else if (!online) {
                     console.log(`[TRACKING-FLOW] [STEP 2.17c] Vendor ${vendorNameStr} has no socket connection and no FCM token.`);
                 }
@@ -2011,18 +2012,18 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                     totalSearchTimeMins
                 }),
                 message: vendors.length === 0
-                  ? `No matching vendors found within ${radiusInKm}km. Expanding search...`
-                  : broadcastCount > 0
-                    ? `Searching in ${radiusInKm}km radius... notified ${broadcastCount} vendor(s).`
-                    : `Found ${vendors.length} nearby vendor(s) but none could be reached. Retrying...`
+                    ? `No matching vendors found within ${radiusInKm}km. Expanding search...`
+                    : broadcastCount > 0
+                        ? `Searching in ${radiusInKm}km radius... notified ${broadcastCount} vendor(s).`
+                        : `Found ${vendors.length} nearby vendor(s) but none could be reached. Retrying...`
             });
 
             // ── Schedule Search Expansion (Dynamic Waves) ──
             if (scheduleNextWave) {
                 if (retryCount < waves.length - 1) {
                     const delayMins = waves[retryCount].mins > 0 ? waves[retryCount].mins : 5;
-                    
-                    console.log(`[TRACKING-FLOW] [STEP 2.22] Scheduling Wave ${retryCount + 1} (Radius: ${waves[retryCount+1].km}km) in ${delayMins} minutes`);
+
+                    console.log(`[TRACKING-FLOW] [STEP 2.22] Scheduling Wave ${retryCount + 1} (Radius: ${waves[retryCount + 1].km}km) in ${delayMins} minutes`);
 
                     setTimeout(async () => {
                         console.log(`[TRACKING-FLOW] [STEP 3] Wave timer fired! Checking eligibility of booking ${booking._id}...`);
@@ -2038,35 +2039,35 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                     }, delayMins * 60 * 1000);
                 } else if (retryCount === waves.length - 1) {
                     // Hard-Stop: After the final tier
-                    const finalWaitMins = waves[retryCount].mins > 0 ? waves[retryCount].mins : 2; 
+                    const finalWaitMins = waves[retryCount].mins > 0 ? waves[retryCount].mins : 2;
                     console.log(`[TRACKING-FLOW] [STEP 2.22] Final wave reached. Scheduling Hard-Stop in ${finalWaitMins} minutes`);
 
                     setTimeout(async () => {
-                    console.log(`[TRACKING-FLOW] [STEP 4] Hard-Stop timer fired! Evaluating booking ${booking._id}...`);
-                    const current = await Booking.findById(booking._id);
-                    if (current && current.status === 'pending_acceptance' && current.searchId === currentSearchId) {
-                        // Don't change status to invalid enum value. Keep as 'pending_acceptance' so user can retry.
-                        console.warn(`[TRACKING-FLOW] [STEP 4.1] Hard-Stop completed. No vendors found for booking ${booking._id}. Notifying user.`);
-                        
-                        emitToUser(current.user, 'booking_search_update', {
-                            ...buildBookingSocketRef(current),
-                            status: 'search_completed_no_vendors',
-                            message: `Could not find any vendors within ${waves[waves.length - 1].km}km after ${waves[waves.length - 1].mins} minutes of searching. Please try again manually.`,
-                            searchCompleted: true,
-                            ...buildSearchTimingPayload({
-                                searchId: current.searchId,
-                                retryCount,
-                                waves,
-                                totalSearchTimeMins
-                            }),
-                            remainingSearchTimeMins: 0
-                        });
-                    } else {
-                        console.log(`[TRACKING-FLOW] [STEP 4.2] Hard-Stop ignored. Reason: status changed or searchId rotated.`);
-                    }
-                }, finalWaitMins * 60 * 1000);
-            }
-        } // Close if (scheduleNextWave)
+                        console.log(`[TRACKING-FLOW] [STEP 4] Hard-Stop timer fired! Evaluating booking ${booking._id}...`);
+                        const current = await Booking.findById(booking._id);
+                        if (current && current.status === 'pending_acceptance' && current.searchId === currentSearchId) {
+                            // Don't change status to invalid enum value. Keep as 'pending_acceptance' so user can retry.
+                            console.warn(`[TRACKING-FLOW] [STEP 4.1] Hard-Stop completed. No vendors found for booking ${booking._id}. Notifying user.`);
+
+                            emitToUser(current.user, 'booking_search_update', {
+                                ...buildBookingSocketRef(current),
+                                status: 'search_completed_no_vendors',
+                                message: `Could not find any vendors within ${waves[waves.length - 1].km}km after ${waves[waves.length - 1].mins} minutes of searching. Please try again manually.`,
+                                searchCompleted: true,
+                                ...buildSearchTimingPayload({
+                                    searchId: current.searchId,
+                                    retryCount,
+                                    waves,
+                                    totalSearchTimeMins
+                                }),
+                                remainingSearchTimeMins: 0
+                            });
+                        } else {
+                            console.log(`[TRACKING-FLOW] [STEP 4.2] Hard-Stop ignored. Reason: status changed or searchId rotated.`);
+                        }
+                    }, finalWaitMins * 60 * 1000);
+                }
+            } // Close if (scheduleNextWave)
         } catch (error) {
             console.error('[TRACKING-FLOW] [SOCKET/BROADCAST ERROR] Socket.io error during broadcast:', error.message);
         }
@@ -2080,7 +2081,7 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
  */
 const rejectBooking = async (vendorId, bookingId) => {
     let booking = await Booking.findById(bookingId);
-    
+
     if (!booking) throw new ApiError(404, 'Booking not found');
 
     const vendorIdStr = vendorId.toString();
@@ -2150,7 +2151,7 @@ const rejectBooking = async (vendorId, bookingId) => {
  */
 const markBookingLater = async (vendorId, bookingId) => {
     let booking = await Booking.findById(bookingId);
-    
+
     if (!booking) throw new ApiError(404, 'Booking not found');
 
     // Only allow if it's still pending acceptance
@@ -2230,7 +2231,7 @@ const getVendorBookingHistory = async (vendorId) => {
     const vendor = await Vendor.findById(vendorId).select('isVerified documentStatus');
     // Allow history if verified OR if they have at least one booking (safety for active vendors)
     const hasBookings = await Booking.exists({ vendor: vendorIdObj });
-    
+
     if (!hasBookings && (!vendor?.isVerified || (vendor?.documentStatus !== 'approved' && vendor?.documentStatus !== 'verified'))) {
         return { pending: [], ongoing: [], completed: [], cancelled: [] };
     }
@@ -2422,10 +2423,10 @@ const vendorCancelBooking = async (vendorId, bookingId, reason) => {
     const actionLabel = isUserNoShow ? 'Exit (User No-Show)' : 'Cancellation';
 
     booking.status = 'cancelled';
-    booking.statusHistory.push({ 
-        status: 'cancelled', 
-        actor: 'vendor', 
-        reason: reason || `Vendor ${statusLabel} the order`, 
+    booking.statusHistory.push({
+        status: 'cancelled',
+        actor: 'vendor',
+        reason: reason || `Vendor ${statusLabel} the order`,
         timestamp: now,
         note: isUserNoShow ? 'Manual confirmation required for User No-Show Exit.' : undefined
     });
@@ -2589,7 +2590,7 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
                 vendor: booking.vendor,
                 _id: { $ne: booking._id },
                 scheduledDate: { $gte: dayStart, $lte: dayEnd },
-        status: { $nin: ['cancelled', 'auto_cancelled', 'completed', 'pending_acceptance'] }
+                status: { $nin: ['cancelled', 'auto_cancelled', 'completed', 'pending_acceptance'] }
             }).populate('services.service');
 
             for (const vb of vendorBookings) {
@@ -2641,11 +2642,11 @@ const rescheduleBooking = async (userId, bookingId, { date, time }) => {
 
             // ── Send Push Notification to Vendor ──
             sendPush(
-                booking.vendor, 
-                'Vendor', 
-                'booking_rescheduled', 
-                'Booking Rescheduled', 
-                `Your booking ${booking.bookingID} got rescheduled to ${date} at ${time}.`, 
+                booking.vendor,
+                'Vendor',
+                'booking_rescheduled',
+                'Booking Rescheduled',
+                `Your booking ${booking.bookingID} got rescheduled to ${date} at ${time}.`,
                 { bookingId: booking._id.toString(), bookingID: booking.bookingID }
             );
         } catch (socketErr) {
@@ -2665,7 +2666,7 @@ const getBookingsByUser = async (userId) => {
         .populate('vendor', 'name phoneNumber documents.photo.url performance workCity workState address')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
-    
+
     const rawRescheduleLimit = await adminService.getSetting('bookings.reschedule_limit');
     const rescheduleLimit = (rawRescheduleLimit !== undefined && rawRescheduleLimit !== null && !isNaN(Number(rawRescheduleLimit))) ? Number(rawRescheduleLimit) : 3;
     const formattedBookings = bookings.map(b => _formatBooking(b, 'user', rescheduleLimit));
@@ -2725,7 +2726,7 @@ const getCompletedBookingsByUser = async (userId) => {
         .populate('vendor', 'name phoneNumber photo documents.photo.url')
         .populate('user', 'name phoneNumber photo')
         .sort({ createdAt: -1 });
-    
+
     const rawRescheduleLimit = await adminService.getSetting('bookings.reschedule_limit');
     const rescheduleLimit = (rawRescheduleLimit !== undefined && rawRescheduleLimit !== null && !isNaN(Number(rawRescheduleLimit))) ? Number(rawRescheduleLimit) : 3;
     const formattedBookings = bookings.map(b => _formatBooking(b, 'user', rescheduleLimit));
@@ -2748,7 +2749,7 @@ const getCompletedBookingsByUser = async (userId) => {
  */
 const getCancelledBookings = async (userId, role) => {
     let query = { status: { $in: ['cancelled', 'auto_cancelled'] } };
-    
+
     if (role === 'vendor') {
         query.vendor = userId;
     } else if (role === 'user' || role === 'User') {
@@ -2777,12 +2778,12 @@ const getCancelledBookings = async (userId, role) => {
 };
 
 const retrySearchVendors = async (userId, bookingId) => {
-    const booking = await Booking.findOne({ 
-        $or: [{ _id: bookingId, user: userId }, { bookingID: bookingId, user: userId }] 
+    const booking = await Booking.findOne({
+        $or: [{ _id: bookingId, user: userId }, { bookingID: bookingId, user: userId }]
     });
 
     if (!booking) throw new ApiError(404, 'Booking not found');
-    
+
     console.log(`[DEBUG] retrySearchVendors: Found Booking ${booking._id} with status ${booking.status}`);
 
     if (!['pending_acceptance', 'cancelled', 'auto_cancelled'].includes(booking.status)) {
@@ -2813,14 +2814,14 @@ const retrySearchVendors = async (userId, bookingId) => {
         booking.pricing.travelCharge = 0;
         await recalculateBookingPrice(booking);
     }
-    
+
     if (booking.statusHistory) {
-      booking.statusHistory.push({
-        status: booking.status,
-        timestamp: new Date(),
-        actor: 'user',
-        reason: 'User retried vendor search'
-      });
+        booking.statusHistory.push({
+            status: booking.status,
+            timestamp: new Date(),
+            actor: 'user',
+            reason: 'User retried vendor search'
+        });
     }
 
     await booking.save();
@@ -2889,7 +2890,7 @@ const getBookingStatusHistory = async (bookingId, userId, role) => {
 
     const booking = await Booking.findOne(query);
     if (!booking) return [];
-    
+
     const formatted = _formatBooking(booking, role);
     return formatted.statusHistory || [];
 };
@@ -2910,13 +2911,13 @@ const recalculateBookingPrice = async (booking) => {
     }
 
     const rawGstPercent = await adminService.getSetting('pricing.user_gst_percent');
-    const gstPercent = (rawGstPercent !== undefined && rawGstPercent !== null && Number(rawGstPercent) > 0) 
-        ? Number(rawGstPercent) 
+    const gstPercent = (rawGstPercent !== undefined && rawGstPercent !== null && Number(rawGstPercent) > 0)
+        ? Number(rawGstPercent)
         : (booking.pricing?.userGstPercent || booking.pricing?.gstPercent || 18);
-    
+
     const travelCharge = booking.pricing?.travelCharge || 0;
     const additionalCharges = booking.pricing?.additionalCharges || 0;
-    
+
     const couponDiscount = booking.pricing?.couponDiscount || 0;
 
     // Apply coupon discount directly to basePrice
@@ -2924,7 +2925,7 @@ const recalculateBookingPrice = async (booking) => {
 
     const taxableAmount = basePrice + travelCharge + additionalCharges;
     const gstAmount = Math.round((taxableAmount * (gstPercent / 100)) * 100) / 100;
-    
+
     const totalPrice = Math.round((taxableAmount + gstAmount) * 100) / 100;
 
     console.log(`[GST DEBUG] Booking ${booking._id} | rawBasePrice: ${rawBasePrice} | couponDiscount: ${couponDiscount} | basePrice: ${basePrice} | gstPercent: ${gstPercent} | taxableAmount: ${taxableAmount} | gstAmount: ${gstAmount} | totalPrice: ${totalPrice}`);
@@ -2972,17 +2973,17 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
     let modified = false;
     for (const update of updatedServices) {
         const updateIdStr = update.serviceId.toString();
-        
-        let item = booking.services.find(s => 
-            s.service.toString() === updateIdStr || 
+
+        let item = booking.services.find(s =>
+            s.service.toString() === updateIdStr ||
             (s._id && s._id.toString() === updateIdStr)
         );
         let isExtraService = false;
 
         // If not in main services, check userRequestedServices
         if (!item && booking.userRequestedServices) {
-            item = booking.userRequestedServices.find(s => 
-                s.service.toString() === updateIdStr || 
+            item = booking.userRequestedServices.find(s =>
+                s.service.toString() === updateIdStr ||
                 (s._id && s._id.toString() === updateIdStr)
             );
             isExtraService = !!item;
@@ -2994,12 +2995,12 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
             const pricing = await _getHierarchicalPricing(item.service);
             const hasAdminPrice = pricing.adminPrice > 0;
             const isUnpriced = serviceDoc && (!serviceDoc.isAdminPriced || !hasAdminPrice);
-            
+
             if (isUnpriced || isExtraService) {
                 console.log(`[SOCKET] Updating price for service: ${item.service}`);
                 item.vendorPrice = update.price;
                 item.finalPrice = update.price * (item.quantity || 1);
-                
+
                 if (isExtraService) {
                     item.status = 'priced';
                     booking.markModified('userRequestedServices');
@@ -3008,7 +3009,7 @@ const updateBookingPrice = async (vendorId, bookingId, updatedServices) => {
                     booking.markModified('services');
                     nonExtraUpdate = true; // mark that a core service price was changed
                 }
-                
+
                 modified = true;
             }
         }
@@ -3176,7 +3177,7 @@ const rejectBookingPrice = async (userId, bookingId, reason, serviceIds = []) =>
     const allMainConfirmed = (booking.services || []).length > 0
         ? (booking.services || []).every(s => s.isPriceConfirmed)
         : !!booking.isPriceConfirmed;
-    
+
     const hasUnconfirmedExtra = (booking.userRequestedServices || []).some(
         s => s.status === 'priced' && !s.isPriceConfirmed
     );
@@ -3188,7 +3189,7 @@ const rejectBookingPrice = async (userId, bookingId, reason, serviceIds = []) =>
 
     // Identify unconfirmed services in main services array that match targetIds
     const unconfirmedServices = booking.services.filter(s => !s.isPriceConfirmed && isTargetService(s.service));
-    
+
     // Identify unconfirmed extra services (those priced by vendor but not yet accepted by user)
     const unconfirmedExtraServices = (booking.userRequestedServices || []).filter(
         s => s.status === 'priced' && !s.isPriceConfirmed && isTargetService(s.service)
@@ -3199,7 +3200,7 @@ const rejectBookingPrice = async (userId, bookingId, reason, serviceIds = []) =>
     }
 
     const now = new Date();
-    
+
     // Move unconfirmed main services to rejectedServices
     unconfirmedServices.forEach(s => {
         booking.rejectedServices.push({
@@ -3260,19 +3261,19 @@ const rejectBookingPrice = async (userId, bookingId, reason, serviceIds = []) =>
             travelChargeApplied: false
         };
     }
-    
+
     // Sync booking-level flag: true if all remaining services are confirmed
     const remainingAllConfirmed = (booking.services || []).length > 0
         ? (booking.services || []).every(s => s.isPriceConfirmed)
         : true;
     booking.isPriceConfirmed = remainingAllConfirmed;
-    booking.statusHistory.push({ 
-        status: booking.status, 
+    booking.statusHistory.push({
+        status: booking.status,
         actor: 'user',
         reason: reason || (booking.status === 'cancelled' ? 'Booking cancelled - all prices rejected' : 'Price rejected by user for specific services'),
-        timestamp: now 
+        timestamp: now
     });
-    
+
     booking.markModified('statusHistory');
     booking.markModified('services');
     booking.markModified('userRequestedServices');
@@ -3288,7 +3289,7 @@ const rejectBookingPrice = async (userId, bookingId, reason, serviceIds = []) =>
     emitToUser(userId, 'booking_status_updated', populatedBooking);
     if (booking.vendor) {
         emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
-        
+
         // ── Send Push Notification to Vendor ──
         sendPush(booking.vendor, 'Vendor', 'price_rejected', 'Price Rejected', `User has rejected the proposed price for booking ${booking.bookingID}.`, { bookingId: booking._id.toString(), bookingID: booking.bookingID });
 
@@ -3296,18 +3297,18 @@ const rejectBookingPrice = async (userId, bookingId, reason, serviceIds = []) =>
             bookingId: booking._id,
             reason: reason || 'Price rejected by user',
             rejectedServiceIds: targetIds,
-            message: booking.status === 'cancelled' 
+            message: booking.status === 'cancelled'
                 ? 'User rejected the price and the booking was cancelled.'
                 : 'User rejected the proposed price for some services.'
         });
     }
 
-    return { 
+    return {
         booking: populatedBooking,
         rejectedServiceIds: targetIds,
         message: booking.status === 'cancelled'
             ? 'Price rejected. Booking cancelled as no services remain.'
-            : 'Price rejected for selected services. Booking remains active.' 
+            : 'Price rejected for selected services. Booking remains active.'
     };
 };
 
@@ -3552,7 +3553,7 @@ const rejectProposedServices = async (userId, bookingId, reason) => {
 
     // Clear proposed without adding to services
     booking.proposedServices = [];
-    
+
     // Log rejection in history
     booking.statusHistory.push({
         status: booking.status,
@@ -3644,55 +3645,55 @@ async function requestExtraServices(userId, bookingId, newServices) {
         }
         const qty = item.quantity || 1;
 
-            // Check if this service was previously requested and price‑confirmed in userRequestedServices
-            const existingExtra = booking.userRequestedServices?.find(
+        // Check if this service was previously requested and price‑confirmed in userRequestedServices
+        const existingExtra = booking.userRequestedServices?.find(
+            s => s.service.toString() === requestedServiceId && s.isPriceConfirmed === true
+        );
+
+        let adminPrice, vendorPrice, finalPrice, isPriceConfirmed, status;
+
+        if (existingExtra) {
+            // Reuse the previously confirmed extra service pricing
+            adminPrice = existingExtra.adminPrice || 0;
+            vendorPrice = existingExtra.vendorPrice || 0;
+            finalPrice = existingExtra.finalPrice;
+            isPriceConfirmed = true;
+            status = 'pending';
+        } else {
+            // ── Check if this service was already price‑confirmed in the main services list ──
+            const approvedEntry = booking.services.find(
                 s => s.service.toString() === requestedServiceId && s.isPriceConfirmed === true
             );
 
-            let adminPrice, vendorPrice, finalPrice, isPriceConfirmed, status;
+            if (approvedEntry) {
+                // Reuse the per‑unit price from the already‑confirmed service entry
+                const approvedUnitPrice = approvedEntry.quantity > 0
+                    ? approvedEntry.finalPrice / approvedEntry.quantity
+                    : approvedEntry.finalPrice;
 
-            if (existingExtra) {
-                // Reuse the previously confirmed extra service pricing
-                adminPrice   = existingExtra.adminPrice || 0;
-                vendorPrice  = existingExtra.vendorPrice || 0;
-                finalPrice   = existingExtra.finalPrice;
+                adminPrice = approvedEntry.adminPrice || 0;
+                vendorPrice = approvedEntry.vendorPrice || 0;
+                finalPrice = approvedUnitPrice * qty;
                 isPriceConfirmed = true;
                 status = 'pending';
             } else {
-                // ── Check if this service was already price‑confirmed in the main services list ──
-                const approvedEntry = booking.services.find(
-                    s => s.service.toString() === requestedServiceId && s.isPriceConfirmed === true
-                );
-
-                if (approvedEntry) {
-                    // Reuse the per‑unit price from the already‑confirmed service entry
-                    const approvedUnitPrice = approvedEntry.quantity > 0
-                        ? approvedEntry.finalPrice / approvedEntry.quantity
-                        : approvedEntry.finalPrice;
-
-                    adminPrice   = approvedEntry.adminPrice || 0;
-                    vendorPrice  = approvedEntry.vendorPrice || 0;
-                    finalPrice   = approvedUnitPrice * qty;
+                // Only use hierarchy pricing if the service is admin-priced
+                if (serviceDoc.isAdminPriced) {
+                    const { adminPrice: hierarchicalPrice } = await _getHierarchicalPricing(item.serviceId);
+                    adminPrice = hierarchicalPrice;
+                    vendorPrice = 0;
+                    finalPrice = hierarchicalPrice * qty;
                     isPriceConfirmed = true;
-                    status = 'pending';
                 } else {
-                    // Only use hierarchy pricing if the service is admin-priced
-                    if (serviceDoc.isAdminPriced) {
-                        const { adminPrice: hierarchicalPrice } = await _getHierarchicalPricing(item.serviceId);
-                        adminPrice  = hierarchicalPrice;
-                        vendorPrice = 0;
-                        finalPrice  = hierarchicalPrice * qty;
-                        isPriceConfirmed = true;
-                    } else {
-                        // Unpriced service — vendor must set the price
-                        adminPrice  = 0;
-                        vendorPrice = 0;
-                        finalPrice  = null;
-                        isPriceConfirmed = false;
-                    }
-                    status = 'pending';
+                    // Unpriced service — vendor must set the price
+                    adminPrice = 0;
+                    vendorPrice = 0;
+                    finalPrice = null;
+                    isPriceConfirmed = false;
                 }
+                status = 'pending';
             }
+        }
 
         booking.userRequestedServices.push({
             service: serviceDoc._id,
@@ -3711,7 +3712,7 @@ async function requestExtraServices(userId, bookingId, newServices) {
     // Split newly added entries into auto-approved vs still-pending
     const addedEntries = booking.userRequestedServices.slice(-newServices.length);
     const autoApprovedCount = addedEntries.filter(s => s.isPriceConfirmed === true).length;
-    const pendingCount      = addedEntries.filter(s => s.status === 'pending').length;
+    const pendingCount = addedEntries.filter(s => s.status === 'pending').length;
 
     booking.statusHistory.push({
         status: 'extra_services_requested',
@@ -3731,7 +3732,7 @@ async function requestExtraServices(userId, bookingId, newServices) {
     // Notify both sides for state sync
     const { emitToVendor, emitToUser } = require('../../socket');
     const vendorPayload = await getBookingDetails(booking._id, booking.vendor, 'vendor');
-    const userPayload   = await getBookingDetails(booking._id, userId, 'user');
+    const userPayload = await getBookingDetails(booking._id, userId, 'user');
 
     emitToVendor(booking.vendor, 'booking_status_updated', vendorPayload);
     emitToUser(userId, 'booking_status_updated', userPayload);
@@ -3847,7 +3848,7 @@ async function vendorConfirmExtraServices(vendorId, bookingId, confirmedServices
 
     let isUpdated = false;
 
-        // Update the pricing for the requested services without moving them
+    // Update the pricing for the requested services without moving them
     for (const item of confirmedServices) {
         const itemIdStr = item.serviceId.toString();
         // Find matching service in userRequestedServices (check both service ID and requested item _id)
@@ -3948,13 +3949,13 @@ async function vendorAcceptExtraServices(vendorId, bookingId, acceptedServiceIds
         throw new ApiError(400, 'No pending user service requests to accept');
     }
 
-    const acceptIds = acceptedServiceIds && acceptedServiceIds.length > 0 
+    const acceptIds = acceptedServiceIds && acceptedServiceIds.length > 0
         ? acceptedServiceIds.map(id => {
             if (id && typeof id === 'object') {
                 return (id.serviceId || id.id || id._id || id).toString();
             }
             return id.toString();
-        }) 
+        })
         : null;
 
     // Mark pending services as accepted and set pricing
@@ -3983,7 +3984,7 @@ async function vendorAcceptExtraServices(vendorId, bookingId, acceptedServiceIds
     }
 
     booking.markModified('userRequestedServices');
-    
+
     // Recalculate total price to include newly accepted services
     await recalculateBookingPrice(booking);
 
@@ -3994,7 +3995,7 @@ async function vendorAcceptExtraServices(vendorId, bookingId, acceptedServiceIds
         timestamp: new Date()
     });
     booking.markModified('statusHistory');
-    
+
     await booking.save();
 
     const populatedBooking = await Booking.findById(booking._id)
@@ -4160,13 +4161,13 @@ async function userConfirmExtraServices(userId, bookingId, acceptedServiceIds) {
 
     const now = new Date();
     let hasConfirmed = false;
-    const acceptedIds = acceptedServiceIds 
+    const acceptedIds = acceptedServiceIds
         ? acceptedServiceIds.map(id => {
             if (id && typeof id === 'object') {
                 return (id.serviceId || id.id || id._id || id).toString();
             }
             return id.toString();
-        }) 
+        })
         : [];
 
     booking.userRequestedServices.forEach(item => {
@@ -4331,7 +4332,7 @@ const broadcastVendorLocation = async (vendorId, lat, lng) => {
     if (!activeBookings.length) return;
 
     const { emitToUser } = require('../../socket');
-    
+
     activeBookings.forEach(booking => {
         emitToUser(booking.user, 'vendor_location_update', {
             bookingId: booking._id,
@@ -4362,9 +4363,9 @@ const resendActiveRequestsToVendor = async (vendorId) => {
             rejectedVendors: { $ne: vIdStr },
             laterVendors: { $ne: vIdStr }
         })
-        .populate('services.service', 'title serviceCharge photo approxCompletionTime')
-        .populate('category', 'title name')
-        .populate('user', 'name phoneNumber photo');
+            .populate('services.service', 'title serviceCharge photo approxCompletionTime')
+            .populate('category', 'title name')
+            .populate('user', 'name phoneNumber photo');
 
         if (!activeBookings.length) return;
 
