@@ -19,15 +19,23 @@ const sendPushNotification = async (token, payload) => {
   try {
     const message = {
       token,
-      notification: {
-        title: payload.title,
-        body: payload.body,
-      },
       data: payload.data || {},
     };
 
+    // Only include notification block if not dataOnly (so OS doesn't render duplicate generic alert)
+    if (!payload.dataOnly && payload.title && payload.body) {
+      message.notification = {
+        title: payload.title,
+        body: payload.body,
+      };
+    }
+
     if (payload.android) {
-      message.android = payload.android;
+      message.android = { ...payload.android };
+      // Strip android.notification for data-only messages so Android OS doesn't render default banner
+      if (payload.dataOnly && message.android.notification) {
+        delete message.android.notification;
+      }
     }
 
     const response = await firebaseAdmin.messaging().send(message);
@@ -96,6 +104,7 @@ const createNotification = async (params) => {
         const pushResult = await sendPushNotification(params.fcmToken, {
           title: params.title,
           body: params.body,
+          dataOnly: isNewBookingAlert,
           data: {
             notificationId: notification._id.toString(),
             type: params.type,
