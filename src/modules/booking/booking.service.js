@@ -1953,29 +1953,39 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                         address: payload.location?.address || '',
                         booking_data: JSON.stringify(payload)
                     };
-                    // -_- ------
-                    await notificationService.createNotification({
-                        user: v._id,
-                        userModel: 'Vendor',
-                        type: 'new_booking',
-                        title: 'New Booking Request',
-                        body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
-                        data: fcmData,
-                        sendPush: true,
-                        fcmToken: v.fcmToken,
-                        android: {
-                            priority: 'high',
-                            notification: {
-                                channelId: 'booking_channel_v8',
-                                sound: 'adbrovz_service_booking',
+                    // If fcmData is empty or missing booking details, do not send notification
+                    const isFcmDataEmpty = !fcmData ||
+                        Object.keys(fcmData).length === 0 ||
+                        !fcmData.bookingId ||
+                        !fcmData.booking_data ||
+                        fcmData.booking_data === '{}';
+
+                    if (isFcmDataEmpty) {
+                        console.warn(`[TRACKING-FLOW] [STEP 2.17b] fcmData is empty for Vendor ${vendorNameStr}. Skipping notification.`);
+                    } else {
+                        await notificationService.createNotification({
+                            user: v._id,
+                            userModel: 'Vendor',
+                            type: 'new_booking',
+                            title: 'New Booking Request',
+                            body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
+                            data: fcmData,
+                            sendPush: true,
+                            fcmToken: v.fcmToken,
+                            android: {
+                                priority: 'high',
+                                notification: {
+                                    channelId: 'booking_channel_v8',
+                                    sound: 'adbrovz_service_booking',
+                                },
                             },
-                        },
-                    }).then(() => {
-                        console.log(`[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to Vendor ${vendorNameStr}`);
-                        notifiedThisRound = true;
-                    }).catch(err => {
-                        console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
-                    });
+                        }).then(() => {
+                            console.log(`[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to Vendor ${vendorNameStr}`);
+                            notifiedThisRound = true;
+                        }).catch(err => {
+                            console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
+                        });
+                    }
                 } else if (!online) {
                     console.log(`[TRACKING-FLOW] [STEP 2.17c] Vendor ${vendorNameStr} has no socket connection and no FCM token.`);
                 }
