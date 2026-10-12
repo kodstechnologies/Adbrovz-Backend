@@ -26,6 +26,10 @@ const sendPushNotification = async (token, payload) => {
       data: payload.data || {},
     };
 
+    if (payload.android) {
+      message.android = payload.android;
+    }
+
     const response = await firebaseAdmin.messaging().send(message);
     console.log('Successfully sent message:', response);
     return { success: true, messageId: response };
@@ -78,6 +82,17 @@ const createNotification = async (params) => {
       if (!params.fcmToken) {
         notification.pushStatus = 'no_token';
       } else {
+        const isNewBookingAlert = params.type === 'new_booking' ||
+          params.data?.type === 'new_booking_request';
+
+        const androidConfig = params.android || (isNewBookingAlert ? {
+          priority: 'high',
+          notification: {
+            channelId: 'booking_channel_v7',
+            sound: 'adbrovz_service_booking',
+          },
+        } : undefined);
+
         const pushResult = await sendPushNotification(params.fcmToken, {
           title: params.title,
           body: params.body,
@@ -86,6 +101,7 @@ const createNotification = async (params) => {
             type: params.type,
             ...(params.data || {}),
           },
+          android: androidConfig,
         });
 
         notification.fcmTokenUsed = params.fcmToken;

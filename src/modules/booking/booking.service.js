@@ -1955,7 +1955,14 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                         body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
                         data: fcmData,
                         sendPush: true,
-                        fcmToken: v.fcmToken
+                        fcmToken: v.fcmToken,
+                        android: {
+                            priority: 'high',
+                            notification: {
+                                channelId: 'booking_channel_v8',
+                                sound: 'adbrovz_service_booking',
+                            },
+                        },
                     }).then(() => {
                         console.log(`[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to Vendor ${vendorNameStr}`);
                         notifiedThisRound = true;

@@ -12,7 +12,7 @@ const notificationService = require('../modules/notification/notification.servic
  * @param {string} body - Notification body
  * @param {object} data - Extra data for the push notification
  */
-const sendPush = async (userId, userModel, type, title, body, data = {}) => {
+const sendPush = async (userId, userModel, type, title, body, data = {}, options = {}) => {
     try {
         if (!userId) return;
 
@@ -50,7 +50,8 @@ const sendPush = async (userId, userModel, type, title, body, data = {}) => {
             body,
             data: { ...data, type },
             sendPush: !!recipient?.fcmToken,
-            fcmToken: recipient?.fcmToken
+            fcmToken: recipient?.fcmToken,
+            android: options?.android,
         });
     } catch (err) {
         console.error(`[PUSH ERROR] Failed to notify ${userModel} of ${type}:`, err.message);
