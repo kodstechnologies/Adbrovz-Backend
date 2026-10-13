@@ -4779,19 +4779,10 @@ const getMembershipPlansWithStatus = async (vendorId) => {
         let totalAmount = 0;
         let validityDays = feeDetails.validityDays;
 
-        if (isCurrent && currentPlan) {
-            // For the active plan, reflect the vendor's locked active plan snapshot
-            membershipAmount = currentPlan.membershipAmount;
-            renewalAmount = currentPlan.renewalAmount;
-            gstPercent = currentPlan.gstPercent !== undefined ? currentPlan.gstPercent : gstPercent;
-            gstAmount = currentPlan.gstAmount;
-            totalAmount = currentPlan.totalAmount;
-            validityDays = currentPlan.validityDays || validityDays;
-        } else {
-            const combinedSubtotal = membershipAmount + renewalAmount;
-            gstAmount = Math.round(combinedSubtotal * (gstPercent / 100));
-            totalAmount = combinedSubtotal + gstAmount;
-        }
+        // Always calculate live current renewal amounts from Admin panel config
+        const combinedSubtotal = membershipAmount + renewalAmount;
+        gstAmount = Math.round(combinedSubtotal * (gstPercent / 100));
+        totalAmount = combinedSubtotal + gstAmount;
 
         const planObj = {
             id: feeDetails.planId,
