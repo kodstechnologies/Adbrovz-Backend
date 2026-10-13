@@ -1966,7 +1966,7 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                         android: {
                             priority: 'high',
                             notification: {
-                                channelId: 'booking_channel_v8',
+                                channelId: 'booking_channel_v9',
                                 sound: 'adbrovz_service_booking',
                             },
                         },
