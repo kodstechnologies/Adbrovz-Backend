@@ -1942,18 +1942,34 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                     notifiedThisRound = true;
                 }
 
-                // FCM fallback — also notify when socket is offline so nearby vendors still get the request
-                if (v.fcmToken) {
+                // Check if vendor was already notified in an earlier search wave to avoid duplicate push notifications
+                const alreadyNotified = ((populatedBooking.notifiedVendors || booking.notifiedVendors || [])).some(
+                    id => id.toString() === vendorIdStr
+                );
+
+                // FCM push notification — delivers via OS system tray when vendor app is in background or killed
+                if (v.fcmToken && !alreadyNotified) {
                     console.log(`[TRACKING-FLOW] [STEP 2.17b] Sending FCM push notification to Vendor ${vendorNameStr}...`);
+
+                    const bookingIdStr = payload.id || booking._id?.toString() || '';
+                    const bookingDisplayIdStr = payload.bookingID || '';
+
+                    // Enrich payload so mobile client can reliably read both bookingId and bookingDisplayId
+                    const enrichedPayload = {
+                        ...payload,
+                        bookingId: bookingIdStr,
+                        bookingDisplayId: bookingDisplayIdStr,
+                    };
 
                     const fcmData = {
                         type: 'new_booking_request',
-                        bookingId: payload.id || booking._id?.toString() || '',
-                        bookingID: payload.bookingID || '',
+                        bookingId: bookingIdStr,
+                        bookingID: bookingDisplayIdStr,
+                        bookingDisplayId: bookingDisplayIdStr,
                         address: payload.location?.address || '',
-                        booking_data: JSON.stringify(payload)
+                        booking_data: JSON.stringify(enrichedPayload)
                     };
-                    // -_- ------
+
                     await notificationService.createNotification({
                         user: v._id,
                         userModel: 'Vendor',
@@ -1968,6 +1984,9 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                             notification: {
                                 channelId: 'booking_channel_v9',
                                 sound: 'adbrovz_service_booking',
+                                priority: 'max',
+                                visibility: 'public',
+                                defaultSound: false,
                             },
                         },
                     }).then(() => {
@@ -1976,7 +1995,7 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                     }).catch(err => {
                         console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
                     });
-                } else if (!online) {
+                } else if (!online && !alreadyNotified) {
                     console.log(`[TRACKING-FLOW] [STEP 2.17c] Vendor ${vendorNameStr} has no socket connection and no FCM token.`);
                 }
 

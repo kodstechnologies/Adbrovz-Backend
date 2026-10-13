@@ -17,13 +17,23 @@ const sendPushNotification = async (token, payload) => {
   }
 
   try {
+    // Sanitize all data values to strings for FCM SDK compliance
+    const sanitizedData = {};
+    if (payload.data) {
+      for (const [key, value] of Object.entries(payload.data)) {
+        if (value !== undefined && value !== null) {
+          sanitizedData[key] = typeof value === 'string' ? value : JSON.stringify(value);
+        }
+      }
+    }
+
     const message = {
       token,
-      data: payload.data || {},
+      data: sanitizedData,
     };
 
-    // Only include notification block if not dataOnly (so OS doesn't render duplicate generic alert)
-    if (!payload.dataOnly && payload.title && payload.body) {
+    // Always include system notification block if title and body exist so Android OS can display it when app is killed/backgrounded
+    if (payload.title && payload.body) {
       message.notification = {
         title: payload.title,
         body: payload.body,
@@ -32,14 +42,15 @@ const sendPushNotification = async (token, payload) => {
 
     if (payload.android) {
       message.android = { ...payload.android };
-      // Strip android.notification for data-only messages so Android OS doesn't render default banner
-      if (payload.dataOnly && message.android.notification) {
-        delete message.android.notification;
+      // Ensure android.notification has title & body if specified
+      if (message.android.notification && payload.title && payload.body) {
+        message.android.notification.title = message.android.notification.title || payload.title;
+        message.android.notification.body = message.android.notification.body || payload.body;
       }
     }
 
     const response = await firebaseAdmin.messaging().send(message);
-    console.log('Successfully sent message:', response);
+    console.log('[FCM] Successfully sent message:', response);
     return { success: true, messageId: response };
   } catch (error) {
     const errorCode = error.errorInfo?.code || '';
@@ -96,15 +107,17 @@ const createNotification = async (params) => {
         const androidConfig = params.android || (isNewBookingAlert ? {
           priority: 'high',
           notification: {
-            channelId: 'booking_channel_v7',
+            channelId: 'booking_channel_v9',
             sound: 'adbrovz_service_booking',
+            priority: 'max',
+            visibility: 'public',
+            defaultSound: false,
           },
         } : undefined);
 
         const pushResult = await sendPushNotification(params.fcmToken, {
           title: params.title,
           body: params.body,
-          dataOnly: isNewBookingAlert,
           data: {
             notificationId: notification._id.toString(),
             type: params.type,
