@@ -107,7 +107,7 @@ const createNotification = async (params) => {
         const androidConfig = params.android || (isNewBookingAlert ? {
           priority: 'high',
           notification: {
-            channelId: 'booking_channel_v9',
+            channelId: 'booking_channel_v10',
             sound: 'adbrovz_service_booking',
             priority: 'max',
             visibility: 'public',
@@ -184,7 +184,7 @@ const broadcastNotification = async (params) => {
     targets.push(...vendors.map(v => ({ id: v._id, model: 'Vendor', token: v.fcmToken })));
   }
 
-  const results = await Promise.allSettled(targets.map(target => 
+  const results = await Promise.allSettled(targets.map(target =>
     createNotification({
       user: target.id,
       userModel: target.model,
@@ -216,7 +216,7 @@ const broadcastNotification = async (params) => {
       console.error('Failed to store admin broadcast copy:', err.message);
     }
   }
-  
+
   return {
     total: targets.length,
     successful,
@@ -232,7 +232,7 @@ const broadcastNotification = async (params) => {
  */
 const getNotificationsForUser = async (userId, userModel, query = {}) => {
   const { startDate, endDate, limit = 20, skip = 0, isRead } = query;
-  
+
   const filter = {
     user: userId,
     userModel: userModel
