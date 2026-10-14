@@ -913,6 +913,7 @@ const getAllBookings = async (query = {}) => {
       obj.pricing.gstAmount = gstAmount;
       obj.pricing.userGstAmount = gstAmount;
       obj.pricing.totalPrice = obj.computedTotal;
+      obj.pricing.couponDiscount = couponDiscount;
     }
 
     if (['cancelled', 'auto_cancelled'].includes(obj.status)) {
@@ -1071,6 +1072,10 @@ const getBookingDetails = async (bookingId) => {
     bookingJson.pricing.gstAmount = gstAmount;
     bookingJson.pricing.userGstAmount = gstAmount;
     bookingJson.pricing.totalPrice = computedTotal;
+    bookingJson.pricing.couponDiscount = couponDiscount;
+    if (booking.pricing?.couponCode) bookingJson.pricing.couponCode = booking.pricing.couponCode;
+    if (booking.pricing?.couponDiscountType) bookingJson.pricing.couponDiscountType = booking.pricing.couponDiscountType;
+    if (booking.pricing?.couponDiscountValue) bookingJson.pricing.couponDiscountValue = booking.pricing.couponDiscountValue;
   } else {
     bookingJson.pricing = {
       basePrice,
