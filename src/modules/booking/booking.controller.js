@@ -153,8 +153,8 @@ const getMyBookings = asyncHandler(async (req, res) => {
  * Get booking by ID
  */
 const getBookingById = asyncHandler(async (req, res) => {
-    console.log("================")
-    const userId = req.user?.userId || req.user?._id;
+    console.log("================");
+    const userId = req.user?.userId || req.user?.id || req.user?._id;
     const role = req.user?.role;
     const { id } = req.params;
     const booking = await bookingService.getBookingDetails(id, userId, role);

@@ -1247,26 +1247,34 @@ const _formatBooking = (bookingDoc, role, maxRescheduleParam) => {
  * Get full booking details with population
  */
 const getBookingDetails = async (bookingId, userId, role) => {
-    let query = {};
+    let query;
     const isAdmin = role === 'admin' || role === 'super_admin';
 
-    if (isAdmin) {
-        // Admins can see any booking by ID
-        query = {};
-    } else if (role === 'vendor') {
-        query = { vendor: userId };
-    } else {
-        query = { user: userId };
-    }
+    const idFilter = mongoose.isValidObjectId(bookingId)
+        ? { $or: [{ _id: bookingId }, { bookingID: bookingId }] }
+        : { bookingID: bookingId };
 
-    if (mongoose.isValidObjectId(bookingId)) {
-        if (isAdmin) {
-            query._id = bookingId;
-        } else {
-            query.$or = [{ _id: bookingId }, { bookingID: bookingId }];
-        }
+    if (isAdmin) {
+        query = idFilter;
+    } else if (role === 'vendor' || role === 'Vendor') {
+        query = {
+            $and: [
+                idFilter,
+                {
+                    $or: [
+                        { vendor: userId },
+                        { status: 'pending_acceptance' }
+                    ]
+                }
+            ]
+        };
     } else {
-        query.bookingID = bookingId;
+        query = {
+            $and: [
+                idFilter,
+                { user: userId }
+            ]
+        };
     }
 
     const booking = await Booking.findOne(query)
@@ -1279,6 +1287,20 @@ const getBookingDetails = async (bookingId, userId, role) => {
         .populate('user', 'name phoneNumber photo');
 
     if (!booking) {
+        if (role === 'vendor' || role === 'Vendor') {
+            const existing = await Booking.findOne(idFilter).select('status vendor bookingID').lean();
+            if (existing) {
+                if (['cancelled', 'auto_cancelled'].includes(existing.status)) {
+                    throw new ApiError(404, 'This booking request was cancelled by the customer.');
+                }
+                if (existing.vendor && existing.vendor.toString() !== (userId?.toString() || '')) {
+                    throw new ApiError(404, 'This booking has already been accepted by another vendor.');
+                }
+                if (existing.status !== 'pending_acceptance') {
+                    throw new ApiError(404, `This booking is no longer available (${existing.status}).`);
+                }
+            }
+        }
         throw new ApiError(404, 'Booking not found');
     }
 
@@ -2393,19 +2415,32 @@ const cancelBooking = async (userId, bookingId, reason) => {
 
             if (booking.notifiedVendors && booking.notifiedVendors.length > 0) {
                 booking.notifiedVendors.forEach(nVendorId => {
-                    // Socket notify
-                    emitToVendor(nVendorId.toString(), 'booking_already_accepted', {
+                    const nIdStr = nVendorId.toString();
+                    // Socket notify (emit multiple event names for compatibility with different mobile listeners)
+                    emitToVendor(nIdStr, 'booking_already_accepted', {
                         bookingId: booking._id,
                         bookingID: booking.bookingID,
                         message: 'This booking request is no longer available.'
+                    });
+                    emitToVendor(nIdStr, 'booking_cancellation', {
+                        bookingId: booking._id,
+                        bookingID: booking.bookingID,
+                        status: 'cancelled',
+                        message: 'This booking request was cancelled by the customer.'
+                    });
+                    emitToVendor(nIdStr, 'booking_cancelled', {
+                        bookingId: booking._id,
+                        bookingID: booking.bookingID,
+                        status: 'cancelled',
+                        message: 'This booking request was cancelled by the customer.'
                     });
                     // FCM push to clear background notifications
                     sendPush(
                         nVendorId,
                         'Vendor',
-                        'booking_already_accepted',
+                        'booking_cancelled',
                         'Booking Request Cancelled',
-                        'This booking request is no longer available.',
+                        'This booking request was cancelled by the customer.',
                         { bookingId: booking._id.toString(), bookingID: booking.bookingID }
                     );
                 });
