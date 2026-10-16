@@ -1992,31 +1992,96 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                         booking_data: JSON.stringify(enrichedPayload)
                     };
 
-                    await notificationService.createNotification({
-                        user: v._id,
-                        userModel: 'Vendor',
-                        type: 'new_booking',
-                        title: 'New Booking Request',
-                        body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
-                        data: fcmData,
-                        sendPush: true,
-                        fcmToken: v.fcmToken,
-                        android: {
-                            priority: 'high',
-                            notification: {
-                                channelId: 'elite_booking_channel',
-                                sound: 'adbrovz_service_booking',
-                                priority: 'max',
-                                visibility: 'public',
-                                defaultSound: false,
-                            },
-                        },
-                    }).then(() => {
-                        console.log(`[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to Vendor ${vendorNameStr}`);
-                        notifiedThisRound = true;
-                    }).catch(err => {
-                        console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
-                    });
+                    // await notificationService.createNotification({
+                    //     user: v._id,
+                    //     userModel: 'Vendor',
+                    //     type: 'new_booking',
+                    //     title: 'New Booking Request',
+                    //     body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
+                    //     data: fcmData,
+                    //     sendPush: true,
+                    //     fcmToken: v.fcmToken,
+                    //     android: {
+                    //         priority: 'high',
+                    //         notification: {
+                    //             channelId: 'elite_booking_channel',
+                    //             sound: 'adbrovz_service_booking',
+                    //             priority: 'max',
+                    //             visibility: 'public',
+                    //             defaultSound: false,
+                    //         },
+                    //     },
+                    // }).then(() => {
+                    //     console.log(`[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to Vendor ${vendorNameStr}`);
+                    //     notifiedThisRound = true;
+                    // }).catch(err => {
+                    //     console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
+                    // });
+
+
+const notificationPayload = {
+    user: v._id,
+    userModel: 'Vendor',
+    type: 'new_booking',
+    title: 'New Booking Request',
+    body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
+    data: fcmData,
+    sendPush: true,
+    fcmToken: v.fcmToken,
+    android: {
+        priority: 'high',
+        notification: {
+            channelId: 'elite_booking_channel',
+            sound: 'adbrovz_service_booking',
+            priority: 'max',
+            visibility: 'public',
+            defaultSound: false,
+        },
+    },
+};
+
+// Print the notification payload being sent to the service
+console.log(
+    '\n========== [FCM NOTIFICATION PAYLOAD] ==========\n',
+    JSON.stringify(
+        {
+            ...notificationPayload,
+            user: String(notificationPayload.user),
+            fcmToken: notificationPayload.fcmToken
+                ? '[TOKEN PRESENT]'
+                : null,
+        },
+        null,
+        2
+    ),
+    '\n================================================'
+);
+
+await notificationService.createNotification(notificationPayload)
+    .then((result) => {
+        console.log(
+            `[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to Vendor ${vendorNameStr} (${vendorIdStr})`
+        );
+
+        console.log(
+            '[FCM] Notification service result:',
+            JSON.stringify(result ?? null, null, 2)
+        );
+
+        notifiedThisRound = true;
+    })
+    .catch((err) => {
+        console.error(
+            `[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to Vendor ${vendorNameStr} (${vendorIdStr}):`,
+            err.message
+        );
+
+        console.error('[FCM] Error details:', {
+            code: err.code,
+            message: err.message,
+        });
+    });
+
                 } else if (!online && !alreadyNotified) {
                     console.log(`[TRACKING-FLOW] [STEP 2.17c] Vendor ${vendorNameStr} has no socket connection and no FCM token.`);
                 }
