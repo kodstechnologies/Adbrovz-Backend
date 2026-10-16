@@ -107,7 +107,7 @@ const createNotification = async (params) => {
         const androidConfig = params.android || (isNewBookingAlert ? {
           priority: 'high',
           notification: {
-            channelId: 'booking_channel_v10',
+            channelId: 'elite_booking_channel',
             sound: 'adbrovz_service_booking',
             priority: 'max',
             visibility: 'public',
