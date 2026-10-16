@@ -1973,43 +1973,67 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                 if (v.fcmToken && !alreadyNotified) {
                     console.log(`[TRACKING-FLOW] [STEP 2.17b] Sending FCM push notification to Vendor ${vendorNameStr}...`);
 
-                    const bookingIdStr = payload.id || booking._id?.toString() || '';
-                    const bookingDisplayIdStr = payload.bookingID || '';
+                    const bookingId = String(
+                        booking._id ?? booking.id ?? payload.id ?? ''
+                    );
 
-                    // Enrich payload so mobile client can reliably read both bookingId and bookingDisplayId
+                    const bookingDisplayId = String(
+                        booking.bookingDisplayId ?? booking.bookingID ?? payload.bookingID ?? ''
+                    );
+
+                    const serviceTitle =
+                        populatedBooking.services?.[0]?.service?.title ??
+                        booking.services?.[0]?.service?.title ??
+                        payload.services?.[0]?.service?.title ??
+                        populatedBooking.category?.title ??
+                        'New Booking Request';
+
+                    const amount = booking.pricing?.totalPrice ?? payload.pricing?.totalPrice;
+
+                    const title = 'New Booking Request';
+
+                    const body = [
+                        `Booking ${bookingDisplayId}`,
+                        serviceTitle,
+                        amount != null ? `₹${amount}` : null,
+                    ].filter(Boolean).join(' • ');
+
                     const enrichedPayload = {
                         ...payload,
-                        bookingId: bookingIdStr,
-                        bookingDisplayId: bookingDisplayIdStr,
+                        bookingId,
+                        bookingDisplayId,
                     };
-
-                    const bookingNotificationTitle = 'New Booking Request';
-                    const bookingNotificationBody = `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`;
 
                     const fcmData = {
                         type: 'new_booking_request',
-                        title: bookingNotificationTitle,
-                        body: bookingNotificationBody,
-                        bookingId: bookingIdStr,
-                        bookingID: bookingDisplayIdStr,
-                        bookingDisplayId: bookingDisplayIdStr,
+                        title,
+                        body,
+                        bookingId,
+                        bookingID: bookingDisplayId,
+                        bookingDisplayId,
                         address: payload.location?.address || '',
-                        booking_data: JSON.stringify(enrichedPayload)
+                        booking_data: JSON.stringify(enrichedPayload),
                     };
 
                     const notificationPayload = {
                         user: v._id,
                         userModel: 'Vendor',
                         type: 'new_booking',
-                        title: bookingNotificationTitle,
-                        body: bookingNotificationBody,
+                        title,
+                        body,
                         data: fcmData,
                         sendPush: true,
-                        dataOnly: true,
+                        dataOnly: false,
                         fcmToken: v.fcmToken,
                         android: {
                             priority: 'high',
                             ttl: 45 * 1000,
+                            notification: {
+                                channelId: 'elite_booking_channel',
+                                sound: 'adbrovz_service_booking',
+                                priority: 'max',
+                                visibility: 'public',
+                            },
                         },
                     };
 

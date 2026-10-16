@@ -72,8 +72,16 @@ const sendPushNotification = async (token, payload) => {
       }
     }
 
+    console.log('[FCM ACTUAL SEND]', {
+      type: message.data?.type,
+      bookingId: message.data?.bookingId,
+      hasNotification: Boolean(message.notification),
+      channelId: message.android?.notification?.channelId,
+      priority: message.android?.priority,
+    });
+
     const response = await firebaseAdmin.messaging().send(message);
-    console.log('[FCM] Successfully sent message:', response);
+    console.log('[FCM ACTUAL SEND SUCCESS]', response);
     return { success: true, messageId: response };
   } catch (error) {
     const errorCode = error.errorInfo?.code || '';
@@ -127,10 +135,8 @@ const createNotification = async (params) => {
         const isNewBookingAlert = params.type === 'new_booking' ||
           params.data?.type === 'new_booking_request';
 
-        // When dataOnly is explicitly passed, respect it; otherwise new booking alerts default to dataOnly
-        const isDataOnly = params.dataOnly !== undefined
-          ? Boolean(params.dataOnly)
-          : isNewBookingAlert;
+        // When dataOnly is explicitly passed as true, send data-only; otherwise default to false so system tray notification displays
+        const isDataOnly = Boolean(params.dataOnly);
 
         let androidConfig = params.android ? { ...params.android } : undefined;
 
@@ -144,12 +150,12 @@ const createNotification = async (params) => {
         } else if (!androidConfig && isNewBookingAlert) {
           androidConfig = {
             priority: 'high',
+            ttl: 45 * 1000,
             notification: {
               channelId: 'elite_booking_channel',
               sound: 'adbrovz_service_booking',
               priority: 'max',
               visibility: 'public',
-              defaultSound: false,
             },
           };
         }
