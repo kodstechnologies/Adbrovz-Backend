@@ -1983,8 +1983,13 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                         bookingDisplayId: bookingDisplayIdStr,
                     };
 
+                    const bookingNotificationTitle = 'New Booking Request';
+                    const bookingNotificationBody = `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`;
+
                     const fcmData = {
                         type: 'new_booking_request',
+                        title: bookingNotificationTitle,
+                        body: bookingNotificationBody,
                         bookingId: bookingIdStr,
                         bookingID: bookingDisplayIdStr,
                         bookingDisplayId: bookingDisplayIdStr,
@@ -1992,53 +1997,21 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                         booking_data: JSON.stringify(enrichedPayload)
                     };
 
-                    // await notificationService.createNotification({
-                    //     user: v._id,
-                    //     userModel: 'Vendor',
-                    //     type: 'new_booking',
-                    //     title: 'New Booking Request',
-                    //     body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
-                    //     data: fcmData,
-                    //     sendPush: true,
-                    //     fcmToken: v.fcmToken,
-                    //     android: {
-                    //         priority: 'high',
-                    //         notification: {
-                    //             channelId: 'elite_booking_channel',
-                    //             sound: 'adbrovz_service_booking',
-                    //             priority: 'max',
-                    //             visibility: 'public',
-                    //             defaultSound: false,
-                    //         },
-                    //     },
-                    // }).then(() => {
-                    //     console.log(`[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to Vendor ${vendorNameStr}`);
-                    //     notifiedThisRound = true;
-                    // }).catch(err => {
-                    //     console.error(`[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to Vendor ${vendorNameStr} (${vendorIdStr}):`, err.message);
-                    // });
-
-
-const notificationPayload = {
-    user: v._id,
-    userModel: 'Vendor',
-    type: 'new_booking',
-    title: 'New Booking Request',
-    body: `You have a new booking request for ${populatedBooking.category?.title || 'a service'} nearby.`,
-    data: fcmData,
-    sendPush: true,
-    fcmToken: v.fcmToken,
-    android: {
-        priority: 'high',
-        notification: {
-            channelId: 'elite_booking_channel',
-            sound: 'adbrovz_service_booking',
-            priority: 'max',
-            visibility: 'public',
-            defaultSound: false,
-        },
-    },
-};
+                    const notificationPayload = {
+                        user: v._id,
+                        userModel: 'Vendor',
+                        type: 'new_booking',
+                        title: bookingNotificationTitle,
+                        body: bookingNotificationBody,
+                        data: fcmData,
+                        sendPush: true,
+                        dataOnly: true,
+                        fcmToken: v.fcmToken,
+                        android: {
+                            priority: 'high',
+                            ttl: 45 * 1000,
+                        },
+                    };
 
 // Print the notification payload being sent to the service
 console.log(

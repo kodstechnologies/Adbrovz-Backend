@@ -27,13 +27,19 @@ const sendPushNotification = async (token, payload) => {
       }
     }
 
+    // If dataOnly is requested, ensure title and body are available inside data for background isolate
+    if (payload.dataOnly) {
+      if (payload.title && !sanitizedData.title) sanitizedData.title = String(payload.title);
+      if (payload.body && !sanitizedData.body) sanitizedData.body = String(payload.body);
+    }
+
     const message = {
       token,
       data: sanitizedData,
     };
 
-    // Always include system notification block if title and body exist so Android OS can display it when app is killed/backgrounded
-    if (payload.title && payload.body) {
+    // Include system notification block ONLY if NOT data-only
+    if (!payload.dataOnly && payload.title && payload.body) {
       message.notification = {
         title: payload.title,
         body: payload.body,
@@ -42,10 +48,27 @@ const sendPushNotification = async (token, payload) => {
 
     if (payload.android) {
       message.android = { ...payload.android };
-      // Ensure android.notification has title & body if specified
-      if (message.android.notification && payload.title && payload.body) {
-        message.android.notification.title = message.android.notification.title || payload.title;
-        message.android.notification.body = message.android.notification.body || payload.body;
+
+      // Convert string ttl (e.g. '45s') to milliseconds integer if needed for Firebase Admin SDK
+      if (typeof message.android.ttl === 'string') {
+        const match = message.android.ttl.match(/^(\d+)(s|ms)?$/i);
+        if (match) {
+          const val = parseInt(match[1], 10);
+          message.android.ttl = match[2]?.toLowerCase() === 'ms' ? val : val * 1000;
+        } else {
+          delete message.android.ttl;
+        }
+      }
+
+      if (payload.dataOnly) {
+        // Strip notification block for data-only messages to prevent Android OS from intercepting
+        delete message.android.notification;
+      } else {
+        // Ensure android.notification has title & body if specified
+        if (message.android.notification && payload.title && payload.body) {
+          message.android.notification.title = message.android.notification.title || payload.title;
+          message.android.notification.body = message.android.notification.body || payload.body;
+        }
       }
     }
 
@@ -62,7 +85,7 @@ const sendPushNotification = async (token, payload) => {
 
 /**
  * Creates a notification in DB and optionally sends a push notification
- * @param {object} params - { user, userModel, type, title, body, data, sendPush }
+ * @param {object} params - { user, userModel, type, title, body, data, sendPush, dataOnly, android }
  */
 const createNotification = async (params) => {
   try {
@@ -104,16 +127,32 @@ const createNotification = async (params) => {
         const isNewBookingAlert = params.type === 'new_booking' ||
           params.data?.type === 'new_booking_request';
 
-        const androidConfig = params.android || (isNewBookingAlert ? {
-          priority: 'high',
-          notification: {
-            channelId: 'elite_booking_channel',
-            sound: 'adbrovz_service_booking',
-            priority: 'max',
-            visibility: 'public',
-            defaultSound: false,
-          },
-        } : undefined);
+        // When dataOnly is explicitly passed, respect it; otherwise new booking alerts default to dataOnly
+        const isDataOnly = params.dataOnly !== undefined
+          ? Boolean(params.dataOnly)
+          : isNewBookingAlert;
+
+        let androidConfig = params.android ? { ...params.android } : undefined;
+
+        if (isDataOnly) {
+          androidConfig = {
+            priority: 'high',
+            ttl: 45 * 1000,
+            ...(androidConfig || {}),
+          };
+          delete androidConfig.notification;
+        } else if (!androidConfig && isNewBookingAlert) {
+          androidConfig = {
+            priority: 'high',
+            notification: {
+              channelId: 'elite_booking_channel',
+              sound: 'adbrovz_service_booking',
+              priority: 'max',
+              visibility: 'public',
+              defaultSound: false,
+            },
+          };
+        }
 
         const pushResult = await sendPushNotification(params.fcmToken, {
           title: params.title,
@@ -124,6 +163,7 @@ const createNotification = async (params) => {
             ...(params.data || {}),
           },
           android: androidConfig,
+          dataOnly: isDataOnly,
         });
 
         notification.fcmTokenUsed = params.fcmToken;
