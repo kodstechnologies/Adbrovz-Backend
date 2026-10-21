@@ -153,7 +153,8 @@ const createNotification = async (params) => {
             ttl: 45 * 1000,
             notification: {
               channelId: 'elite_booking_channel',
-              sound: 'adbrovz_service_booking',
+              // sound: 'adbrovz_service_booking',
+              sound: 'default',
               priority: 'max',
               visibility: 'public',
             },

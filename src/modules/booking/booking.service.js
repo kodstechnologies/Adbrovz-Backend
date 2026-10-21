@@ -2030,54 +2030,55 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
                             ttl: 45 * 1000,
                             notification: {
                                 channelId: 'elite_booking_channel',
-                                sound: 'adbrovz_service_booking',
+                                // sound: 'adbrovz_service_booking',
+                                sound: 'default',
                                 priority: 'max',
                                 visibility: 'public',
                             },
                         },
                     };
 
-// Print the notification payload being sent to the service
-console.log(
-    '\n========== [FCM NOTIFICATION PAYLOAD] ==========\n',
-    JSON.stringify(
-        {
-            ...notificationPayload,
-            user: String(notificationPayload.user),
-            fcmToken: notificationPayload.fcmToken
-                ? '[TOKEN PRESENT]'
-                : null,
-        },
-        null,
-        2
-    ),
-    '\n================================================'
-);
+                    // Print the notification payload being sent to the service
+                    console.log(
+                        '\n========== [FCM NOTIFICATION PAYLOAD] ==========\n',
+                        JSON.stringify(
+                            {
+                                ...notificationPayload,
+                                user: String(notificationPayload.user),
+                                fcmToken: notificationPayload.fcmToken
+                                    ? '[TOKEN PRESENT]'
+                                    : null,
+                            },
+                            null,
+                            2
+                        ),
+                        '\n================================================'
+                    );
 
-await notificationService.createNotification(notificationPayload)
-    .then((result) => {
-        console.log(
-            `[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to Vendor ${vendorNameStr} (${vendorIdStr})`
-        );
+                    await notificationService.createNotification(notificationPayload)
+                        .then((result) => {
+                            console.log(
+                                `[TRACKING-FLOW] [STEP 2.18] Push Notification sent successfully to Vendor ${vendorNameStr} (${vendorIdStr})`
+                            );
 
-        console.log(
-            '[FCM] Notification service result:',
-            JSON.stringify(result ?? null, null, 2)
-        );
+                            console.log(
+                                '[FCM] Notification service result:',
+                                JSON.stringify(result ?? null, null, 2)
+                            );
 
-        notifiedThisRound = true;
-    })
-    .catch((err) => {
-        console.error(
-            `[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to Vendor ${vendorNameStr} (${vendorIdStr}):`,
-            err.message
-        );
+                            notifiedThisRound = true;
+                        })
+                        .catch((err) => {
+                            console.error(
+                                `[TRACKING-FLOW] [NOTIFICATION ERROR] Failed to send FCM to Vendor ${vendorNameStr} (${vendorIdStr}):`,
+                                err.message
+                            );
 
-        console.error('[FCM] Error details:', {
-            code: err.code,
-            message: err.message,
-        });
-    });
+                            console.error('[FCM] Error details:', {
+                                code: err.code,
+                                message: err.message,
+                            });
+                        });
 
                 } else if (!online && !alreadyNotified) {
                     console.log(`[TRACKING-FLOW] [STEP 2.17c] Vendor ${vendorNameStr} has no socket connection and no FCM token.`);
