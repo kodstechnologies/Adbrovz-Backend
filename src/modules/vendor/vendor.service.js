@@ -3494,12 +3494,12 @@ const getDashboardMetrics = async (vendorId) => {
 
     return {
         earnings: {
-            amount: earningsThisMonth,
+            amount: Number((earningsThisMonth || 0).toFixed(2)),
             growth: earningsGrowth,
             period: 'This month'
         },
         totalEarnings: {
-            amount: earningsAllTime,
+            amount: Number((earningsAllTime || 0).toFixed(2)),
             growth: totalEarningsGrowth,
             period: 'All time'
         },
