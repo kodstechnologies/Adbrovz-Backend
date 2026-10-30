@@ -19,6 +19,7 @@ const mongoose = require('mongoose');
 const { sendPush } = require('../../utils/pushNotification');
 const { activeVendors } = require('../../socket');
 const { v4: uuidv4 } = require('uuid');
+const { getPhoneVariants } = require('../../utils/phone');
 
 const getSearchWaveConfig = async () => {
     const [r1_km, r1_min, r2_km, r2_min, r3_km, r3_min] = await Promise.all([
@@ -135,7 +136,11 @@ const createBookingRequest = async (
     const servicesInSubcategory = await Service.find({ subcategory: subcategoryId }).select('_id');
     const serviceIdsInSubcategory = servicesInSubcategory.map(s => s._id);
 
-    const potentialVendors = await Vendor.find({
+    // Fetch user phone to exclude self-vendor if user is also registered as vendor with same number
+    const bookingUser = await User.findById(userId).select('phoneNumber');
+    const userPhoneVariants = bookingUser?.phoneNumber ? getPhoneVariants(bookingUser.phoneNumber) : [];
+
+    const potentialVendorFilter = {
         isVerified: true,
         isSuspended: false,
         isBlocked: false,
@@ -159,7 +164,13 @@ const createBookingRequest = async (
                 selectedSubcategories: subcategoryId
             }
         ]
-    });
+    };
+
+    if (userPhoneVariants.length > 0) {
+        potentialVendorFilter.phoneNumber = { $nin: userPhoneVariants };
+    }
+
+    const potentialVendors = await Vendor.find(potentialVendorFilter);
 
     if (potentialVendors.length === 0) {
         throw new ApiError(
@@ -267,6 +278,16 @@ const acceptBooking = async (vendorId, bookingId) => {
     if (!vendor) {
         await Booking.findByIdAndUpdate(booking._id, { status: 'pending_acceptance' });
         throw new ApiError(404, 'Vendor not found');
+    }
+
+    // ── Guard: Prevent vendor from accepting their own booking if phone numbers match ──
+    const customerUser = await User.findById(booking.user).select('phoneNumber');
+    if (customerUser?.phoneNumber && vendor.phoneNumber) {
+        const userVariants = getPhoneVariants(customerUser.phoneNumber);
+        if (userVariants.includes(vendor.phoneNumber)) {
+            await Booking.findByIdAndUpdate(booking._id, { status: 'pending_acceptance' });
+            throw new ApiError(400, 'You cannot accept your own service booking request.');
+        }
     }
 
     if (!vendor.isOnline) {
@@ -1714,6 +1735,27 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
     ].map(id => id.toString());
     console.log(`[TRACKING-FLOW] [STEP 2.7] Ignored/excluded vendor IDs (rejected/later only):`, ignoredVendors);
 
+    // ── Exclude vendor(s) associated with the same phone number as the customer user ──
+    const selfVendorIds = [];
+    let userPhone = booking.user?.phoneNumber;
+    if (!userPhone && booking.user) {
+        const userDoc = await User.findById(booking.user).select('phoneNumber');
+        userPhone = userDoc?.phoneNumber;
+    }
+    let userPhoneVariants = [];
+    if (userPhone) {
+        userPhoneVariants = getPhoneVariants(userPhone);
+        if (userPhoneVariants.length > 0) {
+            const selfVendors = await Vendor.find({
+                phoneNumber: { $in: userPhoneVariants }
+            }).select('_id');
+            selfVendors.forEach(v => selfVendorIds.push(v._id.toString()));
+            if (selfVendorIds.length > 0) {
+                console.log(`[TRACKING-FLOW] [STEP 2.7b] Excluded self-vendor(s) with matching phone number:`, selfVendorIds);
+            }
+        }
+    }
+
     // ── Find vendors whose bookings overlap with this booking's time range ──
     // Only exclude vendors whose existing active booking's time slot conflicts with the new booking
     const busyVendorIds = [];
@@ -1799,14 +1841,17 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
         }
     };
 
-    const nins = [...new Set([...ignoredVendors, ...busyVendorIds])];
+    const nins = [...new Set([...ignoredVendors, ...busyVendorIds, ...selfVendorIds])];
     if (nins.length > 0) {
         geoQuery._id = { $nin: nins };
+    }
+    if (userPhoneVariants.length > 0) {
+        geoQuery.phoneNumber = { $nin: userPhoneVariants };
     }
 
     console.log(`[TRACKING-FLOW] [STEP 2.10] Final Geospatial Query generated:`, JSON.stringify(geoQuery, null, 2));
 
-    let vendors = await Vendor.find(geoQuery).select('_id name fcmToken categorySubscriptions membership');
+    let vendors = await Vendor.find(geoQuery).select('_id name phoneNumber fcmToken categorySubscriptions membership');
     console.log(`[TRACKING-FLOW] [STEP 2.11] MongoDB geoQuery returned raw matched vendors count: ${vendors.length}`);
 
     /* 
@@ -1945,6 +1990,12 @@ const searchVendors = async (booking, broadcast = false, scheduleNextWave = true
             const notificationPromises = vendors.map(async (v) => {
                 const vendorIdStr = v._id.toString();
                 const vendorNameStr = v.name || 'Unknown';
+
+                // Safety guard: ensure same-number vendor never receives socket or push
+                if (selfVendorIds.includes(vendorIdStr) || (userPhoneVariants.length > 0 && v.phoneNumber && userPhoneVariants.includes(v.phoneNumber))) {
+                    console.log(`[TRACKING-FLOW] [STEP 2.16] Skipped self-vendor ${vendorNameStr} (${vendorIdStr}) matching customer phone number.`);
+                    return null;
+                }
 
                 const online = isVendorOnline(vendorIdStr);
                 const matchedSockets = activeVendors.get(vendorIdStr) || [];
